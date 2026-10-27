@@ -13,6 +13,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
+from sunstone.cabling import Cabling
 from sunstone.discovery import Comparison, SimulatedDiscovery, compare
 from sunstone.impact import Network, WhatIf
 from sunstone.layouts import (
@@ -53,7 +54,7 @@ from sunstone.operations import (
     event_planned,
 )
 from sunstone.problems import Ack, AckIn
-from sunstone.simulate import SimulatedState
+from sunstone.simulate import SimulatedState, monitored
 
 NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
 
@@ -118,8 +119,9 @@ def create_app(
             directory is, or None for files beside the topology.
         state_source: Where live state comes from, or None for simulated
             state (there are no real sources yet), which acts out planned
-            maintenance. Discovery is simulated either way, answering for
-            the devices this source finds up.
+            maintenance and follows the simulated network's real cabling.
+            Discovery is simulated either way, answering for the devices
+            this source finds up.
         warm: Work out the day's events and the present moment in the
             background at startup, and each new moment as it begins while
             anyone is watching, so viewers do not wait.
@@ -145,9 +147,11 @@ def create_app(
     store = LayoutStore(files.path(topology_path, "layouts"))
     network = Network(topology)
     operations = OperationsStore(files.path(topology_path, "operations"), network)
-    state = state_source or SimulatedState(topology, plans=operations)
+    # The simulated network is cabled a little differently from its documentation.
+    cabling = Cabling(topology, watched=set(monitored(topology)))
+    state = state_source or SimulatedState(topology, plans=operations, cabling=cabling)
     monitor = Monitor(network, state)
-    discovery = SimulatedDiscovery(topology, state)
+    discovery = SimulatedDiscovery(topology, cabling, state)
     # The latest discovery run compared, by run and maintenance plans.
     compared: dict[tuple[datetime, int], Comparison] = {}
     comparing = threading.Lock()

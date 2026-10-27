@@ -465,6 +465,8 @@ export interface components {
             confirmed: number;
             /** Findings */
             findings: components["schemas"]["Finding"][];
+            /** Seen */
+            seen: components["schemas"]["SeenLink"][];
         };
         /**
          * Cover
@@ -1106,6 +1108,24 @@ export interface components {
              * Format: date-time
              */
             saved_at: string;
+        };
+        /**
+         * SeenLink
+         * @description A cable discovery sees that the documentation does not have as it is:
+         *     one no one documented, one to a device not in the topology, or the real
+         *     cable of a documented link seen on another port or device.
+         */
+        SeenLink: {
+            /** Id */
+            id: string;
+            a: components["schemas"]["Port"];
+            b: components["schemas"]["Port"];
+            /** Known */
+            known: boolean;
+            /** Finding */
+            finding: string;
+            /** Platform */
+            platform?: string | null;
         };
         /**
          * Shift

@@ -25,6 +25,10 @@ and tests can fix the clock:
   distance, about 1 ms per 100 km of fiber, plus jitter.
 - History: events are what changed from one 5-minute step to the next, and
   load crossing 80% or 95% at those steps.
+- Cabling: given the network as really cabled (``cabling.py``), interfaces
+  follow the real cables rather than the documentation: a documented port
+  with no cable is down, and the port a cable really reaches carries the
+  traffic. Without it, the cabling is as documented.
 """
 
 import hashlib
@@ -34,6 +38,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
 
+from sunstone.cabling import Cabling
 from sunstone.impact import Failures
 from sunstone.live import (
     DeviceHistory,
@@ -151,18 +156,64 @@ class _Faults:
         return self.down | self.unreachable
 
 
+@dataclass(frozen=True)
+class _Port:
+    """One end of a cable, or a documented port with none, as its device sees it."""
+
+    near: Endpoint
+    far: Endpoint | None
+    """The other end of the cable; None for a port with no cable."""
+    link: Link
+    """The link whose traffic it carries."""
+    forward: bool
+    """``near`` stands for the link's A end."""
+
+
+@dataclass(frozen=True)
+class _Moment:
+    at: datetime
+    faults: _Faults
+    hot: set[str]
+
+
+def monitored(topology: Topology) -> list[str]:
+    """The devices the simulator watches.
+
+    Args:
+        topology: The network.
+
+    Returns:
+        Every WAN edge, core, and distribution device, and about half the
+        access switches, in topology order.
+
+    Raises:
+        None
+    """
+    return [
+        d.name
+        for d in topology.devices
+        if d.role != "access" or _unit("monitored", d.name) < 0.5
+    ]
+
+
 class SimulatedState:
     """A state source that makes up plausible observations."""
 
     source = "simulated"
     retention = RETENTION
 
-    def __init__(self, topology: Topology, plans: Plans | None = None) -> None:
+    def __init__(
+        self,
+        topology: Topology,
+        plans: Plans | None = None,
+        cabling: Cabling | None = None,
+    ) -> None:
         """Prepare to simulate one topology.
 
         Args:
             topology: The network to simulate.
             plans: Maintenance to act out, if any.
+            cabling: How the network is really cabled, or None for as documented.
 
         Raises:
             None
@@ -171,11 +222,7 @@ class SimulatedState:
         self.plans = plans
         self.sites = {s.code: s for s in topology.sites}
         self.devices = {d.name: d for d in topology.devices}
-        self.monitored = [
-            d.name
-            for d in topology.devices
-            if d.role != "access" or _unit("monitored", d.name) < 0.5
-        ]
+        self.monitored = monitored(topology)
         self.watched = set(self.monitored)
         self.positions = self._positions()
         position_sites = {p.site for p in self.positions}
@@ -187,20 +234,39 @@ class SimulatedState:
         self.branches = [s.code for s in topology.sites if s.code not in position_sites]
         self.wan = [link.id for link in topology.links if link.kind == "wan"]
         self.circuits_of: dict[str, set[str]] = {}
-        self.ends_of: dict[str, list[tuple[Link, Endpoint, bool]]] = {}
-        self.adjacent: dict[str, list[tuple[str, str]]] = {}
         for link in topology.links:
-            for near, far, forward in ((link.a, link.b, True), (link.b, link.a, False)):
-                self.ends_of.setdefault(near.device, []).append((link, near, forward))
-                self.adjacent.setdefault(near.device, []).append((far.device, link.id))
-                if link.kind == "wan":
-                    site = self.devices[near.device].site
+            if link.kind == "wan":
+                for end in (link.a, link.b):
+                    site = self.devices[end.device].site
                     self.circuits_of.setdefault(site, set()).add(link.id)
-        # Links whose load can cross the high mark, for load events.
+        cabling = cabling or Cabling(topology)
+        # Every port a device has a cable in, or a documented one without.
+        self.ports = [
+            _Port(near, far, cable.link, forward)
+            for cable in cabling.cables
+            for near, far, forward in (
+                (cable.a, cable.b, True),
+                (cable.b, cable.a, False),
+            )
+            if near.device in self.devices
+        ] + [_Port(end, None, link, end == link.a) for end, link in cabling.dangling]
+        self.ends_of: dict[str, list[_Port]] = {}
+        # Monitoring reaches devices over the real cables.
+        self.adjacent: dict[str, list[tuple[str, str]]] = {}
+        for port in self.ports:
+            self.ends_of.setdefault(port.near.device, []).append(port)
+            if port.far and port.far.device in self.devices:
+                self.adjacent.setdefault(port.near.device, []).append(
+                    (port.far.device, port.link.id)
+                )
+        # Links whose load can cross the high mark, for load events; not those
+        # half without a cable, which read as down.
+        uncabled = {link.id for _, link in cabling.dangling}
         self.loaded = [
             link
             for link in topology.links
-            if link.kind == "wan" or self._peak(link) >= HIGH_PCT
+            if (link.kind == "wan" or self._peak(link) >= HIGH_PCT)
+            and link.id not in uncabled
         ]
         # Kept with the version of the plans they were worked out under.
         self._faults_by_window: dict[int, tuple[int, _Faults]] = {}
@@ -231,13 +297,10 @@ class SimulatedState:
             None
         """
         faults = self._faults(_window(now))
-        hot = self._hot(now)
+        moment = _Moment(now, faults, self._hot(now))
         devices = [self._device(name, now, faults) for name in self.monitored]
         interfaces = [
-            reading
-            for link in self.topology.links
-            for near, forward in ((link.a, True), (link.b, False))
-            if (reading := self._reading(link, near, forward, now, faults, hot))
+            reading for port in self.ports if (reading := self._reading(port, moment))
         ]
         return NetworkState(
             source=self.source,
@@ -301,11 +364,11 @@ class SimulatedState:
         status: list[Literal["up", "down", "nodata"]] = []
         rtt: dict[str, list[float | None]] = {p.name: [] for p in self.positions}
         loss: dict[str, list[float | None]] = {p.name: [] for p in self.positions}
-        ends = sorted(self.ends_of.get(device, []), key=lambda e: e[1].interface)
+        ends = sorted(self.ends_of.get(device, []), key=lambda p: p.near.interface)
         columns: list[_Columns] = [([], [], []) for _ in ends]
         for window in steps:
             at, faults = _at(window), self._faults(window)
-            hot = self._hot(at)
+            moment = _Moment(at, faults, self._hot(at))
             state = self._device(device, at, faults)
             fresh = state.status == "up" and not state.stale
             status.append(
@@ -314,10 +377,8 @@ class SimulatedState:
             for r in state.reachability:
                 rtt[r.position].append(r.rtt_ms if fresh else None)
                 loss[r.position].append(r.loss_pct if fresh else None)
-            for (link, near, forward), (oper, inbound, outbound) in zip(
-                ends, columns, strict=True
-            ):
-                reading = self._reading(link, near, forward, at, faults, hot)
+            for port, (oper, inbound, outbound) in zip(ends, columns, strict=True):
+                reading = self._reading(port, moment)
                 if reading is None or reading.stale:
                     reading = None
                 up = reading is not None and reading.oper == "up"
@@ -333,14 +394,12 @@ class SimulatedState:
             loss_pct=loss,
             interfaces=[
                 InterfaceHistory(
-                    interface=near.interface,
+                    interface=port.near.interface,
                     oper=oper,
                     in_pct=inbound,
                     out_pct=outbound,
                 )
-                for (_, near, _), (oper, inbound, outbound) in zip(
-                    ends, columns, strict=True
-                )
+                for port, (oper, inbound, outbound) in zip(ends, columns, strict=True)
             ],
         )
 
@@ -486,31 +545,25 @@ class SimulatedState:
             reachability=reachability,
         )
 
-    def _reading(
-        self,
-        link: Link,
-        near: Endpoint,
-        forward: bool,
-        now: datetime,
-        faults: _Faults,
-        hot: set[str],
-    ) -> InterfaceState | None:
-        """What one end of a link reports, or None if it is not polled.
+    def _reading(self, port: _Port, moment: _Moment) -> InterfaceState | None:
+        """What a port reports, or None if its device is not polled.
 
-        A link to a device that cannot be polled, or a cut circuit, reads as
-        down. ``forward`` says ``near`` is the link's A end.
+        A port with no cable, a cable to a device that cannot be polled, and
+        a cut circuit read as down.
         """
+        near, link, faults = port.near, port.link, moment.faults
         if near.device not in self.watched or near.device in faults.silent:
             return None
-        seen = faults.stale.get(near.device, now)
+        seen = faults.stale.get(near.device, moment.at)
         link_down = (
-            link.id in faults.cut
-            or link.a.device in faults.silent
-            or link.b.device in faults.silent
+            port.far is None
+            or link.id in faults.cut
+            or port.far.device in faults.silent
         )
         in_pct, out_pct = 0.0, 0.0
         if not link_down:
-            a_to_b, b_to_a = self._load(link, seen, link.id in hot)
+            a_to_b, b_to_a = self._load(link, seen, link.id in moment.hot)
+            forward = port.forward
             sent, received = (a_to_b, b_to_a) if forward else (b_to_a, a_to_b)
             # Both ends measure the same traffic, give or take a little.
             salt = (near.device, near.interface, int(seen.timestamp()))

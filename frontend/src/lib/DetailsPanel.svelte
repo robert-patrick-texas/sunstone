@@ -36,6 +36,7 @@ links that select and bring that item into view.
 		clearPath,
 		expandedSites,
 		select,
+		showDiscovery,
 		showNeighborhood,
 		startPath,
 		topo,
@@ -531,6 +532,16 @@ links that select and bring that item into view.
 						</p>
 					{/if}
 					<Routing {index} {problem} {oncall} {onchange} />
+					{#if comparison && problem.target.kind === 'links'}
+						{@const ids = problem.target.ids}
+						{#each comparison.findings.filter((f) => f.link && ids.includes(f.link)) as f (f.id)}
+							<p class="handled">
+								<span class="phase drift">Discovery</span>
+								{f.title}: {f.detail}
+								<button class="link" onclick={() => showDiscovery(null)}>Show on the map</button>
+							</p>
+						{/each}
+					{/if}
 				{/if}
 				{#if impact}{@render consequences(impact)}{/if}
 			</section>
@@ -873,6 +884,10 @@ links that select and bring that item into view.
 	}
 	.phase.open {
 		border-color: var(--live);
+		color: var(--text);
+	}
+	.phase.drift {
+		border-color: var(--drift);
 		color: var(--text);
 	}
 	.phase.ack {

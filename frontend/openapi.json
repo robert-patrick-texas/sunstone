@@ -984,6 +984,13 @@
       },
       "type": "array",
       "title": "Findings"
+     },
+     "seen": {
+      "items": {
+       "$ref": "#/components/schemas/SeenLink"
+      },
+      "type": "array",
+      "title": "Seen"
      }
     },
     "additionalProperties": false,
@@ -994,7 +1001,8 @@
      "polled",
      "links",
      "confirmed",
-     "findings"
+     "findings",
+     "seen"
     ],
     "title": "Comparison",
     "description": "Discovery against the documented topology, as of one run."
@@ -2528,6 +2536,50 @@
     ],
     "title": "SavedLayout",
     "description": "A stored layout."
+   },
+   "SeenLink": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "a": {
+      "$ref": "#/components/schemas/Port"
+     },
+     "b": {
+      "$ref": "#/components/schemas/Port"
+     },
+     "known": {
+      "type": "boolean",
+      "title": "Known"
+     },
+     "finding": {
+      "type": "string",
+      "title": "Finding"
+     },
+     "platform": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Platform"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "a",
+     "b",
+     "known",
+     "finding"
+    ],
+    "title": "SeenLink",
+    "description": "A cable discovery sees that the documentation does not have as it is:\none no one documented, one to a device not in the topology, or the real\ncable of a documented link seen on another port or device."
    },
    "Shift": {
     "properties": {

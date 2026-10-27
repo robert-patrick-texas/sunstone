@@ -2,7 +2,8 @@
 @component
 Key to what colors and lines mean: device roles and link kinds, or with live
 state, device health and link load, or while an impact is shown, how
-devices and links are affected. Every color is named here, and the glyphs
+devices and links are affected, or while discovery is shown, what it sees
+that the documentation does not. Every color is named here, and the glyphs
 are shown, so color is never the only cue.
 -->
 <script lang="ts">
@@ -10,6 +11,7 @@ are shown, so color is never the only cue.
 	import { HEALTH_LABEL, type DeviceHealth } from './live.ts';
 	import {
 		COLOR,
+		DRIFT_COLOR,
 		HEALTH_COLOR,
 		HEALTH_GLYPH,
 		IMPACT_COLOR,
@@ -21,7 +23,8 @@ are shown, so color is never the only cue.
 	} from './theme.ts';
 	import { ROLE_LABEL, ROLES } from './topology.ts';
 
-	const { live, impact }: { live: boolean; impact: boolean } = $props();
+	const { live, impact, discovery }: { live: boolean; impact: boolean; discovery: boolean } =
+		$props();
 
 	const HEALTHS: DeviceHealth[] = ['up', 'degraded', 'down', 'nodata', 'unmonitored'];
 	const IMPACTS: DeviceImpact[] = ['failed', 'cutoff', 'exposed'];
@@ -39,6 +42,16 @@ are shown, so color is never the only cue.
 			<span><i class="line dashed" style:color={IMPACT_COLOR.failed}></i>Link lost</span>
 			<span><i class="line dashed" style:color={IMPACT_COLOR.exposed}></i>Some links lost</span>
 			<span>Faded: not affected</span>
+		</div>
+	{:else if discovery}
+		<div class="row">
+			<b>Discovery</b>
+			<span><i class="line dashed" style:color={DRIFT_COLOR}></i>Seen, not documented</span>
+			<span
+				><i class="line dotted" style:color={DRIFT_COLOR}></i>Documented, not seen as documented</span
+			>
+			<span><i class="ring" style:--c={DRIFT_COLOR}></i>Involved</span>
+			<span>Faded: as documented</span>
 		</div>
 	{:else if live}
 		<div class="row">
@@ -115,6 +128,15 @@ are shown, so color is never the only cue.
 		width: 12px;
 		height: 8px;
 		border-radius: 2px;
+	}
+	.ring {
+		display: inline-block;
+		width: 9px;
+		height: 9px;
+		margin-right: 5px;
+		border-radius: 50%;
+		border: 2px solid var(--c);
+		vertical-align: -1px;
 	}
 	.line {
 		width: 18px;

@@ -24,7 +24,8 @@ const OPENING: Shared = {
 	topo: { scope: 'network', hops: 2, layout: 'force', grouped: true, center: null },
 	expanded: [],
 	camera: null,
-	wall: null
+	wall: null,
+	discovery: false
 };
 
 describe('toQuery and fromQuery', () => {
@@ -145,6 +146,15 @@ describe('movesOn', () => {
 			false
 		);
 		expect(movesOn(OPENING, { ...OPENING, topo: around('a').topo })).toBe(false);
+	});
+
+	it('goes somewhere new when discovery goes on the map, and stays when it comes off', () => {
+		const on = { ...OPENING, discovery: true };
+		expect(movesOn(OPENING, on)).toBe(true);
+		expect(movesOn(on, OPENING)).toBe(false);
+		const index = fixtureIndex();
+		expect(toQuery(on, index).toString()).toBe('discovery=1');
+		expect(fromQuery(new URLSearchParams('discovery=1'), index)).toEqual({ discovery: true });
 	});
 
 	it('stays in place when the same place changes how it looks, or is cleared', () => {

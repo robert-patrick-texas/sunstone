@@ -138,3 +138,77 @@ function endLabel(links: Link[], node: string): string {
 	const [lag] = lags;
 	return lags.size === 1 && lag ? `${shortInterface(lag)} ×${ends.length}` : `×${ends.length}`;
 }
+
+/** A cable discovery sees that the documentation does not have as it is. */
+export interface SeenEnds {
+	id: string;
+	a: { device: string; interface: string };
+	b: { device: string; interface: string };
+	known: boolean;
+	finding: string;
+}
+
+/** A Cytoscape element for something seen but not documented. */
+export interface GhostElement {
+	group: 'nodes' | 'edges';
+	data: Record<string, unknown>;
+	position?: { x: number; y: number };
+	classes: string;
+}
+
+/** How far from its device a neighbor not in the topology is drawn. */
+const GHOST_OFFSET = { x: 70, y: -45 };
+
+/**
+ * Elements for cables discovery sees that the documentation does not have:
+ * an edge between the nodes their devices are drawn in, and for a neighbor
+ * not in the topology, a node of its own beside the device it hangs off.
+ *
+ * @param seen - The cables.
+ * @param nodeOf - The node a device is drawn in (its own, or its collapsed
+ *   site's), or null if it is not drawn.
+ * @param positionOf - Where a node is.
+ * @returns Nodes and edges marked `ghost`; a cable inside one collapsed
+ *   site, or to a device not drawn, is left out.
+ */
+export function ghostElements(
+	seen: SeenEnds[],
+	nodeOf: (device: string) => string | null,
+	positionOf: (node: string) => { x: number; y: number }
+): GhostElement[] {
+	const elements: GhostElement[] = [];
+	const added = new Set<string>();
+	for (const s of seen) {
+		const source = nodeOf(s.a.device);
+		if (!source || added.has(s.id)) continue;
+		const target = s.known ? nodeOf(s.b.device) : `ghost:${s.b.device}@${s.a.device}`;
+		if (!target || target === source) continue;
+		if (!s.known && !added.has(target)) {
+			const at = positionOf(source);
+			elements.push({
+				group: 'nodes',
+				data: { id: target, kind: 'ghost', label: s.b.device, device: s.a.device },
+				position: { x: at.x + GHOST_OFFSET.x, y: at.y + GHOST_OFFSET.y },
+				classes: 'ghost'
+			});
+			added.add(target);
+		}
+		elements.push({
+			group: 'edges',
+			data: {
+				id: s.id,
+				source,
+				target,
+				kind: 'ghost',
+				linkIds: [],
+				device: s.a.device,
+				finding: s.finding,
+				sourceLabel: shortInterface(s.a.interface),
+				targetLabel: shortInterface(s.b.interface)
+			},
+			classes: 'ghost'
+		});
+		added.add(s.id);
+	}
+	return elements;
+}

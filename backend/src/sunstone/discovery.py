@@ -13,18 +13,17 @@ polled, down, or unreachable) reports nothing, though its neighbors still
 see it; and a link that is down is not seen, whatever is documented, so
 neither is a finding. A real discovery source would be a collector reading
 LLDP-MIB and CDP-MIB, or an NMS's neighbor tables; the only one so far is
-simulated, from the topology with a few disagreements of each kind seeded in.
+simulated, reporting the simulated network as really cabled (``cabling.py``).
 """
 
-import random
-from collections.abc import Iterable
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from sunstone.cabling import Cabling
 from sunstone.live import NetworkState, StateSource
-from sunstone.model import Device, Link, Topology
+from sunstone.model import Device, Endpoint, Link, Topology
 from sunstone.problems import natural, short_interface
 
 LinkCheck = Literal["confirmed", "mismatch", "not-seen", "down", "unchecked"]
@@ -119,6 +118,22 @@ class Finding(_Record):
     """Devices in the topology it involves, the first the one to look at."""
 
 
+class SeenLink(_Record):
+    """A cable discovery sees that the documentation does not have as it is:
+    one no one documented, one to a device not in the topology, or the real
+    cable of a documented link seen on another port or device."""
+
+    id: str
+    a: Port
+    """A device in the topology."""
+    b: Port
+    known: bool
+    """``b`` is a device in the topology too."""
+    finding: str
+    """The finding it belongs to."""
+    platform: str | None = None
+
+
 class Comparison(_Record):
     """Discovery against the documented topology, as of one run."""
 
@@ -132,6 +147,8 @@ class Comparison(_Record):
     findings: list[Finding]
     """Most misleading first: wrong neighbors and ports, then links not
     seen, undocumented links, unknown neighbors, and silent devices."""
+    seen: list[SeenLink]
+    """Every cable seen that is not documented as it is, for drawing."""
 
 
 def _key(interface: str) -> str:
@@ -226,6 +243,20 @@ def compare(
     known = {d.name for d in topology.devices}
     checks: dict[str, LinkCheck] = {}
     findings: dict[str, Finding] = {}
+    seen_links: list[SeenLink] = []
+
+    def drawn(seen: _Seen, finding: str) -> None:
+        u, v = seen.ends
+        seen_links.append(
+            SeenLink(
+                id=f"seen:{u.device}:{u.interface}--{v.device}:{v.interface}",
+                a=u,
+                b=v,
+                known=seen.known,
+                finding=finding,
+                platform=None if seen.known else seen.platform,
+            )
+        )
 
     def other_end(link: Link, device: str, interface: str) -> Port:
         a = (link.a.device, _key(link.a.interface)) == (device, _key(interface))
@@ -286,13 +317,17 @@ def compare(
             continue
         if on_u is not None:
             contradicted(on_u, u, v, seen.platform)
+            drawn(seen, findings[on_u.id].id)
         if on_v is not None:
             contradicted(on_v, v, u, seen.platform)
+            if on_u is None:
+                drawn(seen, findings[on_v.id].id)
         if on_u is None and on_v is None:
             between = f"{_name(u.device, u.interface)} – {_name(v.device, v.interface)}"
             if seen.known:
                 ends = sorted(f"{e.device}:{e.interface}" for e in (u, v))
                 found = f"undocumented:{'--'.join(ends)}"
+                drawn(seen, found)
                 findings[found] = Finding(
                     id=found,
                     kind="undocumented",
@@ -303,6 +338,7 @@ def compare(
                 )
             else:
                 found = f"unknown-device:{u.device}:{u.interface}"
+                drawn(seen, found)
                 findings[found] = Finding(
                     id=found,
                     kind="unknown-device",
@@ -347,6 +383,7 @@ def compare(
         links={k: v for k, v in sorted(checks.items()) if v != "confirmed"},
         confirmed=sum(v == "confirmed" for v in checks.values()),
         findings=ordered,
+        seen=seen_links,
     )
 
 
@@ -385,41 +422,38 @@ def _down_links(topology: Topology, state: NetworkState) -> set[str]:
 
 
 DOMAIN = ".net.example"
-UNKNOWN_PLATFORM = "WS-C2960X-24TS"
 
 
 class SimulatedDiscovery:
-    """Neighbor tables made up from the topology, with disagreements seeded in.
+    """Neighbor tables from the simulated network as it is really cabled.
 
     Each device the state source watches and finds up answers, every 15
-    minutes. It reports each documented link that is up as live state says,
-    except where the seeded disagreements say otherwise: a few links are
-    not there, a few are on another port or to another device than
-    documented, a few cables no one documented join two switches, a few
-    ports lead to switches not in the topology, and one switch has LLDP and
-    CDP off, so it neither reports nor is seen. The disagreements stay the
-    same for a topology, as documentation drift does.
+    minutes, reporting each real cable whose ports are up, except where a
+    media converter hides the far end, and except for switches with LLDP
+    and CDP off, which neither report nor are seen. Some devices report
+    over CDP with their platform and full port names, others over LLDP with
+    a domain and short port names.
     """
 
     interval = timedelta(minutes=15)
     source = "simulated"
 
-    def __init__(self, topology: Topology, state: StateSource, seed: int = 1) -> None:
-        """Seed the disagreements.
+    def __init__(
+        self, topology: Topology, cabling: Cabling, state: StateSource
+    ) -> None:
+        """Discover a network.
 
         Args:
             topology: The documented network.
-            state: Live state, for who answers and which links are up.
-            seed: Random seed; the same seed gives the same disagreements.
+            cabling: How it is really cabled.
+            state: Live state, for who answers and which ports are up.
 
         Raises:
             None
         """
         self.topology = topology
+        self.cabling = cabling
         self.state = state
-        # Seeded where discovery can see it: on switches the source watches.
-        watched = {d.device for d in state.snapshot(datetime.now(UTC)).devices}
-        self._drift = _Drift(topology, watched, random.Random(seed))
 
     def discover(self, at: datetime) -> Discovery:
         """Neighbor tables as of a run.
@@ -428,7 +462,7 @@ class SimulatedDiscovery:
             at: When the run happened.
 
         Returns:
-            A table for each watched device that is up, and not silent.
+            A table for each watched device that is up.
 
         Raises:
             None
@@ -441,31 +475,25 @@ class SimulatedDiscovery:
         }
         devices = {d.name: d for d in self.topology.devices}
         rows: dict[str, list[Neighbor]] = {d: [] for d in up}
-        # A switch with LLDP and CDP off still answers, but neither sees nor is seen.
-        deaf = self._drift.silent
-
-        def add(here: tuple[str, str], there: tuple[str, str]) -> None:
-            if here[0] not in rows or here[0] in deaf or there[0] in deaf:
-                return
-            if there[0] in down:
-                return
-            if here in down_ports or there in down_ports:
-                return
-            remote = devices.get(there[0])
-            rows[here[0]].append(_row(here[1], there, remote))
-
-        for a, b in self._drift.cables():
-            add(a, b)
-            add(b, a)
-        for device, port, name in self._drift.unknown:
-            if device in rows:
-                rows[device].append(
-                    Neighbor(
-                        interface=port,
-                        remote=name,
-                        remote_port="GigabitEthernet0/1",
-                        protocol="cdp",
-                        platform=UNKNOWN_PLATFORM,
+        deaf = self.cabling.silent
+        for cable in self.cabling.cables:
+            if cable.documented and cable.link.id in self.cabling.hidden:
+                continue
+            for here, there in ((cable.a, cable.b), (cable.b, cable.a)):
+                if here.device not in rows or {here.device, there.device} & deaf:
+                    continue
+                if (
+                    there.device in down
+                    or {
+                        (here.device, here.interface),
+                        (there.device, there.interface),
+                    }
+                    & down_ports
+                ):
+                    continue
+                rows[here.device].append(
+                    _row(
+                        here.interface, there, devices.get(there.device), cable.platform
                     )
                 )
         return Discovery(
@@ -478,155 +506,35 @@ class SimulatedDiscovery:
         )
 
 
-def _row(port: str, there: tuple[str, str], remote: Device | None) -> Neighbor:
+def _row(
+    port: str, there: Endpoint, remote: Device | None, platform: str | None
+) -> Neighbor:
     """A row as a device would report it: CDP from some, LLDP from others."""
-    device, remote_port = there
-    if _hash(device) % 3 == 0:
+    if remote is None:
+        # Not in the topology: a lab switch, reporting itself over CDP.
         return Neighbor(
             interface=port,
-            remote=device + DOMAIN,
-            remote_port=short_interface(remote_port),
+            remote=there.device,
+            remote_port=there.interface,
+            protocol="cdp",
+            platform=platform,
+        )
+    if _hash(remote.name) % 3 == 0:
+        return Neighbor(
+            interface=port,
+            remote=remote.name + DOMAIN,
+            remote_port=short_interface(there.interface),
             protocol="lldp",
         )
     return Neighbor(
         interface=port,
-        remote=device,
-        remote_port=remote_port,
+        remote=remote.name,
+        remote_port=there.interface,
         protocol="cdp",
-        platform=remote.platform if remote else None,
+        platform=remote.platform,
     )
 
 
 def _hash(text: str) -> int:
     """A small hash that is the same in every process, unlike ``hash``."""
     return sum((i + 1) * ord(c) for i, c in enumerate(text))
-
-
-class _Drift:
-    """Where the simulated network differs from its documentation."""
-
-    def __init__(
-        self, topology: Topology, watched: set[str], rng: random.Random
-    ) -> None:
-        devices = {d.name: d for d in topology.devices}
-        used: dict[str, set[str]] = {}
-        for ln in topology.links:
-            for end in (ln.a, ln.b):
-                used.setdefault(end.device, set()).add(end.interface)
-        self._used = used
-        # Uplinks from access switches, where cabling changes most.
-        uplinks = sorted(
-            (
-                ln
-                for ln in topology.links
-                if ln.kind == "lan"
-                and {devices[ln.a.device].role, devices[ln.b.device].role}
-                == {"access", "distribution"}
-            ),
-            key=lambda ln: ln.id,
-        )
-        rng.shuffle(uplinks)
-        many = max(1, len(topology.links) // 1000)
-        taken: set[str] = set()
-
-        def pick(count: int) -> list[Link]:
-            chosen = []
-            for ln in uplinks:
-                if len(chosen) == count:
-                    break
-                if {ln.a.device, ln.b.device} & taken:
-                    continue
-                taken.update({ln.a.device, ln.b.device})
-                chosen.append(ln)
-            return chosen
-
-        def access(ln: Link) -> tuple[str, str]:
-            a = devices[ln.a.device].role == "access"
-            end = ln.a if a else ln.b
-            return end.device, end.interface
-
-        self.missing = {ln.id for ln in pick(many)}
-        # Moved to a spare port on the access switch.
-        self.moved: dict[str, tuple[str, str]] = {}
-        for ln in pick(many):
-            device, port = access(ln)
-            self.moved[ln.id] = (device, self._spare(device, port))
-        # Plugged into the other switch of the distribution pair: (the switch
-        # documented, the one it is really on, and the port there).
-        self.rewired: dict[str, tuple[str, str, str]] = {}
-        for ln in pick(many):
-            device, _ = access(ln)
-            dist = ln.b.device if ln.a.device == device else ln.a.device
-            pair = [
-                d.name
-                for d in topology.devices
-                if d.site == devices[dist].site
-                and d.role == "distribution"
-                and d.name != dist
-            ]
-            if pair:
-                taken.add(pair[0])
-                port = ln.b.interface if ln.a.device == device else ln.a.interface
-                self.rewired[ln.id] = (dist, pair[0], self._spare(pair[0], port))
-        # Cables between two access switches at a site, and unknown switches.
-        switches = sorted(
-            (
-                d
-                for d in topology.devices
-                if d.role == "access" and d.name in watched and d.name not in taken
-            ),
-            key=lambda d: (d.site, natural(d.name)),
-        )
-        self.extra: list[tuple[tuple[str, str], tuple[str, str]]] = []
-        self.unknown: list[tuple[str, str, str]] = []
-        for i in range(many):
-            pairs = [
-                (x, y)
-                for x, y in zip(switches, switches[1:], strict=False)
-                if x.site == y.site and not {x.name, y.name} & taken
-            ]
-            if pairs:
-                x, y = pairs[rng.randrange(len(pairs))]
-                taken.update({x.name, y.name})
-                self.extra.append(
-                    (
-                        (x.name, self._spare(x.name, "GigabitEthernet1/0/1")),
-                        (y.name, self._spare(y.name, "GigabitEthernet1/0/1")),
-                    )
-                )
-            spare = [d for d in switches if d.name not in taken]
-            if spare:
-                lone = spare[rng.randrange(len(spare))]
-                taken.add(lone.name)
-                port = self._spare(lone.name, "GigabitEthernet1/0/1")
-                self.unknown.append((lone.name, port, f"lab-sw-{i + 1:02d}"))
-        spare = [d for d in switches if d.name not in taken]
-        self.silent = {spare[rng.randrange(len(spare))].name} if spare else set()
-        self._links = topology.links
-
-    def _spare(self, device: str, like: str) -> str:
-        """A port on a device that no documented link uses, named like another."""
-        prefix = like.rstrip("0123456789")
-        used = self._used.setdefault(device, set())
-        n = 48
-        while f"{prefix}{n}" in used:
-            n += 1
-        used.add(f"{prefix}{n}")
-        return f"{prefix}{n}"
-
-    def cables(self) -> Iterable[tuple[tuple[str, str], tuple[str, str]]]:
-        """Every cable as it really is, as (device, port) pairs."""
-        for ln in self._links:
-            if ln.id in self.missing:
-                continue
-            a, b = (ln.a.device, ln.a.interface), (ln.b.device, ln.b.interface)
-            if ln.id in self.moved:
-                device, port = self.moved[ln.id]
-                a, b = ((device, port), b) if a[0] == device else (a, (device, port))
-            elif ln.id in self.rewired:
-                documented, really, port = self.rewired[ln.id]
-                a, b = (
-                    ((really, port), b) if a[0] == documented else (a, (really, port))
-                )
-            yield a, b
-        yield from self.extra

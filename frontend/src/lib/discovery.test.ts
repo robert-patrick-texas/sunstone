@@ -26,6 +26,7 @@ const COMPARISON: Comparison = {
 	polled: ['a-wan-01', 'a-core-01'],
 	links: { [first]: 'not-seen', [second]: 'unchecked' },
 	confirmed: 7,
+	seen: [],
 	findings: [
 		finding('wrong', { kind: 'wrong-port', link: second, devices: ['a-core-01', 'a-acc-01'] }),
 		finding('missing', { link: first, devices: ['a-wan-01', 'a-core-01'] }),
