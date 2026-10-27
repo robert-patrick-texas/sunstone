@@ -1,5 +1,5 @@
-"""Maintenance windows, acknowledged and paged problems, and covered
-shifts: the work a NOC knows about.
+"""Maintenance windows, acknowledged and paged problems, covered shifts,
+and notes for the next shift: the work a NOC knows about.
 
 A maintenance window names devices, sites, and links, and when they will be
 worked on. While it is open, problems that it explains are marked planned,
@@ -7,7 +7,8 @@ and so are the events it causes; before it opens, "what if" shows what the
 work will take down. An acknowledgement says someone is on a problem, with
 a note, and a page that a team has been called about it (on paper: nothing
 is sent); both last until the problem clears. A cover puts someone on call
-in place of a team's primary for a while.
+in place of a team's primary for a while. A note is something the outgoing
+shift wants the next one to know, and goes with the next handover.
 
 There is no sign-in, so people give their own name. All of these for one
 topology live in one JSON file, kept in memory and rewritten whole on each
@@ -40,10 +41,14 @@ from sunstone.problems import Ack, AckIn, Note, PersonName, Problem
 
 MAX_WINDOWS = 500
 MAX_COVERS = 500
+MAX_NOTES = 200
 LONGEST = timedelta(days=7)
 # Cleared acknowledgements and pages, and ended covers, are kept this long,
 # so replaying shows them.
 KEPT = timedelta(days=1)
+# Notes are kept while a handover they go with can still be saved: one whose
+# shift change history still has, covering up to a day before it.
+NOTES_KEPT = timedelta(days=2)
 
 Title = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
@@ -89,15 +94,36 @@ class Window(WindowIn):
     saved_at: datetime
 
 
+class ShiftNoteIn(_Record):
+    """Something the outgoing shift wants the next one to know."""
+
+    text: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)
+    ]
+    by: PersonName
+
+
+class ShiftNote(ShiftNoteIn):
+    """A note for the next shift, as written."""
+
+    id: str
+    at: datetime
+
+
 class _File(_Record):
     windows: list[Window] = []
     acks: list[Ack] = []
     pages: list[Page] = []
     covers: list[Cover] = []
+    notes: list[ShiftNote] = []
+
+
+_Lists = list[Window] | list[Ack] | list[Page] | list[Cover] | list[ShiftNote]
 
 
 class OperationsStore:
-    """Maintenance windows, acknowledgements, pages, and covers for one topology."""
+    """Maintenance windows, acknowledgements, pages, covers, and notes for
+    one topology."""
 
     def __init__(self, path: Path, network: Network) -> None:
         """Use an operations file, created on first change.
@@ -231,7 +257,7 @@ class OperationsStore:
 
     def clear(self, present: set[str], at: datetime) -> None:
         """End acknowledgements and pages of problems that have cleared, and
-        forget them, and covers, once they ended long ago.
+        forget them, covers, and notes, once they ended long ago.
 
         Args:
             present: Ids of the problems there are now.
@@ -244,12 +270,14 @@ class OperationsStore:
             acks = _cleared(self._data.acks, present, at)
             pages = _cleared(self._data.pages, present, at)
             covers = [c for c in self._data.covers if at - c.end < KEPT]
-            if (acks, pages, covers) != (
+            notes = [n for n in self._data.notes if at - n.at < NOTES_KEPT]
+            if (acks, pages, covers, notes) != (
                 self._data.acks,
                 self._data.pages,
                 self._data.covers,
+                self._data.notes,
             ):
-                self._save(acks=acks, pages=pages, covers=covers)
+                self._save(acks=acks, pages=pages, covers=covers, notes=notes)
 
     def pages(self) -> list[Page]:
         """Every page, standing or recently cleared.
@@ -359,6 +387,56 @@ class OperationsStore:
             self._save(covers=kept)
             return True
 
+    def notes(self) -> list[ShiftNote]:
+        """Every note for a shift, oldest first, for two days.
+
+        Returns:
+            The notes.
+
+        Raises:
+            None
+        """
+        return sorted(self._data.notes, key=lambda n: n.at)
+
+    def add_note(self, note: ShiftNoteIn, at: datetime) -> ShiftNote:
+        """Write a note for the next shift.
+
+        Args:
+            note: What, and who.
+            at: When.
+
+        Returns:
+            The note.
+
+        Raises:
+            OperationsFull: If there are already ``MAX_NOTES``.
+        """
+        with self._lock:
+            if len(self._data.notes) >= MAX_NOTES:
+                raise OperationsFull(f"There are already {MAX_NOTES} notes")
+            made = ShiftNote(**note.model_dump(), id=uuid.uuid4().hex[:12], at=at)
+            self._save(notes=[*self._data.notes, made])
+            return made
+
+    def delete_note(self, note_id: str) -> bool:
+        """Withdraw a note.
+
+        Args:
+            note_id: Its id.
+
+        Returns:
+            True if it existed.
+
+        Raises:
+            None
+        """
+        with self._lock:
+            kept = [n for n in self._data.notes if n.id != note_id]
+            if len(kept) == len(self._data.notes):
+                return False
+            self._save(notes=kept)
+            return True
+
     def planned_at(self, at: datetime) -> Failures:
         """What open windows take down at a moment.
 
@@ -387,9 +465,7 @@ class OperationsStore:
         except ValidationError as e:
             raise OperationsError(f"{self.path}: {e}") from e
 
-    def _save(
-        self, **changes: list[Window] | list[Ack] | list[Page] | list[Cover]
-    ) -> None:
+    def _save(self, **changes: _Lists) -> None:
         """Write the file with some of its lists replaced, by name."""
         data = _File.model_validate({**self._data.model_dump(), **changes})
         temporary = self.path.with_name(f".{self.path.name}.tmp")

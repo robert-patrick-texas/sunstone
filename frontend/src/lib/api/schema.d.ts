@@ -123,12 +123,95 @@ export interface paths {
          * @description Return what the incoming shift needs to know about the last hours:
          *     what is wrong now and who is on it, outages that began or ended,
          *     pages and acknowledgements made, maintenance done, open, and coming,
-         *     fixes recorded, discovery findings first seen, and who is on call.
+         *     fixes recorded, discovery findings first seen, who is on call, and
+         *     the notes written since the last shift change.
          */
         get: operations["get_handover_api_handover_get"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/handovers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Handovers
+         * @description Return the handovers saved at shift changes, latest first, and
+         *     when the shift changes next.
+         */
+        get: operations["list_handovers_api_handovers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/handovers/{handover_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Saved Handover
+         * @description Return a handover saved at a shift change, as it was then, with
+         *     the notes the outgoing shift wrote.
+         */
+        get: operations["get_saved_handover_api_handovers__handover_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shift-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Note
+         * @description Write a note for the next shift; it goes with the next handover.
+         */
+        post: operations["add_note_api_shift_notes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shift-notes/{note_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw Note
+         * @description Withdraw a note that has not been handed over yet.
+         */
+        delete: operations["withdraw_note_api_shift_notes__note_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -875,6 +958,8 @@ export interface components {
          * @description What the incoming shift needs to know.
          */
         Handover: {
+            /** Id */
+            id?: string | null;
             /**
              * Since
              * Format: date-time
@@ -885,6 +970,16 @@ export interface components {
              * Format: date-time
              */
             until: string;
+            /**
+             * Timezone
+             * @default UTC
+             */
+            timezone: string;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: components["schemas"]["ShiftNote"][];
             /** Problems */
             problems: components["schemas"]["RoutedProblem"][];
             /** Outages */
@@ -900,6 +995,54 @@ export interface components {
             /** Findings */
             findings: components["schemas"]["Finding"][];
             oncall: components["schemas"]["OnCall"] | null;
+            /**
+             * @description The handover written to post in chat or send by email.
+             *
+             *     Returns:
+             *         A subject line saying how much is open, and the text: the notes,
+             *         then the first few of each section, its times in the shifts' zone.
+             */
+            readonly message: components["schemas"]["Message"];
+        };
+        /**
+         * HandoverList
+         * @description The handovers saved at shift changes, and when the next one is.
+         */
+        HandoverList: {
+            /** Next */
+            next: string | null;
+            /** Timezone */
+            timezone: string | null;
+            /** Handovers */
+            handovers: components["schemas"]["HandoverSummary"][];
+        };
+        /**
+         * HandoverSummary
+         * @description A saved handover, in a line.
+         */
+        HandoverSummary: {
+            /** Id */
+            id: string;
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /**
+             * Until
+             * Format: date-time
+             */
+            until: string;
+            /** Problems */
+            problems: number;
+            /** Unhandled */
+            unhandled: number;
+            /** Outages */
+            outages: number;
+            /** Still Down */
+            still_down: number;
+            /** Notes */
+            notes: number;
         };
         /**
          * Impact
@@ -1044,6 +1187,16 @@ export interface components {
             kind: "links";
             /** Ids */
             ids: string[];
+        };
+        /**
+         * Message
+         * @description A handover written to post in chat or send by email.
+         */
+        Message: {
+            /** Subject */
+            subject: string;
+            /** Text */
+            text: string;
         };
         /**
          * MonitoringPosition
@@ -1425,6 +1578,33 @@ export interface components {
             cover?: string | null;
         };
         /**
+         * ShiftNote
+         * @description A note for the next shift, as written.
+         */
+        ShiftNote: {
+            /** Text */
+            text: string;
+            /** By */
+            by: string;
+            /** Id */
+            id: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
+        /**
+         * ShiftNoteIn
+         * @description Something the outgoing shift wants the next one to know.
+         */
+        ShiftNoteIn: {
+            /** Text */
+            text: string;
+            /** By */
+            by: string;
+        };
+        /**
          * Site
          * @description A physical location with map coordinates.
          */
@@ -1784,6 +1964,119 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Handover"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_handovers_api_handovers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HandoverList"];
+                };
+            };
+        };
+    };
+    get_saved_handover_api_handovers__handover_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                handover_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Handover"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_note_api_shift_notes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShiftNoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShiftNote"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_note_api_shift_notes__note_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

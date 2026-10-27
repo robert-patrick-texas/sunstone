@@ -223,7 +223,7 @@ export const COMMANDS: Command[] = [
 		label: 'Shift handover',
 		group: 'Share',
 		keys: ['h'],
-		also: ['shift', 'report', 'summary', 'print']
+		also: ['shift', 'report', 'summary', 'print', 'notes', 'message']
 	}
 ];
 

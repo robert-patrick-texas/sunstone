@@ -48,3 +48,46 @@ test('an outage in the handover replays the moment it began', async ({ page }) =
 	const name = what.replace(/ down$/, '').replace(/:.*$/, '');
 	await expect(page.getByRole('complementary', { name: 'Details' })).toContainText(name);
 });
+
+test('notes go with the next handover, and each shift change is saved with its message', async ({
+	page
+}) => {
+	await page.goto('/?handover=12');
+	const report = page.getByLabel('Shift handover');
+	const notes = report.getByRole('region', { name: 'Notes for the next shift' });
+	await expect(notes.getByText(/^handed over at /)).toBeVisible();
+	await notes.getByLabel('Note for the next shift').fill('Bluebonnet expects HOU back by 10:00');
+	await notes.getByLabel('Your name').fill('Pat');
+	await notes.getByRole('button', { name: 'Add note' }).click();
+	const written = notes.locator('li', { hasText: 'Bluebonnet expects HOU back by 10:00' });
+	await expect(written).toContainText('Pat');
+
+	await report.getByRole('button', { name: 'Message' }).click();
+	const message = report.getByRole('region', { name: 'Message' });
+	await expect(message.locator('pre')).toContainText('Bluebonnet expects HOU back by 10:00 (Pat,');
+	await expect(message.locator('pre')).toContainText(/In Sunstone: http\S+\?handover=12$/);
+	await message.getByRole('button', { name: 'Copy message' }).click();
+	await expect(message.getByRole('button')).toHaveText(
+		/^(Message copied|Select it below to copy it)$/
+	);
+
+	await written.getByRole('button', { name: 'Withdraw' }).click();
+	await expect(written).toHaveCount(0);
+
+	// History has the last shift change, so its handover is saved.
+	const which = report.getByRole('combobox', { name: 'Which handover' });
+	await expect(which.locator('option')).not.toHaveCount(1);
+	const id = await which.locator('option').nth(1).getAttribute('value');
+	await which.selectOption(id ?? '');
+	await expect(page).toHaveURL(new RegExp(`handover=${id}`));
+	await expect(report.locator('header .span')).toContainText(/^Handed over /);
+	for (const section of ['Notes from the outgoing shift', 'Open at handover', 'Outages']) {
+		await expect(report.getByRole('region', { name: section })).toBeVisible();
+	}
+	await expect(report.getByRole('group', { name: 'Covering' })).toHaveCount(0);
+	await expect(report.getByLabel('Note for the next shift')).toHaveCount(0);
+
+	await which.selectOption('');
+	await expect(page).toHaveURL(/handover=12/);
+	await expect(report.getByRole('region', { name: 'Notes for the next shift' })).toBeVisible();
+});

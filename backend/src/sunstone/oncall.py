@@ -7,7 +7,8 @@ the sites, regions, and roles at either end. Each team has a rotation of
 people who take turns as primary, the next in turn being secondary,
 handing over at a set local time, and an escalation policy: who is paged
 first, and who after how many minutes if no one acknowledges. Someone can
-cover part of a shift. Carriers have NOC contacts for their circuits.
+cover part of a shift. Carriers have NOC contacts for their circuits. The
+NOC's own shifts change at set local times each day, each change a handover.
 
 Sunstone sends nothing. A page is recorded and escalated on paper, the way
 a paging service would, so the NOC sees who has been told and who will be
@@ -87,11 +88,35 @@ class Rotation(_Record):
     @field_validator("timezone")
     @classmethod
     def _known_zone(cls, value: str) -> str:
-        try:
-            zoneinfo.ZoneInfo(value)
-        except (zoneinfo.ZoneInfoNotFoundError, ValueError) as e:
-            raise ValueError(f"Unknown time zone {value!r}") from e
-        return value
+        return _known_zone(value)
+
+
+def _known_zone(value: str) -> str:
+    try:
+        zoneinfo.ZoneInfo(value)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError) as e:
+        raise ValueError(f"Unknown time zone {value!r}") from e
+    return value
+
+
+class HandoverTimes(_Record):
+    """When the NOC's shifts change each day, each change a handover."""
+
+    at: list[Clock] = Field(min_length=1, max_length=6)
+    """Local times, such as 07:00 and 19:00 for two 12-hour shifts."""
+    timezone: str = "UTC"
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_zone(cls, value: str) -> str:
+        return _known_zone(value)
+
+    @field_validator("at")
+    @classmethod
+    def _once_each(cls, value: list[str]) -> list[str]:
+        if len(set(value)) < len(value):
+            raise ValueError("Each time is listed once")
+        return sorted(value)
 
 
 class Step(_Record):
@@ -165,6 +190,8 @@ class Directory(_Record):
     urgency: dict[ProblemKind, Urgency] = {}
     """Which kinds of problem page someone at once (high) or wait for
     working hours (low); kinds left out are as ``DEFAULT_URGENCY`` says."""
+    handovers: HandoverTimes | None = None
+    """When the NOC's shifts change; without it, no handover is saved."""
 
     @model_validator(mode="after")
     def _references(self) -> Self:
@@ -228,7 +255,7 @@ def load_directory(path: Path, topology: Topology) -> Directory:
 
     Args:
         path: YAML file with ``people``, ``teams``, ``routes``, and
-            optionally ``carriers`` and ``urgency``.
+            optionally ``carriers``, ``urgency``, and ``handovers``.
         topology: The topology its routes refer to.
 
     Returns:

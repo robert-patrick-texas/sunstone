@@ -42,12 +42,17 @@ export interface Shared {
 	wall: { dwell: number } | null;
 	/** Discovery against the documentation, shown on the map. */
 	discovery: boolean;
-	/** The shift handover report, by how many hours it covers; null when not shown. */
-	handover: number | null;
+	/**
+	 * The shift handover report: how many hours it covers, ending now, or a
+	 * saved one's id; null when not shown.
+	 */
+	handover: number | string | null;
 }
 
 export const DEFAULT_DWELL_S = 20;
 export const DEFAULT_HANDOVER_H = 12;
+/** The id of a handover saved at a shift change: its time in UTC. */
+export const SAVED_HANDOVER = /^\d{8}T\d{4}Z$/;
 const VIEWS: View[] = ['geo', 'hierarchy', 'topology'];
 const SCOPES = ['network', 'neighborhood', 'path'] as const;
 
@@ -188,9 +193,13 @@ export function fromQuery(q: URLSearchParams, index: TopologyIndex): Partial<Sha
 		found.wall = { dwell: dwell >= 5 && dwell <= 600 ? dwell : DEFAULT_DWELL_S };
 	}
 	if (q.has('handover')) {
-		const hours = Number(q.get('handover'));
-		found.handover =
-			Number.isInteger(hours) && hours >= 1 && hours <= 24 ? hours : DEFAULT_HANDOVER_H;
+		const value = q.get('handover') ?? '';
+		const hours = Number(value);
+		found.handover = SAVED_HANDOVER.test(value)
+			? value
+			: Number.isInteger(hours) && hours >= 1 && hours <= 24
+				? hours
+				: DEFAULT_HANDOVER_H;
 	}
 	return found;
 }

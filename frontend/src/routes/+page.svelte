@@ -789,7 +789,7 @@ open, and leaves it as it was when it closes.
 		{/if}
 	</main>
 	{#if ui.handover !== null && !ui.wall.on && index}
-		<HandoverReport hours={ui.handover} {copied} oncopy={copyLink} />
+		<HandoverReport shown={ui.handover} {copied} oncopy={copyLink} />
 	{/if}
 </div>
 

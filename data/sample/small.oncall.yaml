@@ -88,3 +88,6 @@ carriers:
 - {provider: Mesa Carrier, phone: +1 800 555 0102, portal: 'https://noc.mesa.example'}
 - {provider: Northwind Fiber, phone: +1 800 555 0103, portal: 'https://noc.northwind.example'}
 urgency: {outage: high, link-down: high, congested: high, loss: low, busy: low, nodata: low}
+handovers:
+  at: ['07:00', '19:00']
+  timezone: America/Chicago

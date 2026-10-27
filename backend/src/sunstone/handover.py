@@ -5,27 +5,49 @@ problems there are now, who is on them and whom they have paged; the
 outages that began or ended in the span, and how long they lasted; the
 pages and acknowledgements made in it; maintenance done in it, open now,
 or coming in as long again; fixes and expectations recorded in it;
-discovery findings first seen in it; and who is on call now.
+discovery findings first seen in it; who is on call now; and the notes the
+outgoing shift wrote for the next one.
 
 Outages come from the source's events: each device and link is down from
 one event to the next. They are grouped as the events list groups them:
 devices at one site that went down at the same step are one outage, with
 the links at that site that went down then. As with problems, nothing is
 guessed about why.
+
+At each shift change the on-call directory gives, the handover of the shift
+ending then is saved, with the notes written during it, and kept as it was.
+Each is also written as a message to post in chat or send by email; nothing
+is sent.
 """
 
-from datetime import datetime
+import json
+import os
+from datetime import UTC, datetime, time, timedelta
+from functools import cached_property
+from pathlib import Path
+from threading import Lock
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError, computed_field
 
 from sunstone.changes import Change
 from sunstone.discovery import Finding
 from sunstone.layouts import Center, DeviceCenter, LinksCenter, SiteCenter
 from sunstone.live import StateEvent
 from sunstone.model import Topology
-from sunstone.oncall import OnCall, Page, RoutedProblem
-from sunstone.operations import Window
+from sunstone.oncall import HandoverTimes, OnCall, Page, RoutedProblem
+from sunstone.operations import ShiftNote, Window
 from sunstone.problems import Ack, link_name, natural
+
+# Saved handovers kept: a month of 12-hour shifts. Each is about 80 KB on
+# the 3,000-device sample.
+MAX_SAVED = 60
+# Items of each kind listed in a message before "and N more".
+LISTED = 10
+
+
+class HandoverError(Exception):
+    """The saved handovers file cannot be read."""
 
 
 class _Record(BaseModel):
@@ -48,11 +70,25 @@ class Outage(_Record):
     """Open maintenance accounted for every one of them going down."""
 
 
+class Message(_Record):
+    """A handover written to post in chat or send by email."""
+
+    subject: str
+    text: str
+
+
 class Handover(_Record):
     """What the incoming shift needs to know."""
 
+    id: str | None = None
+    """The saved handover's id, for a link to it; None for one worked out now."""
     since: datetime
     until: datetime
+    timezone: str = "UTC"
+    """The zone the shifts change in, for the message's times."""
+    notes: list[ShiftNote] = []
+    """What the outgoing shift wrote for the next, oldest first: for one
+    worked out now, the notes written since the last shift change."""
     problems: list[RoutedProblem]
     """Everything wrong now, most urgent first, with who is on it."""
     outages: list[Outage]
@@ -70,6 +106,41 @@ class Handover(_Record):
     """Discovery findings first seen in the span and still seen."""
     oncall: OnCall | None
     """Who is on call now; None without an on-call directory."""
+
+    @computed_field
+    @cached_property
+    def message(self) -> Message:
+        """The handover written to post in chat or send by email.
+
+        Returns:
+            A subject line saying how much is open, and the text: the notes,
+            then the first few of each section, its times in the shifts' zone.
+        """
+        return _message(self)
+
+
+class HandoverSummary(_Record):
+    """A saved handover, in a line."""
+
+    id: str
+    since: datetime
+    until: datetime
+    problems: int
+    unhandled: int
+    """Problems no one was on: not acknowledged or planned."""
+    outages: int
+    still_down: int
+    notes: int
+
+
+class HandoverList(_Record):
+    """The handovers saved at shift changes, and when the next one is."""
+
+    next: datetime | None
+    """The next shift change; None without shift changes in the directory."""
+    timezone: str | None
+    handovers: list[HandoverSummary]
+    """Latest first."""
 
 
 class _Down:
@@ -181,3 +252,328 @@ def _outage(site: str | None, members: list[_Down], name: str = "") -> Outage:
 
 def _plural(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def shift_changes(
+    times: HandoverTimes, since: datetime, until: datetime
+) -> list[datetime]:
+    """The shift changes after one moment, up to another.
+
+    Args:
+        times: When shifts change, in local time.
+        since: Start, exclusive.
+        until: End, inclusive.
+
+    Returns:
+        The changes, in order, in UTC. They stay at the same local time
+        across a change to or from summer time.
+
+    Raises:
+        None
+    """
+    zone = ZoneInfo(times.timezone)
+    day = since.astimezone(zone).date()
+    found = []
+    while day <= until.astimezone(zone).date():
+        for clock in times.at:
+            hours, minutes = (int(n) for n in clock.split(":"))
+            local = datetime.combine(day, time(hours, minutes), tzinfo=zone)
+            at = local.astimezone(UTC)
+            if since < at <= until:
+                found.append(at)
+        day += timedelta(days=1)
+    return found
+
+
+def next_change(times: HandoverTimes, at: datetime) -> datetime:
+    """The first shift change after a moment.
+
+    Args:
+        times: When shifts change.
+        at: The moment.
+
+    Returns:
+        The change.
+
+    Raises:
+        None
+    """
+    return shift_changes(times, at, at + timedelta(days=2))[0]
+
+
+def last_change(times: HandoverTimes, at: datetime) -> datetime:
+    """The latest shift change before a moment.
+
+    Args:
+        times: When shifts change.
+        at: The moment.
+
+    Returns:
+        The change, before the moment even if it is one itself.
+
+    Raises:
+        None
+    """
+    return [c for c in shift_changes(times, at - timedelta(days=2), at) if c < at][-1]
+
+
+def handover_id(at: datetime) -> str:
+    """The id of the handover saved at a shift change.
+
+    Args:
+        at: The change.
+
+    Returns:
+        For example ``20261027T1200Z``, in UTC.
+
+    Raises:
+        None
+    """
+    return at.astimezone(UTC).strftime("%Y%m%dT%H%MZ")
+
+
+def summary(handover: Handover) -> HandoverSummary:
+    """A saved handover, in a line.
+
+    Args:
+        handover: A saved handover.
+
+    Returns:
+        Its id and span, and how much it lists.
+
+    Raises:
+        None
+    """
+    return HandoverSummary(
+        id=handover.id or "",
+        since=handover.since,
+        until=handover.until,
+        problems=len(handover.problems),
+        unhandled=sum(1 for p in handover.problems if not p.ack and not p.planned),
+        outages=len(handover.outages),
+        still_down=sum(1 for o in handover.outages if o.end is None),
+        notes=len(handover.notes),
+    )
+
+
+class _Saved(_Record):
+    handovers: list[Handover] = []
+
+
+class HandoverStore:
+    """The handovers saved at shift changes, latest ``MAX_SAVED``, for one
+    topology, in one JSON file, rewritten whole at each."""
+
+    def __init__(self, path: Path) -> None:
+        """Use a saved handovers file, created at the first shift change.
+
+        Args:
+            path: The JSON file.
+
+        Raises:
+            HandoverError: If the file exists but cannot be read.
+        """
+        self.path = path
+        self.lock = Lock()
+        """Held while working out and saving handovers, so each is saved once."""
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            raw = None
+        except OSError as e:
+            raise HandoverError(f"{path}: {e}") from e
+        try:
+            self._saved = _Saved.model_validate_json(raw) if raw else _Saved()
+        except ValidationError as e:
+            raise HandoverError(f"{path}: {e}") from e
+
+    def handovers(self) -> list[Handover]:
+        """Every saved handover, latest first.
+
+        Returns:
+            The handovers.
+
+        Raises:
+            None
+        """
+        return sorted(self._saved.handovers, key=lambda h: h.until, reverse=True)
+
+    def get(self, handover_id: str) -> Handover | None:
+        """A saved handover by id.
+
+        Args:
+            handover_id: Its id.
+
+        Returns:
+            The handover, or None if there is none.
+
+        Raises:
+            None
+        """
+        return next((h for h in self._saved.handovers if h.id == handover_id), None)
+
+    def save(self, handover: Handover) -> None:
+        """Keep a handover, dropping the oldest beyond ``MAX_SAVED``.
+
+        Args:
+            handover: The handover, with its id.
+
+        Raises:
+            None
+        """
+        kept = [h for h in self.handovers() if h.id != handover.id]
+        saved = _Saved(handovers=[handover, *kept][:MAX_SAVED])
+        temporary = self.path.with_name(f".{self.path.name}.tmp")
+        # Without the messages and link ids, which are worked out again.
+        body = saved.model_dump(mode="json", exclude_computed_fields=True)
+        temporary.write_text(json.dumps(body), encoding="utf-8")
+        os.replace(temporary, self.path)
+        self._saved = saved
+
+
+def duration(span: timedelta) -> str:
+    """A length of time, readably.
+
+    Args:
+        span: The time.
+
+    Returns:
+        For example "35 min", "1 h 05 min", "3 h".
+
+    Raises:
+        None
+    """
+    minutes = max(0, round(span.total_seconds() / 60))
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours} h {minutes:02d} min" if minutes else f"{hours} h"
+
+
+def standing(problem: RoutedProblem) -> str:
+    """Who is on a problem, for its line in a handover.
+
+    Args:
+        problem: The problem.
+
+    Returns:
+        For example "On it: Pat · carrier ticket 4411", "Planned",
+        "Paged, no one on it yet", or "No one on it".
+
+    Raises:
+        None
+    """
+    if problem.ack:
+        note = f" · {problem.ack.note}" if problem.ack.note else ""
+        return f"On it: {problem.ack.by}{note}"
+    if problem.planned:
+        return "Planned"
+    if problem.paging and not problem.paging.stopped:
+        return "Paged, no one on it yet"
+    return "No one on it"
+
+
+def _message(h: Handover) -> Message:
+    zone = ZoneInfo(h.timezone)
+    end = h.until.astimezone(zone)
+
+    def clock(at: datetime) -> str:
+        local = at.astimezone(zone)
+        return local.strftime("%H:%M" if local.date() == end.date() else "%H:%M %a")
+
+    def day(at: datetime) -> str:
+        return at.astimezone(zone).strftime("%H:%M %a %d %b")
+
+    def more(lines: list[str], total: int) -> list[str]:
+        return lines + (
+            [f"- and {total - len(lines)} more"] if total > len(lines) else []
+        )
+
+    teams = {t.id: t.name for t in h.oncall.teams} if h.oncall else {}
+    people = {p.id: p for p in h.oncall.people} if h.oncall else {}
+    unhandled = sum(1 for p in h.problems if not p.ack and not p.planned)
+    down = sum(1 for o in h.outages if o.end is None)
+    subject = (
+        f"Shift handover {day(h.until)}: {len(h.problems)} open, "
+        f"{unhandled} no one is on, {down} still down"
+    )
+    text = [
+        f"Shift handover, {day(h.since)} to {day(h.until)} ({end.tzname()}), "
+        f"the last {duration(h.until - h.since)}",
+        "",
+    ]
+    if h.notes:
+        text.append(f"Notes from the outgoing shift ({len(h.notes)})")
+        text += [f"- {n.text} ({n.by}, {clock(n.at)})" for n in h.notes]
+    else:
+        text.append("No notes from the outgoing shift.")
+    text += ["", f"Open now ({len(h.problems)}, {unhandled} no one is on)"]
+    lines = []
+    for p in h.problems[:LISTED]:
+        parts = [p.title, *([p.detail] if p.detail else [])]
+        parts += [teams.get(p.team, p.team)] if p.team else []
+        lines.append(f"- {' · '.join([*parts, standing(p)])}")
+    text += more(lines, len(h.problems))
+    # Whole sites and links first: single devices are most of them.
+    ordered = sorted(h.outages, key=lambda o: o.target.kind == "device")
+    text += ["", f"Outages ({len(h.outages)} began or ended, {down} still down)"]
+    lines = []
+    for o in ordered[:LISTED]:
+        start = clock(o.start) if o.start else "before history"
+        stop = clock(o.end) if o.end else "still down"
+        if o.start is None:
+            lasted = "since before history" if o.end else "all day"
+        else:
+            lasted = duration((o.end or h.until) - o.start) + (
+                "" if o.end else " so far"
+            )
+        planned = ", planned" if o.planned else ""
+        lines.append(f"- {o.title}, {start} to {stop} ({lasted}{planned})")
+    text += more(lines, len(h.outages))
+    made = len(h.pages) + len(h.acks)
+    if made:
+        text += ["", f"Pages and acknowledgements ({made})"]
+        lines = []
+        for pg in h.pages:
+            note = f" · {pg.note}" if pg.note else ""
+            team = teams.get(pg.team, pg.team)
+            lines.append(
+                f"- {clock(pg.at)} {pg.by} paged {team}: {pg.title or pg.problem}{note}"
+            )
+        for a in h.acks:
+            note = f" · {a.note}" if a.note else ""
+            lines.append(f"- {clock(a.at)} {a.by} on {a.title or a.problem}{note}")
+        text += more(lines[:LISTED], made)
+    if h.windows:
+        text += ["", f"Maintenance ({len(h.windows)})"]
+        lines = []
+        for w in h.windows:
+            phase = (
+                "Done"
+                if w.end <= h.until
+                else "Open now"
+                if w.start <= h.until
+                else "Coming"
+            )
+            lines.append(
+                f"- {phase}: {w.title}, {clock(w.start)} to {clock(w.end)} ({w.by})"
+            )
+        text += more(lines[:LISTED], len(h.windows))
+    if h.changes or h.findings:
+        text += [
+            "",
+            f"Documentation: {len(h.changes)} fixed or marked expected, "
+            f"{len(h.findings)} first seen by discovery",
+        ]
+    if h.oncall:
+        text += ["", "On call now"]
+        for t in h.oncall.teams:
+            primary = people.get(t.now.primary)
+            name = primary.name if primary else t.now.primary
+            phone = f" ({primary.phone})" if primary and primary.phone else ""
+            line = f"- {t.name}: {name}{phone}"
+            if t.now.secondary:
+                second = people.get(t.now.secondary)
+                line += f", then {second.name if second else t.now.secondary}"
+            text.append(f"{line}, until {day(t.now.until)}")
+    return Message(subject=subject, text="\n".join(text))
