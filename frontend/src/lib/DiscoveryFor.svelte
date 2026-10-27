@@ -7,7 +7,7 @@ finding about it if there is one.
 -->
 <script lang="ts">
 	import type { Comparison } from './api/discovery.ts';
-	import { CHECK_LABEL, deviceCheck, linkCheck } from './discovery.ts';
+	import { CHECK_LABEL, deviceCheck, linkCheck, seenWhen } from './discovery.ts';
 	import { clock } from './history.ts';
 	import type { Selection } from './state.svelte.ts';
 	import { linkName, type TopologyIndex } from './topology.ts';
@@ -42,7 +42,10 @@ finding about it if there is one.
 			</p>
 		{/if}
 		{#each check.findings as f (f.id)}
-			<p class="finding"><b>{f.title}</b><br /><span class="muted">{f.detail}</span></p>
+			{@const when = seenWhen(f, comparison.history_from)}
+			<p class="finding">
+				<b>{f.title}</b><br /><span class="muted">{f.detail}{when ? ` · seen ${when}` : ''}</span>
+			</p>
 		{/each}
 	{:else}
 		{#each item.ids.slice(0, MAX_LINKS) as id (id)}

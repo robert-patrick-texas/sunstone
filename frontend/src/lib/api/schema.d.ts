@@ -120,7 +120,8 @@ export interface paths {
         };
         /**
          * Get Discovery
-         * @description Return the latest discovery run compared with the documented links.
+         * @description Return the discovery run in effect now, or at an earlier moment,
+         *     compared with the documented links, with when each finding was seen.
          *
          *     Runs come every 15 minutes, and each is compared once for every viewer.
          */
@@ -467,6 +468,13 @@ export interface components {
             findings: components["schemas"]["Finding"][];
             /** Seen */
             seen: components["schemas"]["SeenLink"][];
+            /**
+             * Gone
+             * @default []
+             */
+            gone: components["schemas"]["Finding"][];
+            /** History From */
+            history_from?: string | null;
         };
         /**
          * Cover
@@ -683,6 +691,10 @@ export interface components {
             seen: components["schemas"]["Port"][];
             /** Devices */
             devices: string[];
+            /** First Seen */
+            first_seen?: string | null;
+            /** Last Seen */
+            last_seen?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1494,7 +1506,9 @@ export interface operations {
     };
     get_discovery_api_discovery_get: {
         parameters: {
-            query?: never;
+            query?: {
+                at?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1508,6 +1522,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Comparison"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

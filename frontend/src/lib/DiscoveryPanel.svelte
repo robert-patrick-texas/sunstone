@@ -1,14 +1,16 @@
 <!--
 @component
 Where the documentation and the network disagree, as of the latest
-discovery run: how many documented links devices confirm, then each
-finding, most misleading first. Clicking one shows discovery on the map,
-selects the link it is about, or the device, and brings it into view;
-Show on the map turns that on and off.
+discovery run, or the run in effect at the moment replayed: how many
+documented links devices confirm, then each finding, most misleading
+first, with when it was seen, then findings seen earlier in the day but
+no longer. Clicking one shows discovery on the map, selects the link it
+is about, or the device, and brings it into view; Show on the map turns
+that on and off.
 -->
 <script lang="ts">
 	import type { Comparison, Finding, LinkCheck } from './api/discovery.ts';
-	import { CHECK_LABEL, findingTarget, groupFindings } from './discovery.ts';
+	import { CHECK_LABEL, findingTarget, groupFindings, seenWhen } from './discovery.ts';
 	import { clock } from './history.ts';
 	import { showDiscovery, ui } from './state.svelte.ts';
 	import type { TopologyIndex } from './topology.ts';
@@ -41,6 +43,11 @@ Show on the map turns that on and off.
 		JSON.stringify(findingTarget(finding)) === JSON.stringify(ui.selection);
 </script>
 
+{#snippet when(finding: Finding)}
+	{@const text = seenWhen(finding, comparison?.history_from)}
+	{#if text}<span class="when">Seen {text}</span>{/if}
+{/snippet}
+
 <section aria-label="Discovery">
 	{#if problem}
 		<p class="muted">Discovery unavailable: {problem}</p>
@@ -48,8 +55,8 @@ Show on the map turns that on and off.
 		<p class="muted">Loading discovery…</p>
 	{:else}
 		<p class="muted">
-			{comparison.source} LLDP and CDP at {clock(comparison.at)} · {comparison.polled.length} devices
-			answered
+			{comparison.source} LLDP and CDP at {clock(comparison.at)}{ui.at ? ' (replaying)' : ''} ·
+			{comparison.polled.length} devices answered
 		</p>
 		<p class="summary">
 			<b>{comparison.confirmed}</b> of {index.topology.links.length} documented links confirmed{#each counts as [check, n] (check)}<span
@@ -74,11 +81,26 @@ Show on the map turns that on and off.
 						<button class="finding" aria-pressed={shown(finding)} onclick={() => show(finding)}>
 							<span class="title">{finding.title}</span>
 							<span class="detail">{finding.detail}</span>
+							{@render when(finding)}
 						</button>
 					</li>
 				{/each}
 			</ul>
 		{/each}
+		{#if comparison.gone.length}
+			<h3>Seen earlier, not {ui.at ? 'then' : 'now'} ({comparison.gone.length})</h3>
+			<ul>
+				{#each comparison.gone as finding (finding.id)}
+					<li>
+						<button class="finding gone" onclick={() => show(finding)}>
+							<span class="title">{finding.title}</span>
+							<span class="detail">{finding.detail}</span>
+							{@render when(finding)}
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 	{/if}
 </section>
 
@@ -124,9 +146,16 @@ Show on the map turns that on and off.
 	.title {
 		display: block;
 	}
-	.detail {
+	.detail,
+	.when {
 		display: block;
 		color: var(--muted);
 		font-size: 12px;
+	}
+	.when {
+		font-size: 11px;
+	}
+	.gone {
+		opacity: 0.75;
 	}
 </style>

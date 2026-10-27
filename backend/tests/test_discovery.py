@@ -13,8 +13,10 @@ from sunstone.discovery import (
     Neighbor,
     NeighborTable,
     SimulatedDiscovery,
+    Visibility,
     compare,
 )
+from sunstone.discovery_log import DiscoveryLog
 from sunstone.live import DeviceHistory, DeviceState, InterfaceState, NetworkState
 from sunstone.mockgen import PRESETS, generate, to_yaml
 from sunstone.model import Link, Topology
@@ -126,12 +128,12 @@ class TestCompare:
     ) -> None:
         link = uplink(topology)
         found = run(tables(topology, skip={link.id}))
-        result = compare(topology, found, AllUp(topology).snapshot(AT))
+        result = compare(topology, found, Visibility.of(AllUp(topology).snapshot(AT)))
         assert result.links == {link.id: "not-seen"}
         [finding] = result.findings
         assert (finding.kind, finding.link) == ("not-seen", link.id)
         assert "neither end reports it" in finding.detail
-        down = AllUp(topology, frozenset({link.id})).snapshot(AT)
+        down = Visibility.of(AllUp(topology, frozenset({link.id})).snapshot(AT))
         assert compare(topology, found, down).links == {link.id: "down"}
         assert compare(topology, found, down).findings == []
 
@@ -214,7 +216,9 @@ class TestCompare:
         # It does not advertise either, so its neighbors do not see it.
         for name, rows in found.items():
             found[name] = [n for n in rows if not n.remote.lower().startswith(device)]
-        result = compare(topology, run(found), AllUp(topology).snapshot(AT))
+        result = compare(
+            topology, run(found), Visibility.of(AllUp(topology).snapshot(AT))
+        )
         assert [(f.kind, f.devices) for f in result.findings] == [
             ("no-neighbors", [device])
         ]
@@ -229,13 +233,22 @@ def drifted(topology: Topology) -> Cabling:
     return Cabling(topology, watched={d.name for d in topology.devices})
 
 
+def lab_in(cabling: Cabling) -> datetime:
+    """A moment when the lab switch is plugged in."""
+    [lab] = [c for c in cabling.extra if c.temporary]
+    hours = (AT + timedelta(hours=3 * k) for k in range(16))
+    return next(at for at in hours if cabling.in_place(lab.link.id, at))
+
+
 class TestSimulated:
     def test_every_kind_of_disagreement_is_seeded_and_found(
         self, topology: Topology
     ) -> None:
         state = AllUp(topology)
-        found = SimulatedDiscovery(topology, drifted(topology), state).discover(AT)
-        result = compare(topology, found, state.snapshot(AT))
+        cabling = drifted(topology)
+        at = lab_in(cabling)
+        found = SimulatedDiscovery(topology, cabling, state).discover(at)
+        result = compare(topology, found, Visibility.of(state.snapshot(at)))
         assert Counter(f.kind for f in result.findings) == {
             "wrong-neighbor": 1,
             "wrong-port": 1,
@@ -255,6 +268,22 @@ class TestSimulated:
         lab = next(s for s in result.seen if not s.known)
         assert (lab.b.device, lab.platform) == ("lab-sw-01", "WS-C2960X-24TS")
 
+    def test_the_lab_switch_comes_and_goes(self, topology: Topology) -> None:
+        state = AllUp(topology)
+        cabling = drifted(topology)
+        discovery = SimulatedDiscovery(topology, cabling, state)
+        [lab] = [c for c in cabling.extra if c.temporary]
+        seen = []
+        for k in range(16):
+            at = AT + timedelta(hours=3 * k)
+            found = compare(
+                topology, discovery.discover(at), Visibility.of(state.snapshot(at))
+            )
+            unknown = any(f.kind == "unknown-device" for f in found.findings)
+            assert unknown == cabling.in_place(lab.link.id, at)
+            seen.append(unknown)
+        assert True in seen and False in seen
+
     def test_the_same_seed_gives_the_same_disagreements(
         self, topology: Topology
     ) -> None:
@@ -269,9 +298,73 @@ class TestSimulated:
         link = uplink(topology, 5)
         state = AllUp(topology, frozenset({link.id}))
         found = SimulatedDiscovery(topology, drifted(topology), state).discover(AT)
-        result = compare(topology, found, state.snapshot(AT))
+        result = compare(topology, found, Visibility.of(state.snapshot(AT)))
         assert result.links.get(link.id) == "down"
         assert all(f.link != link.id for f in result.findings)
+
+
+@pytest.fixture(scope="module")
+def log(topology: Topology) -> DiscoveryLog:
+    state = AllUp(topology)
+    log = DiscoveryLog(
+        topology, SimulatedDiscovery(topology, drifted(topology), state), state
+    )
+    log.warm()
+    return log
+
+
+class TestLog:
+    def test_a_finding_seen_all_day_was_seen_before_history_and_still_is(
+        self, log: DiscoveryLog
+    ) -> None:
+        now = datetime.now(UTC)
+        result = log.comparison(now)
+        wrong = next(f for f in result.findings if f.kind == "wrong-neighbor")
+        assert (wrong.first_seen, wrong.last_seen) == (None, None)
+        assert result.history_from is not None
+        assert now - result.history_from >= timedelta(hours=23, minutes=45)
+
+    def test_a_lab_switch_is_seen_for_a_while_then_gone(
+        self, log: DiscoveryLog
+    ) -> None:
+        now = datetime.now(UTC)
+        step = log.source.interval
+        runs = [log.run_of(now) - step * k for k in range(95, -1, -1)]
+        lab = [
+            any(f.kind == "unknown-device" for f in log.comparison(r).findings)
+            for r in runs
+        ]
+        # The last run that shows it, followed by one that does not.
+        last = (
+            next(i for i in range(len(runs) - 1, 0, -1) if lab[i - 1] and not lab[i])
+            - 1
+        )
+        gone = log.comparison(runs[last + 1]).gone
+        [unplugged] = [f for f in gone if f.kind == "unknown-device"]
+        assert unplugged.last_seen == runs[last]
+        shown = next(
+            f for f in log.comparison(runs[last]).findings if f.kind == "unknown-device"
+        )
+        assert shown.last_seen == runs[last]
+        # Plugged in at a three-hour block's start, or before history.
+        assert shown.first_seen is None or shown.first_seen.hour % 3 == 0
+
+    def test_without_history_everything_was_seen_before_it(
+        self, topology: Topology
+    ) -> None:
+        state = AllUp(topology)
+        log = DiscoveryLog(
+            topology, SimulatedDiscovery(topology, drifted(topology), state), state
+        )
+        now = datetime.now(UTC)
+        result = log.comparison(now)
+        assert result.history_from == log.run_of(now)
+        assert all(
+            f.first_seen is None and f.last_seen is None for f in result.findings
+        )
+        assert result.gone == []
+        log.forget()
+        assert log.comparison(now).history_from == log.run_of(now)
 
 
 def test_the_api_compares_the_latest_run_once(
@@ -286,3 +379,8 @@ def test_the_api_compares_the_latest_run_once(
     assert first["confirmed"] > 0
     assert first["polled"]
     assert client.get("/api/discovery").json() == first
+    hour_ago = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    earlier = client.get("/api/discovery", params={"at": hour_ago}).json()
+    assert earlier["at"] < first["at"]
+    too_old = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    assert client.get("/api/discovery", params={"at": too_old}).status_code == 422

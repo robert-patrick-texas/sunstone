@@ -13,17 +13,23 @@ one that discovery shows cabled elsewhere.
 There is about one of each per thousand links, at least one, chosen from
 the topology with a seed so they stay put, as drift does; the switch with
 LLDP off, the lab switches, and the undocumented patches are on switches
-the simulator watches, so discovery can see them.
+the simulator watches, so discovery can see them. Lab switches come and
+go: each is plugged in for about half of all three-hour blocks, so
+discovery's history has something to show.
 """
 
 import random
+import zlib
 from collections.abc import Set
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from sunstone.model import Endpoint, Link, Topology
 from sunstone.problems import natural
 
 UNKNOWN_PLATFORM = "WS-C2960X-24TS"
+# Lab switches are plugged in, or not, for blocks this long.
+LAB_BLOCK = timedelta(hours=3)
 
 
 @dataclass(frozen=True)
@@ -39,6 +45,8 @@ class Cable:
     """It stands for a documented link, wherever its ends really are."""
     platform: str | None = None
     """The far end's platform, when the far end is not in the topology."""
+    temporary: bool = False
+    """It is plugged in only some of the time."""
 
 
 class Cabling:
@@ -70,6 +78,7 @@ class Cabling:
         switch of the pair: the switch documented, and the real end."""
         self.extra: list[Cable] = []
         """Cables no one documented, some to devices not in the topology."""
+        self._temporary: set[str] = set()
         self._used: dict[str, set[str]] = {}
         for ln in topology.links:
             for end in (ln.a, ln.b):
@@ -109,6 +118,24 @@ class Cabling:
                 documented, _ = self.rewired[ln.id]
                 found.append((ln.a if ln.a.device == documented else ln.b, ln))
         return found
+
+    def in_place(self, link: str, at: datetime) -> bool:
+        """Whether the cable carrying a link is plugged in at a moment.
+
+        Args:
+            link: The link's id: documented, or made up for a cable no one documented.
+            at: The moment.
+
+        Returns:
+            False for a temporary cable outside its blocks; else True.
+
+        Raises:
+            None
+        """
+        if link not in self._temporary:
+            return True
+        block = int(at.timestamp() // LAB_BLOCK.total_seconds())
+        return zlib.crc32(f"{link}|{block}".encode()) % 2 == 0
 
     def _real(self, link: Link) -> Cable:
         a, b = link.a, link.b
@@ -231,6 +258,16 @@ class Cabling:
 
     def _cable(self, a: Endpoint, b: Endpoint, platform: str | None = None) -> None:
         link = Link(a=a, b=b, speed_mbps=1_000)
+        # Lab switches, the ones not in the topology, come and go.
+        if platform is not None:
+            self._temporary.add(link.id)
         self.extra.append(
-            Cable(a=a, b=b, link=link, documented=False, platform=platform)
+            Cable(
+                a=a,
+                b=b,
+                link=link,
+                documented=False,
+                platform=platform,
+                temporary=platform is not None,
+            )
         )

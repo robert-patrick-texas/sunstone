@@ -3,6 +3,7 @@
  * select for one, and what discovery says about a device or a link.
  */
 import type { Comparison, Finding, FindingKind, LinkCheck } from './api/discovery.ts';
+import { clock } from './history.ts';
 import type { Selection } from './state.svelte.ts';
 import type { TopologyIndex } from './topology.ts';
 
@@ -60,6 +61,26 @@ export function findingTarget(finding: Finding): Selection | null {
  */
 export function linkCheck(comparison: Comparison, link: string): LinkCheck {
 	return comparison.links[link] ?? 'confirmed';
+}
+
+/**
+ * When a finding was seen, for its line in a list.
+ *
+ * @param finding - The finding.
+ * @param historyFrom - The earliest run history has, if any.
+ * @returns For example "since 14:15", "since before Mon 15:00" (as far
+ *   back as history goes), "10:00 – 12:45", or "" if nothing is known.
+ */
+export function seenWhen(finding: Finding, historyFrom: string | null | undefined): string {
+	const from = finding.first_seen
+		? clock(finding.first_seen)
+		: historyFrom
+			? `before ${clock(historyFrom)}`
+			: null;
+	if (finding.last_seen) {
+		return from ? `${from} – ${clock(finding.last_seen)}` : `until ${clock(finding.last_seen)}`;
+	}
+	return from ? `since ${from}` : '';
 }
 
 /** What discovery says about one device. */

@@ -181,8 +181,27 @@
   "/api/discovery": {
    "get": {
     "summary": "Get Discovery",
-    "description": "Return the latest discovery run compared with the documented links.\n\nRuns come every 15 minutes, and each is compared once for every viewer.",
+    "description": "Return the discovery run in effect now, or at an earlier moment,\ncompared with the documented links, with when each finding was seen.\n\nRuns come every 15 minutes, and each is compared once for every viewer.",
     "operationId": "get_discovery_api_discovery_get",
+    "parameters": [
+     {
+      "name": "at",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "At"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
@@ -190,6 +209,16 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/Comparison"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
         }
        }
       }
@@ -991,6 +1020,26 @@
       },
       "type": "array",
       "title": "Seen"
+     },
+     "gone": {
+      "items": {
+       "$ref": "#/components/schemas/Finding"
+      },
+      "type": "array",
+      "title": "Gone",
+      "default": []
+     },
+     "history_from": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "History From"
      }
     },
     "additionalProperties": false,
@@ -1458,6 +1507,30 @@
       },
       "type": "array",
       "title": "Devices"
+     },
+     "first_seen": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "First Seen"
+     },
+     "last_seen": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Seen"
      }
     },
     "additionalProperties": false,
