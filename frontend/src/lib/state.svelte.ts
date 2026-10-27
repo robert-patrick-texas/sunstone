@@ -8,6 +8,43 @@ export type View = 'geo' | 'hierarchy' | 'topology';
 export type Selection =
 	{ kind: 'device'; id: string } | { kind: 'site'; id: string } | { kind: 'links'; ids: string[] };
 
+/** A maintenance window being planned (no id yet) or changed. */
+export interface WindowDraft {
+	id: string | null;
+	title: string;
+	/** Local date and time, as a datetime-local input holds them. */
+	start: string;
+	end: string;
+	targets: Selection[];
+	note: string;
+}
+
+const NAME_KEY = 'sunstone.name';
+
+/** The name this browser last signed something with, if it can remember. */
+function rememberedName(): string {
+	try {
+		return localStorage.getItem(NAME_KEY) ?? '';
+	} catch {
+		// Storage can be off (private windows, blocked site data); then ask each time.
+		return '';
+	}
+}
+
+/**
+ * Remember the name people sign maintenance and acknowledgements with.
+ *
+ * @param name - Their name.
+ */
+export function rememberName(name: string): void {
+	ui.person = name;
+	try {
+		localStorage.setItem(NAME_KEY, name);
+	} catch {
+		// Remembered for this visit only.
+	}
+}
+
 export const ui = $state({
 	view: 'geo' as View,
 	selection: null as Selection | null,
@@ -22,7 +59,11 @@ export const ui = $state({
 	/** Show the list of problems in live state. */
 	problemsOpen: true,
 	/** Which list the side panel shows. */
-	sideTab: 'problems' as 'problems' | 'events',
+	sideTab: 'problems' as 'problems' | 'events' | 'maintenance',
+	/** Who is using Sunstone, for signing maintenance and acknowledgements. */
+	person: rememberedName(),
+	/** The maintenance window being planned or changed, if any. */
+	planning: null as WindowDraft | null,
 	/** The earlier moment whose live state is shown (ISO time), or null for now. */
 	at: null as string | null,
 	/** The problem whose impact is shown, by id. */
@@ -84,6 +125,50 @@ export function addFailure(item: Selection): void {
 	ui.problem = null;
 	const key = JSON.stringify(item);
 	if (!ui.whatIf.some((f) => JSON.stringify(f) === key)) ui.whatIf.push(item);
+}
+
+/**
+ * Start planning maintenance, in the side panel.
+ *
+ * @param targets - What will be worked on, to start with.
+ */
+export function planMaintenance(targets: Selection[]): void {
+	// Start at the next 5-minute mark, for an hour.
+	const step = 5 * 60_000;
+	const start = new Date(Math.ceil(Date.now() / step) * step);
+	const end = new Date(start.getTime() + 60 * 60_000);
+	ui.planning = {
+		id: null,
+		title: '',
+		start: localTime(start),
+		end: localTime(end),
+		targets,
+		note: ''
+	};
+	ui.sideTab = 'maintenance';
+	ui.problemsOpen = true;
+}
+
+/**
+ * Show what failing some items would do, in place of any path or problem.
+ *
+ * @param targets - Devices, sites, and links.
+ */
+export function checkImpact(targets: Selection[]): void {
+	clearPath();
+	ui.problem = null;
+	ui.whatIf = targets;
+}
+
+/**
+ * A moment as a datetime-local input wants it: local time, to the minute.
+ *
+ * @param at - The moment.
+ * @returns For example `2026-10-27T14:05`.
+ */
+export function localTime(at: Date): string {
+	const local = new Date(at.getTime() - at.getTimezoneOffset() * 60_000);
+	return local.toISOString().slice(0, 16);
 }
 
 /**

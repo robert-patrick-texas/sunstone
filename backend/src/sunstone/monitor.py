@@ -106,6 +106,15 @@ class Monitor:
                 self._moments.popitem(last=False)
             return found
 
+    def forget(self) -> None:
+        """Drop every kept moment, for when what they were built from changes.
+
+        Raises:
+            None
+        """
+        with self._lock:
+            self._moments.clear()
+
     def keep_ahead(self, stop: threading.Event) -> None:
         """Build each new moment as it begins, while anyone is watching.
 

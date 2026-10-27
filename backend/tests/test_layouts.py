@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from sunstone.api import create_app, default_layouts_path
+from sunstone.api import Files, create_app
 from sunstone.layouts import LayoutIn, LayoutStore, LayoutStoreError, LayoutStoreFull
 
 LAYOUT = {
@@ -98,13 +98,20 @@ def test_bad_names_are_rejected(store: LayoutStore, name: str) -> None:
         store.put(name, layout())
 
 
-def test_layouts_default_to_a_file_beside_the_topology() -> None:
-    path = default_layouts_path(Path("data/sample/small.yaml"))
-    assert path == Path("data/sample/small.layouts.json")
+def test_saved_data_defaults_to_files_beside_the_topology() -> None:
+    topology = Path("data/sample/small.yaml")
+    assert Files().path(topology, "layouts") == Path("data/sample/small.layouts.json")
+    assert Files().path(topology, "operations") == Path(
+        "data/sample/small.operations.json"
+    )
+    given = Files(layouts=Path("/tmp/x.json"))
+    assert given.path(topology, "layouts") == Path("/tmp/x.json")
 
 
 def test_api_saves_lists_opens_and_deletes(topology_file: Path, tmp_path: Path) -> None:
-    client = TestClient(create_app(topology_file, layouts_path=tmp_path / "l.json"))
+    client = TestClient(
+        create_app(topology_file, files=Files(layouts=tmp_path / "l.json"))
+    )
     assert client.get("/api/layouts").json() == []
 
     saved = client.put("/api/layouts/Core view", json=LAYOUT)
@@ -133,14 +140,18 @@ def test_api_saves_lists_opens_and_deletes(topology_file: Path, tmp_path: Path) 
     ],
 )
 def test_api_rejects_bad_layouts(topology_file: Path, tmp_path: Path, change) -> None:
-    client = TestClient(create_app(topology_file, layouts_path=tmp_path / "l.json"))
+    client = TestClient(
+        create_app(topology_file, files=Files(layouts=tmp_path / "l.json"))
+    )
     body = json.loads(json.dumps(LAYOUT))
     change(body)
     assert client.put("/api/layouts/bad", json=body).status_code == 422
 
 
 def test_api_rejects_long_names(topology_file: Path, tmp_path: Path) -> None:
-    client = TestClient(create_app(topology_file, layouts_path=tmp_path / "l.json"))
+    client = TestClient(
+        create_app(topology_file, files=Files(layouts=tmp_path / "l.json"))
+    )
     assert client.put(f"/api/layouts/{'x' * 65}", json=LAYOUT).status_code == 422
 
 
@@ -148,6 +159,8 @@ def test_api_reports_a_full_store_as_a_conflict(
     topology_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("sunstone.layouts.MAX_LAYOUTS", 1)
-    client = TestClient(create_app(topology_file, layouts_path=tmp_path / "l.json"))
+    client = TestClient(
+        create_app(topology_file, files=Files(layouts=tmp_path / "l.json"))
+    )
     assert client.put("/api/layouts/a", json=LAYOUT).status_code == 200
     assert client.put("/api/layouts/b", json=LAYOUT).status_code == 409

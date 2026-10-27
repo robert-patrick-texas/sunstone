@@ -1,13 +1,15 @@
 <!--
 @component
 The app: header with view switch and search, the current view, the legend,
-the details panel for whatever is selected, and with live state, a time
-slider over the last day and a side panel of problems and events.
+the details panel for whatever is selected, a side panel of maintenance
+windows, and with live state, a time slider over the last day and problems
+and events in the side panel too.
 -->
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { fetchProblems, fetchWhatIf, type Problem } from '#lib/api/analysis.ts';
+	import { fetchWindows, type Window } from '#lib/api/operations.ts';
 	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
 	import DetailsPanel from '#lib/DetailsPanel.svelte';
@@ -19,6 +21,8 @@ slider over the last day and a side panel of problems and events.
 	import type { Impact } from '#lib/impact.ts';
 	import TopologyView from '#lib/topo/TopologyView.svelte';
 	import Legend from '#lib/Legend.svelte';
+	import { phaseOf } from '#lib/maintenance.ts';
+	import MaintenancePanel from '#lib/MaintenancePanel.svelte';
 	import { indexState, type LiveIndex } from '#lib/live.ts';
 	import { shortestPaths } from '#lib/paths.ts';
 	import ProblemsPanel from '#lib/ProblemsPanel.svelte';
@@ -38,6 +42,8 @@ slider over the last day and a side panel of problems and events.
 	const POLL_MS = 10_000;
 	// Sources report history in 5-minute steps, so the event log changes no faster.
 	const EVENTS_POLL_MS = 60_000;
+	// Maintenance windows change when someone plans one, so check now and then.
+	const WINDOWS_POLL_MS = 60_000;
 	// While the time slider is dragged, wait for it to settle before fetching.
 	const REPLAY_WAIT_MS = 200;
 
@@ -46,12 +52,19 @@ slider over the last day and a side panel of problems and events.
 	let liveProblem = $state<string | null>(null);
 	let events = $state.raw<EventLog | null>(null);
 	let eventsProblem = $state<string | null>(null);
+	let windows = $state.raw<Window[]>([]);
+	let windowsProblem = $state<string | null>(null);
+	/** Bumped to fetch live state and events again at once, after planned work changes. */
+	let refresh = $state(0);
+	const coming = $derived(windows.filter((w) => phaseOf(w, Date.now()) !== 'ended').length);
 	const path = $derived(index && ui.path ? shortestPaths(index, ui.path.from, ui.path.to) : null);
 	// Problems come with each snapshot, found once on the server for every viewer.
 	let problems = $state.raw<Problem[]>([]);
 	let whatIf = $state.raw<Impact | null>(null);
 	let whatIfProblem = $state<string | null>(null);
 	const focused = $derived(problems.find((p) => p.id === ui.problem) ?? null);
+	// Problems someone is on, or that planned work accounts for, are handled.
+	const unhandled = $derived(problems.filter((p) => !p.ack && p.planned.length === 0).length);
 	// A path, when shown, takes the place of an impact.
 	const impact = $derived.by(() => {
 		if (!index || path || ui.pathFrom) return null;
@@ -88,6 +101,7 @@ slider over the last day and a side panel of problems and events.
 			return;
 		}
 		const at = ui.at;
+		void refresh;
 		let stopped = false;
 		const load = async () => {
 			try {
@@ -148,6 +162,7 @@ slider over the last day and a side panel of problems and events.
 			eventsProblem = null;
 			return;
 		}
+		void refresh;
 		let stopped = false;
 		const load = async () => {
 			try {
@@ -166,6 +181,36 @@ slider over the last day and a side panel of problems and events.
 			clearInterval(timer);
 		};
 	});
+
+	async function loadWindows(): Promise<void> {
+		try {
+			windows = await fetchWindows();
+			windowsProblem = null;
+		} catch (e) {
+			windowsProblem = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	onMount(() => {
+		void loadWindows();
+		const timer = setInterval(loadWindows, WINDOWS_POLL_MS);
+		return () => clearInterval(timer);
+	});
+
+	/**
+	 * After a window is saved or deleted, or a problem acknowledged: fetch
+	 * what changed, and live state too, since the simulator acts out planned work.
+	 */
+	function refetch(): void {
+		void loadWindows();
+		refresh++;
+	}
+
+	function toggleMaintenance(): void {
+		const showing = ui.problemsOpen && ui.sideTab === 'maintenance';
+		ui.sideTab = 'maintenance';
+		ui.problemsOpen = !showing;
+	}
 
 	function onKeydown(e: KeyboardEvent): void {
 		if (e.key !== 'Escape' || e.target instanceof HTMLInputElement) return;
@@ -198,11 +243,16 @@ slider over the last day and a side panel of problems and events.
 		</button>
 		{#if ui.live}
 			<button
-				aria-pressed={ui.problemsOpen}
-				title="Show or hide the list of problems and events"
-				onclick={() => (ui.problemsOpen = !ui.problemsOpen)}
+				aria-pressed={ui.problemsOpen && ui.sideTab !== 'maintenance'}
+				title="Show or hide the problems no one is on yet, and events"
+				onclick={() => {
+					if (ui.sideTab === 'maintenance') {
+						ui.sideTab = 'problems';
+						ui.problemsOpen = true;
+					} else ui.problemsOpen = !ui.problemsOpen;
+				}}
 			>
-				Problems{live ? ` ${problems.length}` : ''}
+				Problems{live ? ` ${unhandled}` : ''}
 			</button>
 			<span class="live-status" class:past={ui.at !== null} aria-live="polite">
 				{#if liveProblem}
@@ -215,6 +265,13 @@ slider over the last day and a side panel of problems and events.
 				{/if}
 			</span>
 		{/if}
+		<button
+			aria-pressed={ui.problemsOpen && ui.sideTab === 'maintenance'}
+			title="Show or hide maintenance windows"
+			onclick={toggleMaintenance}
+		>
+			Maintenance{coming ? ` ${coming}` : ''}
+		</button>
 		{#if index}
 			<SearchBox {index} />
 			<span class="stats">
@@ -232,23 +289,34 @@ slider over the last day and a side panel of problems and events.
 		{:else if !index}
 			<p class="message">Loading topology…</p>
 		{:else}
-			{#if live && ui.problemsOpen}
-				<aside class="side" aria-label="Problems and events">
+			{#if ui.problemsOpen && (live || ui.sideTab === 'maintenance')}
+				<aside class="side" aria-label="Problems, events, and maintenance">
 					<div class="segmented tabs" role="tablist" aria-label="List">
+						{#if live}
+							<button
+								role="tab"
+								aria-selected={ui.sideTab === 'problems'}
+								title="{unhandled} no one is on yet, of {problems.length}"
+								onclick={() => (ui.sideTab = 'problems')}>Problems {unhandled}</button
+							>
+							<button
+								role="tab"
+								aria-selected={ui.sideTab === 'events'}
+								onclick={() => (ui.sideTab = 'events')}
+								>Events{events ? ` ${events.events.length}` : ''}</button
+							>
+						{/if}
 						<button
 							role="tab"
-							aria-selected={ui.sideTab === 'problems'}
-							onclick={() => (ui.sideTab = 'problems')}>Problems {problems.length}</button
-						>
-						<button
-							role="tab"
-							aria-selected={ui.sideTab === 'events'}
-							onclick={() => (ui.sideTab = 'events')}
-							>Events{events ? ` ${events.events.length}` : ''}</button
+							aria-selected={ui.sideTab === 'maintenance'}
+							onclick={() => (ui.sideTab = 'maintenance')}
+							>Maintenance{coming ? ` ${coming}` : ''}</button
 						>
 					</div>
-					{#if ui.sideTab === 'problems'}
-						<ProblemsPanel {problems} />
+					{#if ui.sideTab === 'maintenance'}
+						<MaintenancePanel {index} {windows} problem={windowsProblem} onchange={refetch} />
+					{:else if ui.sideTab === 'problems'}
+						<ProblemsPanel {problems} {windows} />
 					{:else}
 						<EventsPanel {index} log={events} problem={eventsProblem} />
 					{/if}
@@ -272,7 +340,16 @@ slider over the last day and a side panel of problems and events.
 					</p>
 				{/if}
 			</section>
-			<DetailsPanel {index} {path} {impact} problem={focused} {whatIfProblem} {live} />
+			<DetailsPanel
+				{index}
+				{path}
+				{impact}
+				problem={focused}
+				{whatIfProblem}
+				{windows}
+				onchange={refetch}
+				{live}
+			/>
 		{/if}
 	</main>
 </div>
@@ -350,6 +427,8 @@ slider over the last day and a side panel of problems and events.
 	}
 	.tabs button {
 		flex: 1;
+		padding: 4px 6px;
+		white-space: nowrap;
 	}
 	.tabs button[aria-selected='true'] {
 		background: var(--panel-2);

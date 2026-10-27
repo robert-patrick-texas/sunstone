@@ -12,9 +12,11 @@ links that select and bring that item into view.
 -->
 <script lang="ts">
 	import { fetchWhatIf, type Problem, type WhatIf } from './api/analysis.ts';
+	import { acknowledge, unacknowledge, type Window } from './api/operations.ts';
 	import { fetchHistory, type DeviceHistory, type InterfaceHistory } from './api/state.ts';
 	import type { Endpoint, Link } from './api/topology.ts';
-	import { linkHistory } from './history.ts';
+	import { clock, linkHistory } from './history.ts';
+	import { phaseOf, span, windowsFor } from './maintenance.ts';
 	import type { Impact } from './impact.ts';
 	import {
 		deviceHealth,
@@ -27,6 +29,8 @@ links that select and bring that item into view.
 	import { linksBetween, type PathResult } from './paths.ts';
 	import {
 		addFailure,
+		planMaintenance,
+		rememberName,
 		clearPath,
 		expandedSites,
 		select,
@@ -57,6 +61,8 @@ links that select and bring that item into view.
 		impact,
 		problem,
 		whatIfProblem,
+		windows,
+		onchange,
 		live
 	}: {
 		index: TopologyIndex;
@@ -65,6 +71,9 @@ links that select and bring that item into view.
 		problem: Problem | null;
 		/** Why the "what if" impact could not be worked out, if it could not. */
 		whatIfProblem: string | null;
+		windows: Window[];
+		/** Called after a problem is acknowledged or its acknowledgement withdrawn. */
+		onchange: () => void;
 		live: LiveIndex | null;
 	} = $props();
 
@@ -77,6 +86,33 @@ links that select and bring that item into view.
 	/** Most groups of exposed devices, and failed devices, listed one by one. */
 	const MAX_GROUPS = 8;
 	const MAX_NAMED = 12;
+
+	let ackNote = $state('');
+	let ackProblem = $state<string | null>(null);
+	const RECENT_MS = 24 * 60 * 60_000;
+
+	async function ack(e: SubmitEvent, id: string): Promise<void> {
+		e.preventDefault();
+		rememberName(ui.person.trim());
+		try {
+			await acknowledge(id, ackNote, ui.person);
+			ackNote = '';
+			ackProblem = null;
+			onchange();
+		} catch (err) {
+			ackProblem = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function withdraw(id: string): Promise<void> {
+		try {
+			await unacknowledge(id);
+			ackProblem = null;
+			onchange();
+		} catch (err) {
+			ackProblem = err instanceof Error ? err.message : String(err);
+		}
+	}
 
 	/** Load on a link as seen leaving and entering one of its ends. */
 	function loadAt(l: LiveIndex, link: Link, end: Endpoint) {
@@ -288,6 +324,31 @@ links that select and bring that item into view.
 	</button>
 {/snippet}
 
+{#snippet planButton(item: Selection)}
+	<button onclick={() => planMaintenance([$state.snapshot(item)])}>Plan maintenance…</button>
+{/snippet}
+
+{#snippet maintenanceOf(item: Selection)}
+	{@const now = Date.now()}
+	{@const found = windowsFor(index, windows, item).filter(
+		(w) => phaseOf(w, now) !== 'ended' || now - Date.parse(w.end) < RECENT_MS
+	)}
+	{#if found.length}
+		<h3>Maintenance ({found.length})</h3>
+		<ul class="windows">
+			{#each found as w (w.id)}
+				{@const phase = phaseOf(w, now)}
+				<li>
+					<span class="phase {phase}"
+						>{phase === 'open' ? 'Open now' : phase === 'upcoming' ? 'Coming up' : 'Ended'}</span
+					>
+					{w.title} <span class="muted">· {span(w)} · {w.by}</span>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+{/snippet}
+
 {#snippet consequences(i: Impact)}
 	{#if ui.whatIf.length === 0 && i.failed.devices.size}
 		{@const down = [...i.failed.devices].sort(compareNatural)}
@@ -333,7 +394,7 @@ links that select and bring that item into view.
 	{#if end.lag}<span class="tag">{shortInterface(end.lag)}</span>{/if}
 {/snippet}
 
-{#if selection || path || ui.pathFrom || impact || (ui.whatIf.length && whatIfProblem)}
+{#if selection || path || ui.pathFrom || impact || problem || (ui.whatIf.length && whatIfProblem)}
 	<aside class="details" aria-label="Details">
 		{#if ui.pathFrom}
 			<section class="path" aria-label="Path">
@@ -386,7 +447,7 @@ links that select and bring that item into view.
 				<h2>What if</h2>
 				<p class="muted">Could not work out what these failures would do: {whatIfProblem}</p>
 			</section>
-		{:else if impact}
+		{:else if impact || problem}
 			<section class="impact" aria-label="Impact">
 				{#if ui.whatIf.length}
 					<button class="close" onclick={() => (ui.whatIf = [])} aria-label="Clear what if"
@@ -414,8 +475,50 @@ links that select and bring that item into view.
 					>
 					<h2>{problem.title}</h2>
 					{#if problem.detail}<p class="muted">{problem.detail}</p>{/if}
+					{#each problem.planned as id (id)}
+						{@const w = windows.find((x) => x.id === id)}
+						<p class="handled">
+							<span class="phase open">Planned</span>
+							{w ? `${w.title} · ${span(w)} · ${w.by}` : 'Maintenance accounts for it'}
+						</p>
+					{/each}
+					{#if ui.at === null}
+						{#if problem.ack}
+							<p class="handled">
+								<span class="phase ack">On it</span>
+								{problem.ack.by} since {clock(problem.ack.at)}{problem.ack.note
+									? `: ${problem.ack.note}`
+									: ''}
+								<button class="link" onclick={() => withdraw(problem.id)}>Withdraw</button>
+							</p>
+						{:else}
+							<form class="ack-form" onsubmit={(e) => ack(e, problem.id)}>
+								<input
+									bind:value={ackNote}
+									maxlength="1000"
+									placeholder="What is being done"
+									aria-label="Note"
+								/>
+								<input
+									bind:value={ui.person}
+									required
+									maxlength="64"
+									placeholder="Your name"
+									aria-label="Your name"
+									autocomplete="name"
+								/>
+								<button type="submit">Acknowledge</button>
+							</form>
+						{/if}
+						{#if ackProblem}<p class="muted" role="alert">{ackProblem}</p>{/if}
+					{:else if problem.ack}
+						<p class="handled">
+							<span class="phase ack">On it</span>
+							{problem.ack.by} since {clock(problem.ack.at)}
+						</p>
+					{/if}
 				{/if}
-				{@render consequences(impact)}
+				{#if impact}{@render consequences(impact)}{/if}
 			</section>
 		{/if}
 
@@ -493,8 +596,10 @@ links that select and bring that item into view.
 							</button>
 							<button onclick={() => startPath(device.name)}>Path from here</button>
 							{@render whatIf(selection, 'What if it fails?')}
+							{@render planButton(selection)}
 						</p>
 						{#if ifFails}<p class="muted">{consequence(ifFails, 'it')}</p>{/if}
+						{@render maintenanceOf(selection)}
 						<h3>Neighbors ({neighbors.length})</h3>
 						<table>
 							<thead>
@@ -589,8 +694,10 @@ links that select and bring that item into view.
 								Show neighborhood
 							</button>
 							{@render whatIf(selection, 'What if it fails?')}
+							{@render planButton(selection)}
 						</p>
 						{#if ifFails}<p class="muted">{consequence(ifFails, 'the whole site')}</p>{/if}
+						{@render maintenanceOf(selection)}
 						<h3>Links to other sites ({wan.length})</h3>
 						<table>
 							<thead><tr><th>Local</th><th>Remote</th><th>Speed</th><th>Circuit</th></tr></thead>
@@ -635,10 +742,12 @@ links that select and bring that item into view.
 							selection,
 							links.length === 1 ? 'What if it fails?' : 'What if they fail?'
 						)}
+						{@render planButton(selection)}
 					</p>
 					{#if ifFails}
 						<p class="muted">{consequence(ifFails, links.length === 1 ? 'it' : 'them')}</p>
 					{/if}
+					{@render maintenanceOf(selection)}
 					<table>
 						<thead>
 							<tr>
@@ -724,6 +833,49 @@ links that select and bring that item into view.
 		padding: 14px 16px;
 		border-bottom: 1px solid var(--border);
 		background: color-mix(in srgb, var(--down) 8%, var(--panel));
+	}
+	.windows {
+		margin: 4px 0;
+		padding: 0;
+		list-style: none;
+	}
+	.windows li {
+		margin: 3px 0;
+	}
+	.phase {
+		display: inline-block;
+		margin-right: 6px;
+		padding: 0 6px;
+		border-radius: 8px;
+		border: 1px solid var(--border);
+		font-size: 11px;
+		color: var(--muted);
+	}
+	.phase.open {
+		border-color: var(--live);
+		color: var(--text);
+	}
+	.phase.ack {
+		border-color: var(--selected);
+		color: var(--text);
+	}
+	.handled {
+		margin: 6px 0;
+	}
+	.ack-form {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin: 8px 0 4px;
+	}
+	.ack-form input {
+		flex: 1 1 120px;
+		font: inherit;
+		color: var(--text);
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		padding: 3px 6px;
 	}
 	.failures,
 	.groups {
@@ -899,8 +1051,12 @@ links that select and bring that item into view.
 	}
 	.actions {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 6px;
 		margin: 10px 0;
+	}
+	.actions button {
+		white-space: nowrap;
 	}
 	.devices {
 		columns: 2;

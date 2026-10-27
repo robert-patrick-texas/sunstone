@@ -101,6 +101,8 @@ class StateEvent(_Record):
     device: str | None = None
     link: str | None = None
     pct: float | None = None
+    planned: bool = False
+    """Maintenance open at the time accounts for it."""
 
 
 class EventLog(_Record):

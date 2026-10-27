@@ -14,6 +14,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = Number(process.env['SUNSTONE_BENCH_PORT'] ?? 18941);
 const LAYOUTS = join(tmpdir(), `sunstone-bench-${process.pid}.layouts.json`);
+const OPERATIONS = join(tmpdir(), `sunstone-bench-${process.pid}.operations.json`);
 const ws = process.env['PW_WS_ENDPOINT'];
 
 export default defineConfig({
@@ -38,7 +39,7 @@ export default defineConfig({
 	webServer: {
 		command:
 			'uv run sunstone --topology ../data/sample/large.yaml --web-dir ../frontend/build ' +
-			`--layouts ${LAYOUTS} --port ${PORT}`,
+			`--layouts ${LAYOUTS} --operations ${OPERATIONS} --port ${PORT}`,
 		cwd: '../backend',
 		url: `http://127.0.0.1:${PORT}/api/topology`,
 		reuseExistingServer: false,

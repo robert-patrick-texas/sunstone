@@ -1,7 +1,8 @@
 <!--
 @component
 What changed over the last day, newest first, with devices at one site that
-changed together as one row. Clicking a row replays that moment and selects
+changed together as one row, and changes that open maintenance accounts
+for marked planned. Clicking a row replays that moment and selects
 what changed. Categories can be turned off.
 -->
 <script lang="ts">
@@ -84,7 +85,9 @@ what changed. Categories can be turned off.
 				>
 					<time datetime={row.at}>{clock(row.at)}</time>
 					<i style:--c={MARK[row.kind].color} aria-hidden="true">{MARK[row.kind].glyph}</i>
-					<span>{row.title}</span>
+					<span
+						>{row.title}{#if row.planned}<b class="planned">planned</b>{/if}</span
+					>
 				</button>
 			</li>
 		{/each}
@@ -163,6 +166,15 @@ what changed. Categories can be turned off.
 	}
 	span {
 		word-break: break-word;
+	}
+	.planned {
+		margin-left: 6px;
+		padding: 0 5px;
+		border: 1px solid var(--live);
+		border-radius: 8px;
+		font-size: 10px;
+		font-weight: normal;
+		color: var(--muted);
 	}
 	.more {
 		margin: 8px 4px;

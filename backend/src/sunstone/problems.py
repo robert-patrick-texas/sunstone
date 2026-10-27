@@ -19,9 +19,9 @@ import math
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from sunstone.impact import FailedSet, Failures, Impact, Network
 from sunstone.layouts import Center, DeviceCenter, LinksCenter, SiteCenter
@@ -47,8 +47,44 @@ KINDS: list[ProblemKind] = [
 ]
 
 
+PersonName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)
+]
+Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
+
+
 class _Record(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class AckIn(_Record):
+    """Someone taking on a problem."""
+
+    problem: str = Field(min_length=1, max_length=300)
+    note: Note = ""
+    by: PersonName
+
+
+class Ack(AckIn):
+    """An acknowledged problem."""
+
+    at: datetime
+    cleared_at: datetime | None = None
+    """When the problem cleared, ending the acknowledgement."""
+
+    def active(self, at: datetime) -> bool:
+        """Whether it stands at a moment.
+
+        Args:
+            at: The moment.
+
+        Returns:
+            True from when it was made until its problem cleared.
+
+        Raises:
+            None
+        """
+        return self.at <= at and (self.cleared_at is None or at < self.cleared_at)
 
 
 class Problem(_Record):
@@ -67,6 +103,10 @@ class Problem(_Record):
     """Devices it leaves unreachable."""
     exposed: int
     """Devices it leaves without redundancy."""
+    planned: list[str] = []
+    """Ids of the open maintenance windows that account for it, if they do."""
+    ack: Ack | None = None
+    """Who is on it, if anyone."""
 
 
 class ProblemList(_Record):
