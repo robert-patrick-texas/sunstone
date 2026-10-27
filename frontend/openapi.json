@@ -24,6 +24,25 @@
     }
    }
   },
+  "/api/state": {
+   "get": {
+    "summary": "Get State",
+    "description": "Return the live state of everything monitored, as of now.",
+    "operationId": "get_state_api_state_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/NetworkState"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/layouts": {
    "get": {
     "summary": "List Layouts",
@@ -269,6 +288,49 @@
     "title": "DeviceCenter",
     "description": "A neighborhood built around one device."
    },
+   "DeviceState": {
+    "properties": {
+     "device": {
+      "type": "string",
+      "title": "Device"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "up",
+       "down"
+      ],
+      "title": "Status"
+     },
+     "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Observed At"
+     },
+     "stale": {
+      "type": "boolean",
+      "title": "Stale"
+     },
+     "reachability": {
+      "items": {
+       "$ref": "#/components/schemas/Reachability"
+      },
+      "type": "array",
+      "title": "Reachability"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "device",
+     "status",
+     "observed_at",
+     "stale",
+     "reachability"
+    ],
+    "title": "DeviceState",
+    "description": "Whether a monitored device answers, and how quickly."
+   },
    "Endpoint": {
     "properties": {
      "device": {
@@ -312,6 +374,70 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "InterfaceState": {
+    "properties": {
+     "device": {
+      "type": "string",
+      "title": "Device"
+     },
+     "interface": {
+      "type": "string",
+      "title": "Interface"
+     },
+     "oper": {
+      "type": "string",
+      "enum": [
+       "up",
+       "down"
+      ],
+      "title": "Oper"
+     },
+     "in_pct": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "In Pct"
+     },
+     "out_pct": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Out Pct"
+     },
+     "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Observed At"
+     },
+     "stale": {
+      "type": "boolean",
+      "title": "Stale"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "device",
+     "interface",
+     "oper",
+     "in_pct",
+     "out_pct",
+     "observed_at",
+     "stale"
+    ],
+    "title": "InterfaceState",
+    "description": "A monitored interface's status and load, as a share of its speed."
    },
    "LayoutIn": {
     "properties": {
@@ -529,6 +655,71 @@
     "title": "LinksCenter",
     "description": "A neighborhood built around the ends of some links."
    },
+   "MonitoringPosition": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "site": {
+      "type": "string",
+      "title": "Site"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "site"
+    ],
+    "title": "MonitoringPosition",
+    "description": "A place measurements are taken from, such as a collector at a hub."
+   },
+   "NetworkState": {
+    "properties": {
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Generated At"
+     },
+     "positions": {
+      "items": {
+       "$ref": "#/components/schemas/MonitoringPosition"
+      },
+      "type": "array",
+      "title": "Positions"
+     },
+     "devices": {
+      "items": {
+       "$ref": "#/components/schemas/DeviceState"
+      },
+      "type": "array",
+      "title": "Devices"
+     },
+     "interfaces": {
+      "items": {
+       "$ref": "#/components/schemas/InterfaceState"
+      },
+      "type": "array",
+      "title": "Interfaces"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "source",
+     "generated_at",
+     "positions",
+     "devices",
+     "interfaces"
+    ],
+    "title": "NetworkState",
+    "description": "One snapshot of everything a source monitors."
+   },
    "PathEnds": {
     "properties": {
      "from": {
@@ -568,6 +759,45 @@
     ],
     "title": "Position",
     "description": "Where a node was drawn."
+   },
+   "Reachability": {
+    "properties": {
+     "position": {
+      "type": "string",
+      "title": "Position"
+     },
+     "rtt_ms": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rtt Ms"
+     },
+     "loss_pct": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Loss Pct"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "position",
+     "rtt_ms",
+     "loss_pct"
+    ],
+    "title": "Reachability",
+    "description": "Round-trip time and loss to a device from one monitoring position."
    },
    "SavedLayout": {
     "properties": {

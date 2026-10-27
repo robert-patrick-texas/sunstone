@@ -5,9 +5,15 @@
  * one line. Zoomed in, a site's devices are drawn on rings around the site's
  * coordinates, upper tiers on inner rings. The rings are a drawing aid, not
  * real device locations: sources give coordinates per site, not per device.
+ *
+ * Given live state, features also carry `health` (and `util`, `glyph`, or a
+ * fuller site `label`) for the map's live styling; without it they carry
+ * none, and the map draws structure only.
  */
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import type { Link } from '../api/topology.ts';
+import { bundleLive, deviceHealth, groupHealth, linkLive, type LiveIndex } from '../live.ts';
+import { HEALTH_GLYPH } from '../theme.ts';
 import { ROLES, siteOf, type TopologyIndex } from '../topology.ts';
 
 export type LonLat = [number, number];
@@ -100,19 +106,32 @@ function collection<G extends Point | LineString>(features: Feature<G>[]): Featu
  * Site points, sized by device count.
  *
  * @param index - Topology index.
- * @returns One point per site.
+ * @param live - Live state, or null for structure only.
+ * @returns One point per site; with live state, its worst device health.
  */
-export function siteFeatures(index: TopologyIndex): FeatureCollection<Point> {
+export function siteFeatures(
+	index: TopologyIndex,
+	live: LiveIndex | null = null
+): FeatureCollection<Point> {
 	return collection(
-		index.topology.sites.map((site) => ({
-			type: 'Feature',
-			geometry: { type: 'Point', coordinates: [site.lon, site.lat] },
-			properties: {
+		index.topology.sites.map((site) => {
+			const devices = (index.devicesBySite.get(site.code) ?? []).map((d) => d.name);
+			const properties: Record<string, unknown> = {
 				code: site.code,
 				name: site.name,
-				devices: index.devicesBySite.get(site.code)?.length ?? 0
+				devices: devices.length
+			};
+			if (live) {
+				const { health, counts } = groupHealth(live, devices);
+				properties['health'] = health;
+				if (counts.down) properties['label'] = `${site.code} · ${counts.down} down`;
 			}
-		}))
+			return {
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [site.lon, site.lat] },
+				properties
+			};
+		})
 	);
 }
 
@@ -121,11 +140,13 @@ export function siteFeatures(index: TopologyIndex): FeatureCollection<Point> {
  *
  * @param index - Topology index.
  * @param pairs - Site pairs from {@link sitePairs}.
- * @returns One line per pair.
+ * @param live - Live state, or null for structure only.
+ * @returns One line per pair; with live state, the busiest link's load.
  */
 export function sitePairFeatures(
 	index: TopologyIndex,
-	pairs: SitePair[]
+	pairs: SitePair[],
+	live: LiveIndex | null = null
 ): FeatureCollection<LineString> {
 	const coords = (code: string): LonLat => {
 		const site = index.sites.get(code);
@@ -135,7 +156,12 @@ export function sitePairFeatures(
 		pairs.map((pair) => ({
 			type: 'Feature',
 			geometry: { type: 'LineString', coordinates: [coords(pair.a), coords(pair.b)] },
-			properties: { key: pair.key, links: pair.linkIds.length, capacity: pair.capacityMbps }
+			properties: {
+				key: pair.key,
+				links: pair.linkIds.length,
+				capacity: pair.capacityMbps,
+				...(live ? bundleProperties(index, live, pair.linkIds) : {})
+			}
 		}))
 	);
 }
@@ -145,18 +171,28 @@ export function sitePairFeatures(
  *
  * @param index - Topology index.
  * @param positions - From {@link devicePositions}.
- * @returns One point per device.
+ * @param live - Live state, or null for structure only.
+ * @returns One point per device; with live state, its health and glyph.
  */
 export function deviceFeatures(
 	index: TopologyIndex,
-	positions: Map<string, LonLat>
+	positions: Map<string, LonLat>,
+	live: LiveIndex | null = null
 ): FeatureCollection<Point> {
 	return collection(
-		index.topology.devices.map((device) => ({
-			type: 'Feature',
-			geometry: { type: 'Point', coordinates: positions.get(device.name) ?? [0, 0] },
-			properties: { name: device.name, role: device.role }
-		}))
+		index.topology.devices.map((device) => {
+			const properties: Record<string, unknown> = { name: device.name, role: device.role };
+			if (live) {
+				const health = deviceHealth(live, device.name);
+				properties['health'] = health;
+				if (HEALTH_GLYPH[health]) properties['glyph'] = HEALTH_GLYPH[health];
+			}
+			return {
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: positions.get(device.name) ?? [0, 0] },
+				properties
+			};
+		})
 	);
 }
 
@@ -165,11 +201,13 @@ export function deviceFeatures(
  *
  * @param links - Links to draw.
  * @param positions - From {@link devicePositions}.
- * @returns One line per link.
+ * @param live - Live state, or null for structure only.
+ * @returns One line per link; with live state, its health and load.
  */
 export function linkFeatures(
 	links: Link[],
-	positions: Map<string, LonLat>
+	positions: Map<string, LonLat>,
+	live: LiveIndex | null = null
 ): FeatureCollection<LineString> {
 	return collection(
 		links.map((link) => ({
@@ -181,7 +219,22 @@ export function linkFeatures(
 					positions.get(link.b.device) ?? [0, 0]
 				]
 			},
-			properties: { id: link.id, kind: link.kind, speed: link.speed_mbps }
+			properties: {
+				id: link.id,
+				kind: link.kind,
+				speed: link.speed_mbps,
+				...(live ? liveProperties(linkLive(live, link)) : {})
+			}
 		}))
 	);
+}
+
+function bundleProperties(index: TopologyIndex, live: LiveIndex, ids: string[]) {
+	const links = ids.flatMap((id) => index.links.get(id) ?? []);
+	return liveProperties(bundleLive(links.map((l) => linkLive(live, l))));
+}
+
+/** Health always; load only when measured, so "no data" never reads as 0%. */
+function liveProperties({ health, utilPct }: { health: string; utilPct: number | null }) {
+	return utilPct === null ? { health } : { health, util: utilPct };
 }

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureIndex } from '../test-fixture.ts';
-import { devicePositions, pairKey, sitePairs } from './geojson.ts';
+import type { NetworkState } from '../api/state.ts';
+import { indexState } from '../live.ts';
+import {
+	deviceFeatures,
+	devicePositions,
+	linkFeatures,
+	pairKey,
+	siteFeatures,
+	sitePairs
+} from './geojson.ts';
 
 describe('sitePairs', () => {
 	it('groups inter-site links by unordered site pair and skips intra-site links', () => {
@@ -40,5 +49,58 @@ describe('devicePositions', () => {
 		};
 		expect(distance('a-wan-01')).toBeLessThan(distance('a-core-01'));
 		expect(distance('a-core-01')).toBeLessThan(distance('a-acc-01'));
+	});
+});
+
+describe('live properties', () => {
+	const AT = '2026-10-27T15:00:00Z';
+	const state: NetworkState = {
+		source: 'test',
+		generated_at: AT,
+		positions: [],
+		devices: [
+			{ device: 'c-wan-01', status: 'up', observed_at: AT, stale: false, reachability: [] },
+			{ device: 'c-acc-01', status: 'down', observed_at: AT, stale: false, reachability: [] }
+		],
+		interfaces: [
+			{
+				device: 'c-wan-01',
+				interface: 'Te1/0/2',
+				oper: 'up',
+				in_pct: 5,
+				out_pct: 30,
+				observed_at: AT,
+				stale: false
+			}
+		]
+	};
+
+	it('are absent without live state', () => {
+		const index = fixtureIndex();
+		const props = deviceFeatures(index, devicePositions(index)).features[0]?.properties;
+		expect(props).toEqual({ name: 'a-wan-01', role: 'wan-edge' });
+	});
+
+	it('give devices their health and glyph, and sites their worst health', () => {
+		const index = fixtureIndex();
+		const live = indexState(state);
+		const devices = deviceFeatures(index, devicePositions(index), live).features;
+		const byName = Object.fromEntries(devices.map((f) => [f.properties?.['name'], f.properties]));
+		expect(byName['c-acc-01']).toMatchObject({ health: 'down', glyph: '×' });
+		expect(byName['c-wan-01']).toMatchObject({ health: 'up' });
+		expect(byName['c-wan-01']).not.toHaveProperty('glyph');
+		const site = siteFeatures(index, live).features.find((f) => f.properties?.['code'] === 'C');
+		expect(site?.properties).toMatchObject({ health: 'down', label: 'C · 1 down' });
+	});
+
+	it('leave load off links with no measurement instead of writing 0', () => {
+		const index = fixtureIndex();
+		const live = indexState(state);
+		const lines = linkFeatures(index.topology.links, devicePositions(index), live).features;
+		const byId = Object.fromEntries(lines.map((f) => [f.properties?.['id'], f.properties]));
+		expect(byId['c-acc-02:Te1/0/49--c-wan-01:Te1/0/2']).toMatchObject({ health: 'ok', util: 30 });
+		const core = byId['a-acc-01:TenGigabitEthernet1/0/49--a-core-01:TenGigabitEthernet1/0/1'];
+		expect(core).toMatchObject({ health: 'unmonitored' });
+		expect(core).not.toHaveProperty('util');
 	});
 });

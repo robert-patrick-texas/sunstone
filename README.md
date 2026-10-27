@@ -4,7 +4,7 @@
 
 Sunstone shows network operations staff a map of the network they can pan, zoom, and switch between views of: a geographic map with sites and links, a top-down hierarchy, and automatic topology layouts of the whole network or of the neighborhood around a device.
 
-> **Status:** workshop prototype. It runs on generated mock data, shows structure only (no live state), and has no integrations yet.
+> **Status:** workshop prototype. It runs on a generated mock topology and simulated live state, and has no integrations yet.
 
 ## Running it
 
@@ -26,6 +26,7 @@ Sunstone has no sign-in, and anyone who can reach it can save and delete layouts
 - **Hierarchy:** sites with a core tier on top, other sites below by WAN hops. Double-click a site, or use the details panel, to expand it into tier rows (WAN edge, core, distribution, access). Interface names label the selected device's links, and every link once zoomed in. Networks over 400 devices open with sites collapsed.
 - **Topology:** automatic layouts, either of the whole network (collapsible sites, as in the hierarchy) or of a **neighborhood**: the devices within 1–4 hops of a device, site, or link. Choose a force-directed layout, optionally grouped into a frame per site, or a radial one with the center in the middle and a ring per hop. Open a neighborhood with **Show neighborhood** in the details panel or by double-clicking a device; double-click another device to walk on from there. Neighborhoods stop at 400 devices, adding whole hops only, and say what the next hop would have added. Nodes can be dragged, and finished layouts are kept while the page is open, so switching views and back shows the same picture. **Saved layouts** stores the current picture, settings included, under a name on the server, to open again later.
 - **Paths:** choose **Path from here** on a device, then click or search for the destination. Every shortest path is found (by number of links; there are no routing costs in the data), drawn in all three views with everything else faded, and listed hop by hop with the interfaces at each end in the details panel. The topology view's **Path** scope draws only the devices on those paths, force-directed or layered by hop.
+- **Live** (header toggle): device status and link load over every view, refreshed every 10 seconds. Devices are up (blue), dropping packets (amber, `!`), down (red, `×`, octagon in the graph views), without a recent reading (gray, `?`), or not monitored (hollow). Links are colored by their busier direction, in blue bands up to 80% of capacity, then amber, then red from 95%; down links are dashed and links with no data dotted. Sites take their worst device's color and say how many devices are down. The details panel adds round-trip time and loss from each monitoring position and load out and in on every link. A device or link the source does not watch reads "not monitored", and one without a fresh reading "no data": neither is ever shown as 0%.
 - **Selection** is shared: whatever is selected stays selected when switching views. The details panel shows a device's neighbors interface by interface, a site's links to other sites, or a link's ends and circuit. Names in it are clickable.
 - **Search** with `/`, by device name, site code or name, or management address. `Esc` clears the selection.
 
@@ -53,6 +54,8 @@ Roles are `wan-edge`, `core`, `distribution`, and `access`. Each link end is a d
 
 `data/sample/` holds two generated topologies (`make data` regenerates them): `small.yaml` (5 sites, 52 devices) and `large.yaml` (63 sites, 2,960 devices, 5,930 links). Both are fictional.
 
+Live state comes from `GET /api/state`: one snapshot of everything a state source monitors, with two kinds of record, in the shapes monitoring tools such as vakr produce. Each **device** record says up or down and gives round-trip time and loss from each monitoring position; each **interface** record, keyed by device and interface name, gives operational status and percent load in and out. Sunstone works out each link from the interfaces at its two ends, so a link has data if either end is monitored. Anything absent is not monitored; anything `stale` is monitored without a fresh reading. A source is any object with `snapshot(now)` (`StateSource` in `backend/src/sunstone/live.py`); the only one so far is `SimulatedState` (`simulate.py`). It is deterministic for a given moment, so every viewer sees the same picture: it monitors every WAN edge, core, and distribution device and about half the access switches; load follows each site's time of day with a few WAN circuits running hot; and in each 5-minute window a few devices go down, stop reporting, or drop packets. Round-trip time grows with distance from the two monitoring positions at the hub sites.
+
 Saved layouts go in a JSON file beside the topology (`small.yaml` → `small.layouts.json`), or wherever `--layouts` says. They are listed, fetched, saved, and deleted at `GET /api/layouts` and `GET`/`PUT`/`DELETE /api/layouts/{name}`. The file is rewritten whole on each change, by writing a new file and moving it into place, and holds at most 200 layouts. Layout files are ignored by git, since they are each user's own arrangements.
 
 ## Layout
@@ -70,6 +73,8 @@ Saved layouts go in a JSON file beside the topology (`small.yaml` → `small.lay
 - **Scale target:** 500–5,000 devices. Views start grouped (sites as points on the map, collapsed sites in the hierarchy) and open up on demand.
 - **Hierarchy layout** is a small fixed-row layout rather than ELK.js. Layered-graph algorithms put every link between two different rows, which splits a redundant pair joined by a peer link onto two rows; fixed tier rows keep pairs side by side. The full 3,000-device layout takes about 40 ms.
 - **Topology layouts** use fcose, whose cost climbs steeply with size. Measured on the 3,000-device sample: 0.4 s with sites collapsed, but 18 s or more for one pass over the fully expanded network (and its fast draft mode piles sites on top of each other). Above 800 nodes the layout therefore goes site by site, each site's devices alone and then the sites among each other, with a final pass that pushes overlapping sites apart. That takes about 5 s for the full sample. Expanding one site in a graph of up to 300 nodes refines the current picture instead of starting over.
+- **Live colors** were checked with a color-vision validator rather than by eye. Healthy is blue, not green: green and red are nearly indistinguishable with red-green color blindness (ΔE 4 deuteranopic), while blue, amber, and red stay apart (worst ΔE 24). Glyphs, line styles, and the legend carry the same information, so color is never the only cue.
+- **Live updates** poll every 10 seconds. A full snapshot of the 3,000-device sample is 1.8 MB, 82 KB with the gzip compression the backend now applies. Server-Sent Events (which vakr's API plans) would replace polling once there is a real source.
 - **Map tiles** come from OpenFreeMap's hosted dark style; viewers' browsers need internet access.
 
 ## Testing
@@ -87,7 +92,7 @@ $ PW_WS_ENDPOINT=ws://127.0.0.1:3124/ make e2e
 ## Next
 
 - Sources: NetBox/Nautobot import, then NMS import and LLDP/CDP discovery.
-- Live state: up/down status, then utilization and latency overlays (vakr among the sources).
+- Live state from real sources: vakr first (it needs the read-only integration role its design calls for), then other monitoring tools, each as a `StateSource`.
 
 ## License
 

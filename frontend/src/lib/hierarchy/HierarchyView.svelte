@@ -6,12 +6,17 @@ the details panel); expanded sites show devices in tier rows.
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { GraphCanvas } from '../graph/canvas.ts';
+	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
 	import { expandedSites, ui, type Selection } from '../state.svelte.ts';
 	import { siteOf, type TopologyIndex } from '../topology.ts';
 	import { buildHierarchy } from './layout.ts';
 
-	const { index, path }: { index: TopologyIndex; path: PathResult | null } = $props();
+	const {
+		index,
+		path,
+		live
+	}: { index: TopologyIndex; path: PathResult | null; live: LiveIndex | null } = $props();
 
 	const DEVICE_FOCUS_ZOOM = 1.4;
 
@@ -52,6 +57,10 @@ the details panel); expanded sites show devices in tier rows.
 
 	$effect(() => {
 		canvas?.highlight(ui.selection, path);
+	});
+
+	$effect(() => {
+		canvas?.setLive(live);
 	});
 
 	// A newly shown path is brought into view.

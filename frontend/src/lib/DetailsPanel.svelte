@@ -1,12 +1,21 @@
 <!--
 @component
 Details of the current selection: a device and its neighbors, a site and
-its WAN links, or a set of links. Above it, the shortest paths between two
+its WAN links, or a set of links. With live state, also health, round-trip
+times from each monitoring position, and load on each link. Above it, the shortest paths between two
 devices when a path is shown, hop by hop with interfaces. Names in the panel
 are links that select and bring that item into view.
 -->
 <script lang="ts">
 	import type { Endpoint, Link } from './api/topology.ts';
+	import {
+		deviceHealth,
+		groupHealth,
+		HEALTH_LABEL,
+		linkLive,
+		type DeviceHealth,
+		type LiveIndex
+	} from './live.ts';
 	import { linksBetween, type PathResult } from './paths.ts';
 	import {
 		clearPath,
@@ -18,7 +27,7 @@ are links that select and bring that item into view.
 		ui,
 		type Selection
 	} from './state.svelte.ts';
-	import { ROLE_COLOR } from './theme.ts';
+	import { HEALTH_COLOR, HEALTH_GLYPH, ROLE_COLOR, utilColor } from './theme.ts';
 	import {
 		formatSpeed,
 		neighborsOf,
@@ -29,7 +38,33 @@ are links that select and bring that item into view.
 		type TopologyIndex
 	} from './topology.ts';
 
-	const { index, path }: { index: TopologyIndex; path: PathResult | null } = $props();
+	const {
+		index,
+		path,
+		live
+	}: { index: TopologyIndex; path: PathResult | null; live: LiveIndex | null } = $props();
+
+	const HEALTHS: DeviceHealth[] = ['down', 'degraded', 'nodata', 'up', 'unmonitored'];
+	const LINK_STATE: Record<string, string> = {
+		down: 'down',
+		nodata: 'no data',
+		unmonitored: 'not monitored'
+	};
+
+	/** Load on a link as seen leaving and entering one of its ends. */
+	function loadAt(l: LiveIndex, link: Link, end: Endpoint) {
+		const state = linkLive(l, link);
+		const fromA = link.a.device === end.device && link.a.interface === end.interface;
+		return {
+			health: state.health,
+			out: fromA ? state.aToB : state.bToA,
+			in: fromA ? state.bToA : state.aToB
+		};
+	}
+
+	function minutesAgo(iso: string): string {
+		return `${Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000))} min ago`;
+	}
 
 	const selection = $derived(ui.selection);
 
@@ -58,6 +93,22 @@ are links that select and bring that item into view.
 		);
 	}
 </script>
+
+{#snippet healthBadge(health: DeviceHealth, text: string)}
+	<span class="health" class:hollow={health === 'unmonitored'} style:--c={HEALTH_COLOR[health]}
+		><i>{HEALTH_GLYPH[health]}</i>{text}</span
+	>
+{/snippet}
+
+{#snippet load(health: string, out: number | null, inbound: number | null)}
+	{#if health === 'ok' && out !== null && inbound !== null}
+		<i class="bar" style:background={utilColor(Math.max(out, inbound))}></i>{Math.round(out)}% / {Math.round(
+			inbound
+		)}%
+	{:else}
+		<span class="muted">{LINK_STATE[health] ?? '—'}</span>
+	{/if}
+{/snippet}
 
 {#snippet deviceLink(name: string)}
 	<button class="link" onclick={(e) => follow(e, { kind: 'device', id: name })}>{name}</button>
@@ -138,6 +189,33 @@ are links that select and bring that item into view.
 							at {@render siteLink(device.site)}
 							{index.sites.get(device.site)?.name}
 						</p>
+						{#if live}
+							{@const record = live.devices.get(device.name)}
+							{@const health = deviceHealth(live, device.name)}
+							<p>
+								{@render healthBadge(health, HEALTH_LABEL[health])}
+								{#if record?.stale}<span class="muted">
+										· last reading {minutesAgo(record.observed_at)}</span
+									>{/if}
+							</p>
+							{#if record}
+								<table class="reach">
+									<thead><tr><th>From</th><th>Round trip</th><th>Loss</th></tr></thead>
+									<tbody>
+										{#each record.reachability as r (r.position)}
+											{@const at = live.state.positions.find((p) => p.name === r.position)}
+											<tr>
+												<td>{r.position}{at ? ` (${at.site})` : ''}</td>
+												<td>{r.rtt_ms === null ? '—' : `${r.rtt_ms.toFixed(1)} ms`}</td>
+												<td>{r.loss_pct === null ? '—' : `${r.loss_pct}%`}</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{:else}
+								<p class="muted">The {live.state.source} source does not watch this device.</p>
+							{/if}
+						{/if}
 						<dl>
 							{#if device.platform}<dt>Platform</dt>
 								<dd>{device.platform}</dd>{/if}
@@ -152,7 +230,14 @@ are links that select and bring that item into view.
 						</p>
 						<h3>Neighbors ({neighbors.length})</h3>
 						<table>
-							<thead><tr><th>Local</th><th>Neighbor</th><th>Remote</th><th>Speed</th></tr></thead>
+							<thead>
+								<tr>
+									<th>Local</th><th>Neighbor</th><th>Remote</th><th>Speed</th>
+									{#if live}<th title="Percent of capacity, out of and into this device"
+											>Out / in</th
+										>{/if}
+								</tr>
+							</thead>
 							<tbody>
 								{#each neighbors as n (n.link.id)}
 									<tr onclick={() => select({ kind: 'links', ids: [n.link.id] }, true)}>
@@ -166,6 +251,10 @@ are links that select and bring that item into view.
 											{formatSpeed(n.link.speed_mbps)}
 											{#if n.link.kind === 'wan'}<span class="tag wan">WAN</span>{/if}
 										</td>
+										{#if live}
+											{@const at = loadAt(live, n.link, n.local)}
+											<td class="nowrap">{@render load(at.health, at.out, at.in)}</td>
+										{/if}
 									</tr>
 								{/each}
 							</tbody>
@@ -190,6 +279,19 @@ are links that select and bring that item into view.
 								{/if}
 							{/each}
 						</p>
+						{#if live}
+							{@const { counts } = groupHealth(
+								live,
+								devices.map((d) => d.name)
+							)}
+							<p class="roles">
+								{#each HEALTHS as health (health)}
+									{#if counts[health]}
+										{@render healthBadge(health, `${counts[health]} ${HEALTH_LABEL[health]}`)}
+									{/if}
+								{/each}
+							</p>
+						{/if}
 						<p class="actions">
 							<button
 								title="Show the site's devices in the hierarchy and topology views"
@@ -244,7 +346,12 @@ are links that select and bring that item into view.
 					<h2>{links.length === 1 ? 'Link' : `${links.length} links`}</h2>
 					<p class="muted">{formatSpeed(total)} total capacity</p>
 					<table>
-						<thead><tr><th>A end</th><th>B end</th><th>Speed</th></tr></thead>
+						<thead>
+							<tr>
+								<th>A end</th><th>B end</th><th>Speed</th>
+								{#if live}<th title="Percent of capacity, A to B and B to A">A→B / B→A</th>{/if}
+							</tr>
+						</thead>
 						<tbody>
 							{#each links as link (link.id)}
 								<tr>
@@ -254,10 +361,16 @@ are links that select and bring that item into view.
 										{formatSpeed(link.speed_mbps)}
 										{#if link.kind === 'wan'}<span class="tag wan">WAN</span>{/if}
 									</td>
+									{#if live}
+										{@const at = loadAt(live, link, link.a)}
+										<td class="nowrap">{@render load(at.health, at.out, at.in)}</td>
+									{/if}
 								</tr>
 								{#if link.circuit}
 									<tr class="sub">
-										<td colspan="3">Circuit {link.circuit.circuit_id} · {link.circuit.provider}</td>
+										<td colspan={live ? 4 : 3}>
+											Circuit {link.circuit.circuit_id} · {link.circuit.provider}
+										</td>
 									</tr>
 								{/if}
 							{/each}
@@ -404,6 +517,42 @@ are links that select and bring that item into view.
 	}
 	.roles {
 		margin: 8px 0;
+	}
+	.health {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin-right: 10px;
+	}
+	.health i {
+		display: inline-grid;
+		place-items: center;
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: var(--c);
+		color: var(--bg);
+		font-style: normal;
+		font-size: 11px;
+		font-weight: 700;
+	}
+	.health.hollow i {
+		box-sizing: border-box;
+		background: none;
+		border: 1px solid var(--c);
+	}
+	.bar {
+		display: inline-block;
+		width: 8px;
+		height: 8px;
+		border-radius: 2px;
+		margin-right: 5px;
+	}
+	.nowrap {
+		white-space: nowrap;
+	}
+	.reach {
+		margin: 6px 0 10px;
 	}
 	.actions {
 		display: flex;

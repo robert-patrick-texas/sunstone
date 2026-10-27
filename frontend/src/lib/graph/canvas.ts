@@ -5,7 +5,9 @@
  * Interface labels at each link end show for the selected device's links
  * (or the selected links), and for every link once zoomed in close. A path,
  * when one is shown, is highlighted and labeled the same way, and everything
- * off it is faded.
+ * off it is faded. With live state, devices and site boxes take their health
+ * colors and glyphs and edges their load colors; path and selection still
+ * draw on top.
  */
 import cytoscape, {
 	type CollectionReturnValue,
@@ -15,9 +17,25 @@ import cytoscape, {
 	type Position,
 	type StylesheetJson
 } from 'cytoscape';
+import {
+	bundleLive,
+	deviceHealth,
+	groupHealth,
+	linkLive,
+	type DeviceHealth,
+	type LiveIndex
+} from '../live.ts';
 import type { PathResult } from '../paths.ts';
 import { select, type Selection } from '../state.svelte.ts';
-import { COLOR, ROLE_COLOR } from '../theme.ts';
+import {
+	COLOR,
+	HEALTH_COLOR,
+	HEALTH_GLYPH,
+	LINK_NODATA,
+	LINK_UNMONITORED,
+	ROLE_COLOR,
+	utilColor
+} from '../theme.ts';
 import { siteOf, type TopologyIndex } from '../topology.ts';
 import { siteNodeId, type GraphEdge, type GraphNode } from './model.ts';
 
@@ -117,6 +135,37 @@ const STYLE: StylesheetJson = [
 		selector: 'edge.context',
 		style: { opacity: 1, 'z-index': 5, 'font-size': 8, color: COLOR.text }
 	},
+	{
+		selector: 'node.live[kind = "device"]',
+		style: { 'background-color': 'data(liveColor)', label: 'data(liveLabel)' }
+	},
+	{
+		selector: 'node.live-down[kind = "device"]',
+		style: { shape: 'octagon', width: 24, height: 18 }
+	},
+	{
+		selector: 'node.live-nodata[kind = "device"]',
+		style: { 'border-width': 1.5, 'border-style': 'dashed', 'border-color': COLOR.text }
+	},
+	{
+		selector: 'node.live-unmonitored[kind = "device"]',
+		style: {
+			'background-opacity': 0,
+			'border-width': 1,
+			'border-color': HEALTH_COLOR.unmonitored
+		}
+	},
+	{
+		selector: 'node.live[kind = "site"]',
+		style: { 'border-color': 'data(liveColor)', 'border-width': 2.5, label: 'data(liveLabel)' }
+	},
+	{ selector: 'edge.live', style: { 'line-color': 'data(liveColor)', opacity: 0.9 } },
+	{
+		selector: 'edge.live-down, edge.live-partial',
+		style: { 'line-style': 'dashed', 'line-dash-pattern': [6, 3] }
+	},
+	{ selector: 'edge.live-nodata', style: { 'line-style': 'dotted', opacity: 0.8 } },
+	{ selector: 'edge.live-unmonitored', style: { opacity: 0.6 } },
 	{ selector: 'node.center', style: { 'border-width': 2, 'border-color': COLOR.site } },
 	{ selector: '.faded', style: { opacity: 0.15 } },
 	{ selector: 'node.path', style: { 'border-width': 3, 'border-color': COLOR.path } },
@@ -146,6 +195,7 @@ export class GraphCanvas {
 	private labelsShown = false;
 	private selection: Selection | null = null;
 	private path: PathResult | null = null;
+	private live: LiveIndex | null = null;
 
 	/**
 	 * @param container - Element to draw in; the canvas follows its size.
@@ -204,7 +254,18 @@ export class GraphCanvas {
 			this.core.add(elements);
 		});
 		this.showLabels(true);
+		this.applyLive();
 		this.applyHighlight();
+	}
+
+	/**
+	 * Show live state, or go back to structure only.
+	 *
+	 * @param live - The latest snapshot, or null.
+	 */
+	setLive(live: LiveIndex | null): void {
+		this.live = live;
+		this.applyLive();
 	}
 
 	/**
@@ -271,6 +332,42 @@ export class GraphCanvas {
 		return this.core.getElementById(siteNodeId(siteOf(this.index, device)));
 	}
 
+	private applyLive(): void {
+		const { core, live, index } = this;
+		core.batch(() => {
+			core.elements('.live').removeClass(LIVE_CLASSES);
+			if (!live) return;
+			core.nodes('[kind = "device"]').forEach((n) => {
+				const health = deviceHealth(live, n.id());
+				n.data({ liveColor: HEALTH_COLOR[health], liveLabel: glyphed(health, n.data('label')) });
+				n.addClass(`live live-${health}`);
+			});
+			core.nodes('[kind = "site"]').forEach((n) => {
+				const site: string = n.data('site');
+				const devices = (index.devicesBySite.get(site) ?? []).map((d) => d.name);
+				const { health, counts } = groupHealth(live, devices);
+				const down = counts.down ? `\n${counts.down} down` : '';
+				n.data({ liveColor: HEALTH_COLOR[health], liveLabel: `${n.data('label')}${down}` });
+				n.addClass(`live live-${health}`);
+			});
+			core.edges().forEach((e) => {
+				const ids: string[] = e.data('linkIds');
+				const links = ids.flatMap((id) => index.links.get(id) ?? []);
+				const { health, utilPct } = bundleLive(links.map((l) => linkLive(live, l)));
+				const color =
+					health === 'down'
+						? HEALTH_COLOR.down
+						: health === 'nodata'
+							? LINK_NODATA
+							: health === 'unmonitored'
+								? LINK_UNMONITORED
+								: utilColor(utilPct ?? 0);
+				e.data('liveColor', color);
+				e.addClass(`live live-${health}`);
+			});
+		});
+	}
+
 	private applyHighlight(): void {
 		const core = this.core;
 		core.batch(() => {
@@ -300,4 +397,15 @@ export class GraphCanvas {
 		this.labelsShown = show;
 		this.core.edges().toggleClass('labels', show);
 	}
+}
+
+const LIVE_CLASSES = [
+	'live',
+	...['up', 'degraded', 'down', 'nodata', 'unmonitored', 'ok', 'partial'].map((h) => `live-${h}`)
+].join(' ');
+
+/** A device label with its health glyph in front, if it has one. */
+function glyphed(health: DeviceHealth, label: string): string {
+	const glyph = HEALTH_GLYPH[health];
+	return glyph ? `${glyph} ${label}` : label;
 }
