@@ -83,8 +83,11 @@ export const ui = $state({
 	whatIf: [] as Selection[],
 	/** Show where discovery and the documentation disagree, on the map. */
 	discovery: false,
-	/** The shift handover report, by how many hours it covers; null when not shown. */
-	handover: null as number | null,
+	/**
+	 * The shift handover report: how many hours it covers, ending now, or a
+	 * saved one's id; null when not shown.
+	 */
+	handover: null as number | string | null,
 	/** The discovery finding whose fix is being reviewed, by id, or that is being marked expected. */
 	fixing: null as { finding: string; expect: boolean } | null
 });

@@ -30,6 +30,7 @@ from sunstone.oncall import (
     DEFAULT_URGENCY,
     Carrier,
     Directory,
+    HandoverTimes,
     Match,
     Person,
     Rotation,
@@ -359,7 +360,8 @@ def generate_directory(topology: Topology, seed: int) -> Directory:
         Teams for WAN circuits, the hub data centers, each area with branch
         sites, and everything else, in that order of routes; fictional people with
         phone numbers from the range kept for fiction (555-0100 to 555-0199);
-        and a contact for each carrier.
+        a contact for each carrier; and the NOC's two 12-hour shifts, changing
+        at 07:00 and 19:00 in Dallas.
 
     Raises:
         None
@@ -425,6 +427,7 @@ def generate_directory(topology: Topology, seed: int) -> Directory:
         routes=routes,
         carriers=carriers,
         urgency=dict(DEFAULT_URGENCY),
+        handovers=HandoverTimes(at=["07:00", "19:00"], timezone="America/Chicago"),
     )
 
 

@@ -181,7 +181,7 @@
   "/api/handover": {
    "get": {
     "summary": "Get Handover",
-    "description": "Return what the incoming shift needs to know about the last hours:\nwhat is wrong now and who is on it, outages that began or ended,\npages and acknowledgements made, maintenance done, open, and coming,\nfixes recorded, discovery findings first seen, and who is on call.",
+    "description": "Return what the incoming shift needs to know about the last hours:\nwhat is wrong now and who is on it, outages that began or ended,\npages and acknowledgements made, maintenance done, open, and coming,\nfixes recorded, discovery findings first seen, who is on call, and\nthe notes written since the last shift change.",
     "operationId": "get_handover_api_handover_get",
     "parameters": [
      {
@@ -207,6 +207,137 @@
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/handovers": {
+   "get": {
+    "summary": "List Handovers",
+    "description": "Return the handovers saved at shift changes, latest first, and\nwhen the shift changes next.",
+    "operationId": "list_handovers_api_handovers_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HandoverList"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/handovers/{handover_id}": {
+   "get": {
+    "summary": "Get Saved Handover",
+    "description": "Return a handover saved at a shift change, as it was then, with\nthe notes the outgoing shift wrote.",
+    "operationId": "get_saved_handover_api_handovers__handover_id__get",
+    "parameters": [
+     {
+      "name": "handover_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Handover Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Handover"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/shift-notes": {
+   "post": {
+    "summary": "Add Note",
+    "description": "Write a note for the next shift; it goes with the next handover.",
+    "operationId": "add_note_api_shift_notes_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ShiftNoteIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ShiftNote"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/shift-notes/{note_id}": {
+   "delete": {
+    "summary": "Withdraw Note",
+    "description": "Withdraw a note that has not been handed over yet.",
+    "operationId": "withdraw_note_api_shift_notes__note_id__delete",
+    "parameters": [
+     {
+      "name": "note_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Note Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
      },
      "422": {
       "description": "Validation Error",
@@ -1925,6 +2056,17 @@
    },
    "Handover": {
     "properties": {
+     "id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Id"
+     },
      "since": {
       "type": "string",
       "format": "date-time",
@@ -1934,6 +2076,19 @@
       "type": "string",
       "format": "date-time",
       "title": "Until"
+     },
+     "timezone": {
+      "type": "string",
+      "title": "Timezone",
+      "default": "UTC"
+     },
+     "notes": {
+      "items": {
+       "$ref": "#/components/schemas/ShiftNote"
+      },
+      "type": "array",
+      "title": "Notes",
+      "default": []
      },
      "problems": {
       "items": {
@@ -1993,6 +2148,11 @@
         "type": "null"
        }
       ]
+     },
+     "message": {
+      "$ref": "#/components/schemas/Message",
+      "description": "The handover written to post in chat or send by email.\n\nReturns:\n    A subject line saying how much is open, and the text: the notes,\n    then the first few of each section, its times in the shifts' zone.",
+      "readOnly": true
      }
     },
     "additionalProperties": false,
@@ -2007,10 +2167,106 @@
      "windows",
      "changes",
      "findings",
-     "oncall"
+     "oncall",
+     "message"
     ],
     "title": "Handover",
     "description": "What the incoming shift needs to know."
+   },
+   "HandoverList": {
+    "properties": {
+     "next": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Next"
+     },
+     "timezone": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Timezone"
+     },
+     "handovers": {
+      "items": {
+       "$ref": "#/components/schemas/HandoverSummary"
+      },
+      "type": "array",
+      "title": "Handovers"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "next",
+     "timezone",
+     "handovers"
+    ],
+    "title": "HandoverList",
+    "description": "The handovers saved at shift changes, and when the next one is."
+   },
+   "HandoverSummary": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "since": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Since"
+     },
+     "until": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Until"
+     },
+     "problems": {
+      "type": "integer",
+      "title": "Problems"
+     },
+     "unhandled": {
+      "type": "integer",
+      "title": "Unhandled"
+     },
+     "outages": {
+      "type": "integer",
+      "title": "Outages"
+     },
+     "still_down": {
+      "type": "integer",
+      "title": "Still Down"
+     },
+     "notes": {
+      "type": "integer",
+      "title": "Notes"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "since",
+     "until",
+     "problems",
+     "unhandled",
+     "outages",
+     "still_down",
+     "notes"
+    ],
+    "title": "HandoverSummary",
+    "description": "A saved handover, in a line."
    },
    "Impact": {
     "properties": {
@@ -2388,6 +2644,26 @@
     ],
     "title": "LinksCenter",
     "description": "A neighborhood built around the ends of some links."
+   },
+   "Message": {
+    "properties": {
+     "subject": {
+      "type": "string",
+      "title": "Subject"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "subject",
+     "text"
+    ],
+    "title": "Message",
+    "description": "A handover written to post in chat or send by email."
    },
    "MonitoringPosition": {
     "properties": {
@@ -3369,6 +3645,65 @@
     ],
     "title": "Shift",
     "description": "Who is on call for a team over a stretch of time."
+   },
+   "ShiftNote": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "text",
+     "by",
+     "id",
+     "at"
+    ],
+    "title": "ShiftNote",
+    "description": "A note for the next shift, as written."
+   },
+   "ShiftNoteIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "text",
+     "by"
+    ],
+    "title": "ShiftNoteIn",
+    "description": "Something the outgoing shift wants the next one to know."
    },
    "Site": {
     "properties": {

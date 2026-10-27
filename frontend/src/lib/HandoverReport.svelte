@@ -4,24 +4,44 @@ The shift handover: what the incoming shift needs to know about the last
 hours, worked out on the server for every viewer. What is wrong now and who
 is on it, who is on call, the outages that began or ended and how long they
 lasted, pages and acknowledgements, maintenance done, open, and coming,
-and fixes and new discovery findings. It fills the window, prints on paper,
-and a link opens it again (`?handover=12`). Clicking something leaves the
-report and shows it: a problem with its impact, an outage at the moment it
-began.
+and fixes and new discovery findings, with the notes the outgoing shift
+writes for the next. The handover of each shift change is saved, and can be
+opened again as it was. It fills the window, prints on paper, is written as
+a message to post in chat or send by email, and a link opens it again
+(`?handover=12`, or a saved one's id). Clicking something leaves the report
+and shows it: a problem with its impact, an outage at the moment it began.
 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { fetchHandover, type Handover, type Outage } from './api/handover.ts';
+	import {
+		addShiftNote,
+		fetchHandover,
+		fetchHandovers,
+		fetchSavedHandover,
+		withdrawShiftNote,
+		type Handover,
+		type HandoverList,
+		type Outage
+	} from './api/handover.ts';
 	import type { Change } from './api/changes.ts';
 	import type { Finding } from './api/discovery.ts';
 	import type { Window } from './api/operations.ts';
 	import { changedTarget, changeLine, findingTarget, seenWhen } from './discovery.ts';
-	import { duration, lasted, outageSections, SPANS, standing } from './handover.ts';
+	import {
+		duration,
+		lasted,
+		messageText,
+		outageSections,
+		savedLabel,
+		SPANS,
+		standing
+	} from './handover.ts';
 	import { clock } from './history.ts';
 	import { phaseOf, span } from './maintenance.ts';
 	import { personOf } from './oncall.ts';
 	import { MARK } from './problem-kinds.ts';
 	import {
+		rememberName,
 		select,
 		showDiscovery,
 		showProblem,
@@ -29,26 +49,44 @@ began.
 		ui,
 		type Selection
 	} from './state.svelte.ts';
+	import { DEFAULT_HANDOVER_H } from './url.ts';
 
 	const {
-		hours,
+		shown,
 		copied,
 		oncopy
 	}: {
-		hours: number;
+		/** How many hours it covers, ending now, or a saved one's id. */
+		shown: number | string;
 		/** What Copy link last said, if it said anything lately. */
 		copied: string | null;
 		oncopy: () => void;
 	} = $props();
 
-	// Pages, acknowledgements, and maintenance change when someone acts; check now and then.
+	// Pages, acknowledgements, notes, and maintenance change when someone
+	// acts, and shifts change; check now and then.
 	const POLL_MS = 60_000;
 	/** Single devices listed before Show all. */
 	const FIRST_DEVICES = 10;
+	/** How far back history goes, so what can be replayed. */
+	const HISTORY_MS = 24 * 3_600_000;
 
-	let handover = $state.raw<Handover | null>(null);
+	let found = $state.raw<{ shown: number | string; handover: Handover } | null>(null);
+	let history = $state.raw<HandoverList | null>(null);
 	let problem = $state<string | null>(null);
 	let allDevices = $state(false);
+	let note = $state('');
+	let saving = $state(false);
+	let noteProblem = $state<string | null>(null);
+	let showMessage = $state(false);
+	let messageCopied = $state<string | null>(null);
+	/** Incremented to fetch the handover again, after a note is added or withdrawn. */
+	let reload = $state(0);
+	const saved = $derived(typeof shown === 'string');
+	const notesTitle = $derived(saved ? 'Notes from the outgoing shift' : 'Notes for the next shift');
+	// Until the one asked for comes, nothing rather than another.
+	const handover = $derived(found?.shown === shown ? found.handover : null);
+	const link = $derived(`${location.origin}${location.pathname}?handover=${shown}`);
 	const now = $derived(handover ? Date.parse(handover.until) : Date.now());
 	const sections = $derived(outageSections(handover?.outages ?? []));
 	const stillDown = $derived(handover?.outages.filter((o) => !o.end).length ?? 0);
@@ -66,20 +104,41 @@ began.
 		].filter((p) => p.items.length);
 	});
 
-	// Again for each span chosen, and now and then while open.
+	// Again for each span or saved handover chosen, and now and then while
+	// open; a saved one stays as it was.
 	$effect(() => {
-		const span = hours;
+		const view = shown;
+		void reload;
 		let stopped = false;
 		const load = async () => {
 			try {
-				const found = await fetchHandover(span);
+				const handover =
+					typeof view === 'string' ? await fetchSavedHandover(view) : await fetchHandover(view);
 				if (stopped) return;
-				handover = found;
+				found = { shown: view, handover };
 				problem = null;
 			} catch (e) {
 				if (!stopped) problem = e instanceof Error ? e.message : String(e);
 			}
 		};
+		void load();
+		const timer = typeof view === 'string' ? undefined : setInterval(load, POLL_MS);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
+	});
+
+	// The handovers saved so far, and when the next is, now and then while open.
+	$effect(() => {
+		let stopped = false;
+		const load = () =>
+			fetchHandovers().then(
+				(list) => {
+					if (!stopped) history = list;
+				},
+				(e: unknown) => console.warn('Saved handovers unavailable', e)
+			);
 		void load();
 		const timer = setInterval(load, POLL_MS);
 		return () => {
@@ -94,6 +153,11 @@ began.
 		ui.handover = null;
 	}
 
+	/** A moment to replay, if history still has it. */
+	function replayable(at: string | null | undefined): string | null {
+		return at && Date.parse(at) > Date.now() - HISTORY_MS ? at : null;
+	}
+
 	/** Leave the report and show something: live, now or at a moment. */
 	function go(target: Selection | null, at: string | null = null): void {
 		close();
@@ -105,18 +169,56 @@ began.
 	}
 
 	function goProblem(p: { id: string; target: Selection }): void {
+		// A saved handover's problems are those at its shift change.
+		const at = saved ? replayable(handover?.until) : null;
 		close();
 		ui.live = true;
-		ui.at = null;
+		ui.at = at;
 		ui.sideTab = 'problems';
 		ui.problemsOpen = true;
 		if (ui.problem !== p.id) showProblem(p);
 	}
 
 	function goOutage(o: Outage): void {
-		// Only moments history still has can be replayed.
-		const back = handover ? Date.parse(handover.until) - 24 * 3_600_000 : 0;
-		go(o.target, o.start && Date.parse(o.start) > back ? o.start : null);
+		go(o.target, replayable(o.start));
+	}
+
+	async function addNote(e: SubmitEvent): Promise<void> {
+		e.preventDefault();
+		rememberName(ui.person.trim());
+		saving = true;
+		noteProblem = null;
+		try {
+			await addShiftNote(note, ui.person);
+			note = '';
+			reload++;
+		} catch (err) {
+			noteProblem = err instanceof Error ? err.message : String(err);
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function withdrawNote(id: string): Promise<void> {
+		noteProblem = null;
+		try {
+			await withdrawShiftNote(id);
+			reload++;
+		} catch (err) {
+			noteProblem = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function copyMessage(): Promise<void> {
+		if (!handover) return;
+		try {
+			await navigator.clipboard.writeText(messageText(handover, link));
+			messageCopied = 'Message copied';
+		} catch {
+			// Clipboards need a secure page and permission; the text can be selected.
+			messageCopied = 'Select it below to copy it';
+		}
+		setTimeout(() => (messageCopied = null), 2500);
 	}
 
 	function goWindow(w: Window): void {
@@ -176,18 +278,40 @@ began.
 	<header class="bar">
 		<h1 tabindex="-1">Shift handover</h1>
 		{#if handover}
+			{@const long = duration(Date.parse(handover.until) - Date.parse(handover.since))}
 			<span class="span">
-				{clock(handover.since)} – {clock(handover.until)} · the last {duration(
-					Date.parse(handover.until) - Date.parse(handover.since)
-				)}
+				{#if handover.id}
+					Handed over {clock(handover.until)} · {clock(handover.since)} – {clock(handover.until)},
+					{long}
+				{:else}
+					{clock(handover.since)} – {clock(handover.until)} · the last {long}
+				{/if}
 			</span>
 		{/if}
-		<div class="segmented controls" role="group" aria-label="Covering">
-			{#each SPANS as h (h)}
-				<button aria-pressed={hours === h} onclick={() => (ui.handover = h)}>{h} h</button>
+		<select
+			class="controls"
+			aria-label="Which handover"
+			onchange={(e) => (ui.handover = e.currentTarget.value || DEFAULT_HANDOVER_H)}
+		>
+			<option value="" selected={!saved}>Now</option>
+			{#each history?.handovers ?? [] as s (s.id)}
+				<option value={s.id} selected={s.id === shown}>{savedLabel(s)}</option>
 			{/each}
-		</div>
+		</select>
+		{#if !saved}
+			<div class="segmented controls" role="group" aria-label="Covering">
+				{#each SPANS as h (h)}
+					<button aria-pressed={shown === h} onclick={() => (ui.handover = h)}>{h} h</button>
+				{/each}
+			</div>
+		{/if}
 		<span class="grow"></span>
+		<button
+			class="controls"
+			aria-pressed={showMessage}
+			title="The handover written to post in chat or send by email"
+			onclick={() => (showMessage = !showMessage)}>Message</button
+		>
 		<button class="controls" onclick={() => window.print()}>Print</button>
 		<button class="controls" onclick={oncopy}>{copied ?? 'Copy link'}</button>
 		<button class="controls" title="Close (Esc)" onclick={close}>Close</button>
@@ -199,14 +323,72 @@ began.
 		<p class="muted">Working out the handover…</p>
 	{:else}
 		<div class="sheet">
-			<div class="column">
-				<section aria-label="Open now">
+			{#if showMessage}
+				<section class="message controls" aria-label="Message">
 					<h2>
-						Open now ({handover.problems.length})
+						Message <small class="quiet">to post in chat or send by email; nothing is sent</small>
+					</h2>
+					<pre>{messageText(handover, link)}</pre>
+					<p><button onclick={copyMessage}>{messageCopied ?? 'Copy message'}</button></p>
+				</section>
+			{/if}
+			<div class="column">
+				<section aria-label={notesTitle}>
+					<h2>
+						{notesTitle} ({handover.notes.length})
+						{#if !saved && history?.next}
+							<small class="quiet">handed over at {clock(history.next)}</small>
+						{/if}
+					</h2>
+					{#if handover.notes.length === 0}
+						<p class="muted">{saved ? 'None were written.' : 'None yet.'}</p>
+					{/if}
+					<ul class="rows">
+						{#each handover.notes as n (n.id)}
+							<li class="note">
+								<span class="what">{n.text}</span>
+								<span class="when">{n.by} · {clock(n.at)}</span>
+								{#if !saved}
+									<button class="link controls" onclick={() => withdrawNote(n.id)}>Withdraw</button>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+					{#if !saved}
+						<form class="write controls" onsubmit={addNote}>
+							<input
+								bind:value={note}
+								required
+								maxlength="1000"
+								placeholder="What the next shift should know"
+								aria-label="Note for the next shift"
+							/>
+							<input
+								class="name"
+								bind:value={ui.person}
+								required
+								maxlength="64"
+								placeholder="Your name"
+								aria-label="Your name"
+								autocomplete="name"
+							/>
+							<button type="submit" disabled={saving}>Add note</button>
+						</form>
+					{/if}
+					{#if noteProblem}<p class="error" role="alert">{noteProblem}</p>{/if}
+				</section>
+
+				<section aria-label={saved ? 'Open at handover' : 'Open now'}>
+					<h2>
+						{saved ? 'Open at handover' : 'Open now'} ({handover.problems.length})
 						{#if handover.problems.length}<small>{unhandled} no one is on</small>{/if}
 					</h2>
 					{#if handover.problems.length === 0}
-						<p class="muted">Nothing is wrong in the latest snapshot.</p>
+						<p class="muted">
+							{saved
+								? 'Nothing was wrong at the shift change.'
+								: 'Nothing is wrong in the latest snapshot.'}
+						</p>
 					{/if}
 					<ul class="rows">
 						{#each handover.problems as p (p.id)}
@@ -227,8 +409,8 @@ began.
 				</section>
 
 				{#if handover.oncall}
-					<section aria-label="On call now">
-						<h2>On call now</h2>
+					<section aria-label={saved ? 'On call at handover' : 'On call now'}>
+						<h2>{saved ? 'On call at handover' : 'On call now'}</h2>
 						<table>
 							<thead><tr><th>Team</th><th>Primary</th><th>Secondary</th><th>Until</th></tr></thead>
 							<tbody>
@@ -439,6 +621,59 @@ began.
 		font-weight: normal;
 		color: var(--accent);
 	}
+	h2 small.quiet {
+		color: var(--muted);
+	}
+	.message {
+		grid-column: 1 / -1;
+	}
+	pre {
+		margin: 0 0 6px;
+		padding: 8px 10px;
+		max-height: 40vh;
+		overflow: auto;
+		white-space: pre-wrap;
+		font-size: 12px;
+		background: var(--panel);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+	}
+	.note {
+		display: grid;
+		grid-template-columns: 1fr auto auto;
+		gap: 0 12px;
+		align-items: baseline;
+		padding: 4px 8px;
+		font-size: 13px;
+		border-left: 3px solid var(--accent);
+		margin-bottom: 3px;
+	}
+	.note .link {
+		font-size: 12px;
+	}
+	.write {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 6px;
+	}
+	.write input {
+		flex: 1 1 260px;
+		font: inherit;
+		font-size: 13px;
+		color: var(--text);
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		padding: 4px 6px;
+	}
+	.write input.name {
+		flex: 0 1 140px;
+	}
+	.error {
+		color: var(--down);
+		font-size: 12px;
+	}
 	h3 {
 		margin: 10px 0 4px;
 		font-size: 12px;
@@ -565,7 +800,8 @@ began.
 			border-bottom: 1px solid #ccc;
 			border-radius: 0;
 		}
-		.row.open {
+		.row.open,
+		.note {
 			border-left: 3px solid #000;
 		}
 		.row:disabled {

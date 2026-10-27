@@ -169,6 +169,19 @@ describe('movesOn', () => {
 		expect(fromQuery(new URLSearchParams('handover=99'), index)).toEqual({ handover: 12 });
 	});
 
+	it('opens a saved handover from a link, by its id', () => {
+		const index = fixtureIndex();
+		const saved = { ...OPENING, handover: '20261027T1200Z' };
+		expect(movesOn({ ...OPENING, handover: 12 }, saved)).toBe(true);
+		expect(toQuery(saved, index).toString()).toBe('handover=20261027T1200Z');
+		expect(fromQuery(new URLSearchParams('handover=20261027T1200Z'), index)).toEqual({
+			handover: '20261027T1200Z'
+		});
+		expect(fromQuery(new URLSearchParams('handover=yesterday'), index)).toEqual({
+			handover: 12
+		});
+	});
+
 	it('stays in place when the same place changes how it looks, or is cleared', () => {
 		const selected = { ...OPENING, selection: device('a'), live: true };
 		expect(movesOn(selected, { ...selected, live: false })).toBe(false);

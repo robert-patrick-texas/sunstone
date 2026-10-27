@@ -37,7 +37,17 @@ from sunstone.discovery import (
     expecting,
 )
 from sunstone.discovery_log import DiscoveryLog
-from sunstone.handover import Handover, outages
+from sunstone.handover import (
+    Handover,
+    HandoverList,
+    HandoverStore,
+    handover_id,
+    last_change,
+    next_change,
+    outages,
+    shift_changes,
+    summary,
+)
 from sunstone.impact import Failures, Network, WhatIf
 from sunstone.layouts import (
     MAX_NAME,
@@ -63,6 +73,7 @@ from sunstone.oncall import (
     Cover,
     CoverIn,
     Directory,
+    HandoverTimes,
     OnCall,
     Ownership,
     Page,
@@ -77,6 +88,8 @@ from sunstone.oncall import (
 from sunstone.operations import (
     OperationsFull,
     OperationsStore,
+    ShiftNote,
+    ShiftNoteIn,
     Window,
     WindowIn,
     accounted_for,
@@ -86,6 +99,7 @@ from sunstone.problems import Ack, AckIn
 from sunstone.simulate import SimulatedState, monitored
 
 NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
+HANDOVER_GRACE = timedelta(minutes=1)
 
 
 class WhatIfQuestion(BaseModel):
@@ -106,9 +120,11 @@ class Files:
 
     layouts: Path | None = None
     operations: Path | None = None
-    """Maintenance windows, acknowledgements, pages, and covers."""
+    """Maintenance windows, acknowledgements, pages, covers, and shift notes."""
     changes: Path | None = None
     """Fixes accepted into the documentation."""
+    handovers: Path | None = None
+    """Handovers saved at shift changes."""
     oncall: Path | None = None
     """Teams, rotations, and what they own. Beside the topology
     (``small.oncall.yaml``) it is optional; named here, it must exist."""
@@ -118,7 +134,8 @@ class Files:
 
         Args:
             topology_path: The topology file.
-            kind: ``layouts``, ``operations``, ``changes``, or ``oncall``.
+            kind: ``layouts``, ``operations``, ``changes``, ``handovers``, or
+                ``oncall``.
 
         Returns:
             The file given for it, or one beside the topology.
@@ -130,6 +147,7 @@ class Files:
             "layouts": self.layouts,
             "operations": self.operations,
             "changes": self.changes,
+            "handovers": self.handovers,
         }.get(kind, self.oncall)
         suffix = "yaml" if kind == "oncall" else "json"
         return given or topology_path.with_name(f"{topology_path.stem}.{kind}.{suffix}")
@@ -167,8 +185,9 @@ def create_app(
         topology_path: Topology YAML file to serve.
         web_dir: Built frontend to serve at ``/``, or None for API only
             (the Vite dev server serves the UI during development).
-        files: Where saved layouts, operations, and changes go, and the
-            on-call directory is, or None for files beside the topology.
+        files: Where saved layouts, operations, changes, and handovers go,
+            and the on-call directory is, or None for files beside the
+            topology.
         state_source: Where live state comes from, or None for simulated
             state (there are no real sources yet), which acts out planned
             maintenance and follows the simulated network's real cabling.
@@ -177,7 +196,8 @@ def create_app(
             documentation changes; the simulated one is made again.
         warm: Work out the day's events and the present moment in the
             background at startup, and each new moment as it begins while
-            anyone is watching, so viewers do not wait.
+            anyone is watching, so viewers do not wait; and save each
+            handover as its shift changes, rather than when next asked for.
 
     Returns:
         The FastAPI application.
@@ -187,6 +207,7 @@ def create_app(
         OperationsError: If the operations file exists but cannot be read.
         ChangesError: If the changes file exists but cannot be read, or its
             changes no longer apply to the topology file.
+        HandoverError: If the saved handovers file exists but cannot be read.
         DirectoryError: If the on-call directory is invalid, or was named
             and is missing.
     """
@@ -198,6 +219,8 @@ def create_app(
         if files.oncall or oncall_path.exists()
         else None
     )
+    times = directory.handovers if directory else None
+    handovers = HandoverStore(files.path(topology_path, "handovers"))
     store = LayoutStore(files.path(topology_path, "layouts"))
     changes = ChangeStore(files.path(topology_path, "changes"))
     try:
@@ -250,9 +273,23 @@ def create_app(
         threading.Thread(
             target=d.log.keep_up, args=(d.stop,), name="discovery", daemon=True
         ).start()
+        if times is not None:
+            threading.Thread(
+                target=keep_handing_over,
+                args=(times, d.stop),
+                name="handover",
+                daemon=True,
+            ).start()
+
+    def keep_handing_over(times: HandoverTimes, stop: threading.Event) -> None:
+        """Save each handover as its shift changes, those missed first."""
+        while not stop.is_set():
+            hand_over()
+            now = datetime.now(UTC)
+            if stop.wait((next_change(times, now) - now).total_seconds() + 1):
+                return
 
     docs = build(topology)
-    start(docs)
 
     def document(changed: list[Change]) -> None:
         """Keep a new change set and follow the documentation it makes."""
@@ -389,35 +426,114 @@ def create_app(
         """Return what the incoming shift needs to know about the last hours:
         what is wrong now and who is on it, outages that began or ended,
         pages and acknowledgements made, maintenance done, open, and coming,
-        fixes recorded, discovery findings first seen, and who is on call."""
-        d = docs
+        fixes recorded, discovery findings first seen, who is on call, and
+        the notes written since the last shift change."""
         now = datetime.now(UTC)
-        span = timedelta(hours=hours)
-        since = now - span
-        events = events_of(d, now - d.state.retention, now)
-        when = d.monitor.now()
+        return handover_of(docs, now - timedelta(hours=hours), now, live=True)
+
+    def handover_of(
+        d: _Documented, since: datetime, until: datetime, live: bool
+    ) -> Handover:
+        """The handover of a span ending now, or at a shift change, as
+        everything stood then."""
+        events = events_of(d, datetime.now(UTC) - d.state.retention, until)
+        when = d.monitor.now() if live else until
         problems = routed(d, when).problems
-        # Acknowledgements and pages last until their problem clears, as in live state.
-        operations.clear({p.id for p in problems}, when)
-        pages = [pg for pg in operations.pages() if since <= pg.at][::-1]
-        acks = [a for a in operations.acks() if since <= a.at][::-1]
-        found = discovered(d, now).findings
+        if live:
+            # Acknowledgements and pages last until their problem clears.
+            operations.clear({p.id for p in problems}, when)
+
+        def made[T: (Ack, Page)](records: list[T]) -> list[T]:
+            """Those made in the span, newest first, as they stood at its end."""
+            return [
+                r.model_copy(update={"cleared_at": None})
+                if r.cleared_at and r.cleared_at > until
+                else r
+                for r in records[::-1]
+                if since <= r.at <= until
+            ]
+
+        # Now, the notes for the next shift change; at one, those since the last.
+        start = last_change(times, until) if live and times else since
+        found = discovered(d, until).findings
         return Handover(
+            id=None if live else handover_id(until),
             since=since,
-            until=now,
+            until=until,
+            timezone=times.timezone if times else "UTC",
+            notes=[n for n in operations.notes() if start <= n.at < until],
             problems=problems,
             outages=outages(events, d.topology, since),
-            pages=pages,
-            acks=acks,
+            pages=made(operations.pages()),
+            acks=made(operations.acks()),
             windows=[
                 w
                 for w in operations.windows()
-                if w.end > since and w.start < now + span
+                if w.end > since and w.start < until + (until - since)
             ],
-            changes=[c for c in changes.changes() if since <= c.at][::-1],
-            findings=[f for f in found if f.first_seen and since <= f.first_seen],
-            oncall=on_call(directory, now, operations.covers()) if directory else None,
+            changes=[c for c in changes.changes() if since <= c.at <= until][::-1],
+            findings=[
+                f for f in found if f.first_seen and since <= f.first_seen <= until
+            ],
+            oncall=on_call(directory, until, operations.covers())
+            if directory
+            else None,
         )
+
+    def hand_over() -> None:
+        """Save the handover of each shift change not saved yet, from the
+        change before it, while history still covers that whole shift."""
+        if times is None:
+            return
+        with handovers.lock:
+            d = docs
+            now = datetime.now(UTC)
+            # Saved just after the change, a shift as long as history is
+            # lacks only the moments it began.
+            begins = now - d.state.retention - HANDOVER_GRACE
+            for at in shift_changes(times, begins, now):
+                since = last_change(times, at)
+                if since >= begins and handovers.get(handover_id(at)) is None:
+                    handovers.save(handover_of(d, since, at, live=False))
+
+    @app.get("/api/handovers")
+    def list_handovers() -> HandoverList:
+        """Return the handovers saved at shift changes, latest first, and
+        when the shift changes next."""
+        hand_over()
+        return HandoverList(
+            next=next_change(times, datetime.now(UTC)) if times else None,
+            timezone=times.timezone if times else None,
+            handovers=[summary(h) for h in handovers.handovers()],
+        )
+
+    @app.get("/api/handovers/{handover_id}")
+    def get_saved_handover(handover_id: str) -> Handover:
+        """Return a handover saved at a shift change, as it was then, with
+        the notes the outgoing shift wrote."""
+        hand_over()
+        found = handovers.get(handover_id)
+        if found is None:
+            raise HTTPException(404, f"No handover {handover_id!r}")
+        return found
+
+    @app.post("/api/shift-notes", status_code=201)
+    def add_note(note: ShiftNoteIn) -> ShiftNote:
+        """Write a note for the next shift; it goes with the next handover."""
+        try:
+            return operations.add_note(note, datetime.now(UTC))
+        except OperationsFull as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.delete("/api/shift-notes/{note_id}", status_code=204)
+    def withdraw_note(note_id: str) -> None:
+        """Withdraw a note that has not been handed over yet."""
+        found = next((n for n in operations.notes() if n.id == note_id), None)
+        if found is None:
+            raise HTTPException(404, f"No note {note_id!r}")
+        if times is not None and found.at < last_change(times, datetime.now(UTC)):
+            raise HTTPException(409, "That note has been handed over already")
+        operations.delete_note(note_id)
 
     @app.get("/api/discovery")
     def get_discovery(at: datetime | None = None) -> Comparison:
@@ -749,6 +865,8 @@ def create_app(
 
     if web_dir is not None:
         app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
+    # Once everything it calls is defined.
+    start(docs)
     return app
 
 
@@ -757,8 +875,8 @@ def app_from_env() -> FastAPI:
 
     Uvicorn's reloader re-imports the app in a fresh process, so settings
     travel in ``SUNSTONE_TOPOLOGY``, ``SUNSTONE_WEB_DIR``,
-    ``SUNSTONE_LAYOUTS``, ``SUNSTONE_OPERATIONS``, ``SUNSTONE_CHANGES``, and
-    ``SUNSTONE_ONCALL`` rather than as arguments.
+    ``SUNSTONE_LAYOUTS``, ``SUNSTONE_OPERATIONS``, ``SUNSTONE_CHANGES``,
+    ``SUNSTONE_HANDOVERS``, and ``SUNSTONE_ONCALL`` rather than as arguments.
 
     Returns:
         The FastAPI application.
@@ -767,6 +885,7 @@ def app_from_env() -> FastAPI:
         KeyError: If ``SUNSTONE_TOPOLOGY`` is not set.
         TopologyError: If the topology file is missing or invalid.
         ChangesError: If the changes no longer apply to the topology file.
+        HandoverError: If the saved handovers file cannot be read.
         DirectoryError: If the on-call directory is invalid, or was named
             and is missing.
     """
@@ -774,6 +893,7 @@ def app_from_env() -> FastAPI:
     layouts = os.environ.get("SUNSTONE_LAYOUTS")
     operations = os.environ.get("SUNSTONE_OPERATIONS")
     changes = os.environ.get("SUNSTONE_CHANGES")
+    handovers = os.environ.get("SUNSTONE_HANDOVERS")
     oncall = os.environ.get("SUNSTONE_ONCALL")
     return create_app(
         Path(os.environ["SUNSTONE_TOPOLOGY"]),
@@ -782,6 +902,7 @@ def app_from_env() -> FastAPI:
             layouts=Path(layouts) if layouts else None,
             operations=Path(operations) if operations else None,
             changes=Path(changes) if changes else None,
+            handovers=Path(handovers) if handovers else None,
             oncall=Path(oncall) if oncall else None,
         ),
     )

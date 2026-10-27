@@ -1,11 +1,20 @@
+import json
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from sunstone.api import Files, create_app
-from sunstone.handover import outages
+from sunstone.handover import (
+    handover_id,
+    last_change,
+    next_change,
+    outages,
+    shift_changes,
+)
 from sunstone.live import StateEvent
 from sunstone.mockgen import (
     PRESETS,
@@ -15,6 +24,7 @@ from sunstone.mockgen import (
     to_yaml,
 )
 from sunstone.model import Topology
+from sunstone.oncall import HandoverTimes
 
 T0 = datetime(2026, 10, 27, 8, 0, tzinfo=UTC)
 STEP = timedelta(minutes=5)
@@ -75,7 +85,9 @@ def test_devices_down_together_at_a_site_are_one_outage(topology: Topology) -> N
     assert (early.start, early.end) == (None, at(10))
 
 
-def handover_client(topology: Topology, tmp_path: Path) -> TestClient:
+def handover_client(
+    topology: Topology, tmp_path: Path, warm: bool = False
+) -> TestClient:
     path = tmp_path / "small.yaml"
     path.write_text(to_yaml(topology, "test"), encoding="utf-8")
     directory = generate_directory(topology, seed=1)
@@ -86,8 +98,9 @@ def handover_client(topology: Topology, tmp_path: Path) -> TestClient:
         operations=tmp_path / "ops.json",
         layouts=tmp_path / "l.json",
         changes=tmp_path / "changes.json",
+        handovers=tmp_path / "handovers.json",
     )
-    return TestClient(create_app(path, files=files, warm=False))
+    return TestClient(create_app(path, files=files, warm=warm))
 
 
 def test_the_handover_says_what_is_open_and_what_was_done(
@@ -134,3 +147,108 @@ def test_the_handover_says_what_is_open_and_what_was_done(
     assert handover["changes"] == []
 
     assert client.get("/api/handover", params={"hours": 30}).status_code == 422
+
+
+def test_shifts_change_at_the_same_local_time_across_summer_time() -> None:
+    times = HandoverTimes(at=["19:00", "07:00"], timezone="America/Chicago")
+    assert times.at == ["07:00", "19:00"]
+    # Summer time ends at 02:00 on 1 November 2026 in Chicago.
+    found = shift_changes(
+        times, datetime(2026, 10, 31, tzinfo=UTC), datetime(2026, 11, 2, tzinfo=UTC)
+    )
+    assert found == [
+        datetime(2026, 10, 31, 12, tzinfo=UTC),
+        datetime(2026, 11, 1, 0, tzinfo=UTC),
+        datetime(2026, 11, 1, 13, tzinfo=UTC),
+    ]
+    # The night shift is an hour longer.
+    assert last_change(times, found[2]) == found[1]
+    assert next_change(times, found[0]) == found[1]
+    assert handover_id(found[2]) == "20261101T1300Z"
+    with pytest.raises(ValidationError):
+        HandoverTimes(at=["07:00", "07:00"])
+
+
+def test_a_handover_is_saved_at_each_shift_change_with_its_notes(
+    topology: Topology, tmp_path: Path
+) -> None:
+    times = generate_directory(topology, seed=1).handovers
+    assert times is not None
+    now = datetime.now(UTC)
+    change = last_change(times, now)
+    before = last_change(times, change)
+    since_change = change + (now - change) / 2
+
+    def note(text: str, at: datetime) -> dict:
+        return {"id": text, "text": text, "by": "Pat", "at": at.isoformat()}
+
+    # A page standing at the change, and cleared since.
+    page = {
+        "problem": "outage:site:HOU",
+        "by": "Pat",
+        "id": "p1",
+        "team": "noc",
+        "at": (change - timedelta(minutes=30)).isoformat(),
+        "cleared_at": since_change.isoformat(),
+        "title": "HOU cut off",
+    }
+    ops = {
+        "notes": [
+            note("for this shift", change - timedelta(hours=1)),
+            note("for the next", since_change),
+        ],
+        "pages": [page],
+    }
+    (tmp_path / "ops.json").write_text(json.dumps(ops), encoding="utf-8")
+    client = handover_client(topology, tmp_path)
+
+    listed = client.get("/api/handovers").json()
+    assert datetime.fromisoformat(listed["next"]) == next_change(times, now)
+    assert listed["timezone"] == "America/Chicago"
+    latest = listed["handovers"][0]
+    assert latest["id"] == handover_id(change)
+    assert [datetime.fromisoformat(latest[k]) for k in ("since", "until")] == [
+        before,
+        change,
+    ]
+    assert latest["notes"] == 1
+
+    saved = client.get(f"/api/handovers/{latest['id']}").json()
+    assert saved["id"] == latest["id"]
+    assert [n["text"] for n in saved["notes"]] == ["for this shift"]
+    assert [(pg["id"], pg["cleared_at"]) for pg in saved["pages"]] == [("p1", None)]
+    message = saved["message"]
+    assert message["subject"].startswith("Shift handover ")
+    assert "- for this shift (Pat, " in message["text"]
+    assert "Pat paged NOC: HOU cut off" in message["text"]
+    assert client.get("/api/handovers/20200101T0000Z").status_code == 404
+
+    live = client.get("/api/handover").json()
+    assert live["id"] is None
+    assert [n["text"] for n in live["notes"]] == ["for the next"]
+    made = client.post("/api/shift-notes", json={"text": " HOU fixed ", "by": "Sam"})
+    assert made.status_code == 201
+    assert made.json()["text"] == "HOU fixed"
+    assert client.delete("/api/shift-notes/for this shift").status_code == 409
+    assert client.delete("/api/shift-notes/for the next").status_code == 204
+    assert client.delete("/api/shift-notes/for the next").status_code == 404
+    live = client.get("/api/handover").json()
+    assert [n["text"] for n in live["notes"]] == ["HOU fixed"]
+
+    # Kept as it was, and read back.
+    again = handover_client(topology, tmp_path)
+    assert again.get(f"/api/handovers/{latest['id']}").json() == saved
+
+
+def test_the_last_handover_is_saved_at_startup_without_being_asked_for(
+    topology: Topology, tmp_path: Path
+) -> None:
+    handover_client(topology, tmp_path, warm=True)
+    saved = tmp_path / "handovers.json"
+    deadline = time.monotonic() + 30
+    while not saved.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    times = generate_directory(topology, seed=1).handovers
+    assert times is not None
+    found = json.loads(saved.read_text(encoding="utf-8"))["handovers"]
+    assert found[0]["id"] == handover_id(last_change(times, datetime.now(UTC)))

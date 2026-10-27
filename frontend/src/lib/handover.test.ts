@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Problem } from './api/analysis.ts';
-import type { Outage } from './api/handover.ts';
-import { duration, lasted, outageSections, standing } from './handover.ts';
+import type { HandoverSummary, Outage } from './api/handover.ts';
+import { duration, lasted, messageText, outageSections, savedLabel, standing } from './handover.ts';
 
 function outage(extra: Partial<Outage>): Outage {
 	return {
@@ -66,5 +66,31 @@ describe('standing', () => {
 		expect(standing({ ...problem, planned: ['w'] })).toBe('Planned');
 		const ack = { problem: 'p', by: 'Pat', note: 'ticket 4411', at: '2026-10-27T15:00:00Z' };
 		expect(standing({ ...problem, ack })).toBe('On it: Pat · ticket 4411');
+	});
+});
+
+describe('saved handovers', () => {
+	const saved: HandoverSummary = {
+		id: '20261027T1200Z',
+		since: '2026-10-27T00:00:00Z',
+		until: '2026-10-27T12:00:00Z',
+		problems: 6,
+		unhandled: 4,
+		outages: 34,
+		still_down: 2,
+		notes: 1
+	};
+
+	it('are listed by when they were handed over, how much was open, and their notes', () => {
+		expect(savedLabel(saved)).toMatch(/^Handed over .+:00.* · 6 open, 1 note$/);
+		expect(savedLabel({ ...saved, notes: 2 })).toMatch(/6 open, 2 notes$/);
+		expect(savedLabel({ ...saved, notes: 0 })).toMatch(/6 open$/);
+	});
+
+	it('are copied as a message with a link to open them', () => {
+		const message = { subject: 'Shift handover 07:00', text: 'Open now (6)' };
+		expect(messageText({ message }, 'http://noc/?handover=20261027T1200Z')).toBe(
+			'Shift handover 07:00\n\nOpen now (6)\n\nIn Sunstone: http://noc/?handover=20261027T1200Z'
+		);
 	});
 });
