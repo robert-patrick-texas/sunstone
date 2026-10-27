@@ -8,6 +8,12 @@ port or to another device than documented, a link no one documented, a
 neighbor that is not in the topology at all, or a device that reports no
 neighbors, as when LLDP and CDP are off on it.
 
+Where the documentation can be fixed to match, a finding offers the fix: a
+link on another port or device moved to where its cable is seen, a cable no
+one documented added, a link no one sees retired. A neighbor not in the
+topology and a device that sees nothing are left to people: the first needs
+the device documented, or unplugged; the second, LLDP or CDP turned on.
+
 Only what discovery can check counts. A device that does not answer (not
 polled, down, or unreachable) reports nothing, though its neighbors still
 see it; and a link that is down is not seen, whatever is documented, so
@@ -26,7 +32,7 @@ from pydantic import BaseModel, ConfigDict
 from sunstone.cabling import Cabling
 from sunstone.live import NetworkState, StateSource
 from sunstone.model import Device, Endpoint, Link, Topology
-from sunstone.problems import natural, short_interface
+from sunstone.problems import ABBREVIATIONS, natural, short_interface
 
 LinkCheck = Literal["confirmed", "mismatch", "not-seen", "down", "unchecked"]
 FindingKind = Literal[
@@ -37,6 +43,7 @@ FindingKind = Literal[
     "unknown-device",
     "no-neighbors",
 ]
+FixKind = Literal["move", "add", "retire"]
 KINDS: list[FindingKind] = [
     "wrong-neighbor",
     "wrong-port",
@@ -176,6 +183,17 @@ class Port(_Record):
     interface: str
 
 
+class Fix(_Record):
+    """A change to the documentation that makes it say what discovery sees."""
+
+    kind: FixKind
+    summary: str
+    before: Link | None = None
+    """The documented link it moves or retires."""
+    after: Link | None = None
+    """The link as it would then be documented: moved, or added."""
+
+
 class Finding(_Record):
     """One place where the documentation and the network disagree."""
 
@@ -195,6 +213,8 @@ class Finding(_Record):
     reaches back as far as the history goes."""
     last_seen: datetime | None = None
     """The last run of that stretch; None if it is the latest run."""
+    fix: Fix | None = None
+    """How to make the documentation match, where it can be made to."""
 
 
 class SeenLink(_Record):
@@ -249,6 +269,31 @@ def _ports(link: Link) -> tuple[tuple[str, str], tuple[str, str]]:
 
 def _name(device: str, interface: str) -> str:
     return f"{device} {short_interface(interface)}"
+
+
+def _long(interface: str) -> str:
+    """A port name spelled out, as documentation has it: ``Te1/0/1`` as
+    ``TenGigabitEthernet1/0/1``."""
+    for long, short in ABBREVIATIONS:
+        if interface.startswith(short) and interface[len(short) :][:1].isdigit():
+            return long + interface[len(short) :]
+    return interface
+
+
+# Speeds by port type, fastest first, for documenting a cable discovery found.
+_SPEEDS = [
+    ("HundredGigE", 100_000),
+    ("FortyGigabitEthernet", 40_000),
+    ("TwentyFiveGigE", 25_000),
+    ("TenGigabitEthernet", 10_000),
+    ("GigabitEthernet", 1_000),
+    ("FastEthernet", 100),
+]
+
+
+def _speed(interface: str) -> int:
+    """A port's speed, in Mbps, from its type; 1 Gbps if its name does not say."""
+    return next((mbps for name, mbps in _SPEEDS if interface.startswith(name)), 1_000)
 
 
 class _Seen:
@@ -322,6 +367,17 @@ def compare(
         )
     }
     known = {d.name for d in topology.devices}
+    site = {d.name: d.site for d in topology.devices}
+    # Ports as their own devices name them, for documenting them.
+    own = {
+        (t.device, _key(n.interface)): n.interface
+        for t in discovery.tables
+        for n in t.neighbors
+    }
+
+    def spelled(port: Port) -> str:
+        return own.get((port.device, _key(port.interface))) or _long(port.interface)
+
     checks: dict[str, LinkCheck] = {}
     findings: dict[str, Finding] = {}
     seen_links: list[SeenLink] = []
@@ -387,6 +443,33 @@ def compare(
             documented=[here, expected],
             seen=[here, there],
             devices=list(dict.fromkeys(involved)),
+            fix=moved(link, expected, there),
+        )
+
+    def moved(link: Link, end: Port, there: Port) -> Fix | None:
+        """Move a link's end to where its cable is seen, unless the port seen
+        is not in the topology or another link is documented on it."""
+        if there.device not in known or (there.device, _key(there.interface)) in (
+            documented
+        ):
+            return None
+        a = (link.a.device, link.a.interface) == (end.device, end.interface)
+        old = link.a if a else link.b
+        new = Endpoint(
+            device=there.device,
+            interface=spelled(there),
+            lag=old.lag if old.device == there.device else None,
+        )
+        to = (
+            short_interface(new.interface)
+            if new.device == old.device
+            else _name(new.device, new.interface)
+        )
+        return Fix(
+            kind="move",
+            summary=f"Move the end at {_name(old.device, old.interface)} to {to}",
+            before=link,
+            after=_with_end(link, a, new),
         )
 
     for seen in _adjacencies(topology, discovery):
@@ -409,6 +492,14 @@ def compare(
                 ends = sorted(f"{e.device}:{e.interface}" for e in (u, v))
                 found = f"undocumented:{'--'.join(ends)}"
                 drawn(seen, found)
+                a = Endpoint(device=u.device, interface=spelled(u))
+                b = Endpoint(device=v.device, interface=spelled(v))
+                added = Link(
+                    a=a,
+                    b=b,
+                    speed_mbps=min(_speed(a.interface), _speed(b.interface)),
+                    kind="lan" if site[u.device] == site[v.device] else "wan",
+                )
                 findings[found] = Finding(
                     id=found,
                     kind="undocumented",
@@ -416,6 +507,7 @@ def compare(
                     detail=between,
                     seen=[u, v],
                     devices=[u.device, v.device],
+                    fix=Fix(kind="add", summary=f"Add the link {between}", after=added),
                 )
             else:
                 found = f"unknown-device:{u.device}:{u.interface}"
@@ -475,18 +567,34 @@ def _not_seen(link: Link, polled: set[str]) -> Finding:
         if len(asking) == 2
         else f"{asking[0]} does not report it"
     )
+    between = (
+        f"{_name(link.a.device, link.a.interface)} – "
+        f"{_name(link.b.device, link.b.interface)}"
+    )
     return Finding(
         id=f"not-seen:{link.id}",
         kind="not-seen",
         title=f"{link.a.device} – {link.b.device} not seen",
-        detail=f"Documented {_name(link.a.device, link.a.interface)} – "
-        f"{_name(link.b.device, link.b.interface)}; {who}",
+        detail=f"Documented {between}; {who}",
         link=link.id,
         documented=[
             Port(device=link.a.device, interface=link.a.interface),
             Port(device=link.b.device, interface=link.b.interface),
         ],
         devices=[link.a.device, link.b.device],
+        fix=Fix(kind="retire", summary=f"Retire the link {between}", before=link),
+    )
+
+
+def _with_end(link: Link, a: bool, end: Endpoint) -> Link:
+    """A link with another A end, or B end, and its id worked out afresh
+    (a copy would keep the old one)."""
+    return Link(
+        a=end if a else link.a,
+        b=link.b if a else end,
+        speed_mbps=link.speed_mbps,
+        kind=link.kind,
+        circuit=link.circuit,
     )
 
 
@@ -554,7 +662,7 @@ class SimulatedDiscovery:
         rows: dict[str, list[Neighbor]] = {d: [] for d in up}
         deaf = self.cabling.silent
         for cable in self.cabling.cables:
-            if cable.documented and cable.link.id in self.cabling.hidden:
+            if cable.hidden:
                 continue
             if not self.cabling.in_place(cable.link.id, at):
                 continue

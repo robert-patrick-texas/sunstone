@@ -12,6 +12,7 @@ links that select and bring that item into view.
 -->
 <script lang="ts">
 	import { fetchWhatIf, type Problem, type WhatIf } from './api/analysis.ts';
+	import type { Change } from './api/changes.ts';
 	import type { Comparison } from './api/discovery.ts';
 	import type { OnCall, Ownership } from './api/oncall.ts';
 	import { acknowledge, unacknowledge, type Window } from './api/operations.ts';
@@ -72,7 +73,8 @@ links that select and bring that item into view.
 		live,
 		oncall,
 		ownership,
-		comparison
+		comparison,
+		changes
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
@@ -89,6 +91,8 @@ links that select and bring that item into view.
 		ownership: Ownership | null;
 		/** The latest discovery run, against the documentation. */
 		comparison: Comparison | null;
+		/** Fixes accepted into the documentation, newest first. */
+		changes: Change[];
 	} = $props();
 
 	const HEALTHS: DeviceHealth[] = ['down', 'degraded', 'nodata', 'up', 'unmonitored'];
@@ -626,7 +630,7 @@ links that select and bring that item into view.
 						{#if ifFails}<p class="muted">{consequence(ifFails, 'it')}</p>{/if}
 						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
-						<DiscoveryFor {index} {comparison} item={selection} />
+						<DiscoveryFor {index} {comparison} {changes} item={selection} />
 						<h3>Neighbors ({neighbors.length})</h3>
 						<table>
 							<thead>
@@ -726,7 +730,7 @@ links that select and bring that item into view.
 						{#if ifFails}<p class="muted">{consequence(ifFails, 'the whole site')}</p>{/if}
 						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
-						<DiscoveryFor {index} {comparison} item={selection} />
+						<DiscoveryFor {index} {comparison} {changes} item={selection} />
 						<h3>Links to other sites ({wan.length})</h3>
 						<table>
 							<thead><tr><th>Local</th><th>Remote</th><th>Speed</th><th>Circuit</th></tr></thead>
@@ -778,7 +782,7 @@ links that select and bring that item into view.
 					{/if}
 					<OnCallFor {index} {oncall} {ownership} item={selection} />
 					{@render maintenanceOf(selection)}
-					<DiscoveryFor {index} {comparison} item={selection} />
+					<DiscoveryFor {index} {comparison} {changes} item={selection} />
 					<table>
 						<thead>
 							<tr>

@@ -11,10 +11,11 @@ import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = Number(process.env['SUNSTONE_E2E_PORT'] ?? 18940);
-// Layouts, maintenance, and acknowledgements saved by the tests go to fresh
-// files, never beside the sample data.
+// Layouts, maintenance, acknowledgements, and fixes saved by the tests go to
+// fresh files, never beside the sample data.
 const LAYOUTS = join(tmpdir(), `sunstone-e2e-${process.pid}.layouts.json`);
 const OPERATIONS = join(tmpdir(), `sunstone-e2e-${process.pid}.operations.json`);
+const CHANGES = join(tmpdir(), `sunstone-e2e-${process.pid}.changes.json`);
 const ws = process.env['PW_WS_ENDPOINT'];
 
 export default defineConfig({
@@ -32,13 +33,21 @@ export default defineConfig({
 	projects: [
 		{
 			name: 'chromium',
+			testIgnore: 'fixes.spec.ts',
+			use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 900 } }
+		},
+		// Fixing the documentation changes it for every test, so last, on its own.
+		{
+			name: 'fixes',
+			testMatch: 'fixes.spec.ts',
+			dependencies: ['chromium'],
 			use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 900 } }
 		}
 	],
 	webServer: {
 		command:
 			'uv run sunstone --topology ../data/sample/small.yaml --web-dir ../frontend/build ' +
-			`--layouts ${LAYOUTS} --operations ${OPERATIONS} --port ${PORT}`,
+			`--layouts ${LAYOUTS} --operations ${OPERATIONS} --changes ${CHANGES} --port ${PORT}`,
 		cwd: '../backend',
 		url: `http://127.0.0.1:${PORT}/api/topology`,
 		reuseExistingServer: false,

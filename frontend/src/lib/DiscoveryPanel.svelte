@@ -6,25 +6,59 @@ documented links devices confirm, then each finding, most misleading
 first, with when it was seen, then findings seen earlier in the day but
 no longer. Clicking one shows discovery on the map, selects the link it
 is about, or the device, and brings it into view; Show on the map turns
-that on and off.
+that on and off. A finding of the latest run that the documentation can
+settle offers a fix, reviewed here before it is accepted; the fixes
+accepted are listed with who accepted them, and can be reverted.
 -->
 <script lang="ts">
+	import { revertChange, type Change } from './api/changes.ts';
 	import type { Comparison, Finding, LinkCheck } from './api/discovery.ts';
-	import { CHECK_LABEL, findingTarget, groupFindings, seenWhen } from './discovery.ts';
+	import {
+		changedTarget,
+		changeLine,
+		CHECK_LABEL,
+		findingTarget,
+		groupFindings,
+		seenWhen
+	} from './discovery.ts';
+	import FixReview from './FixReview.svelte';
 	import { clock } from './history.ts';
-	import { showDiscovery, ui } from './state.svelte.ts';
+	import { reviewFix, select, showDiscovery, ui, type Selection } from './state.svelte.ts';
 	import type { TopologyIndex } from './topology.ts';
 
 	const {
 		index,
 		comparison,
-		problem
+		problem,
+		changes,
+		ondocumented
 	}: {
 		index: TopologyIndex;
 		comparison: Comparison | null;
 		/** Why discovery could not be loaded, if it could not. */
 		problem: string | null;
+		/** Fixes accepted into the documentation, newest first. */
+		changes: Change[];
+		/** Called once the documentation has changed, with what to select then. */
+		ondocumented: (target: Selection | null) => void;
 	} = $props();
+
+	// Fixes are offered, and accepted, from the latest run only.
+	const latest = $derived(ui.at === null);
+	const reviewing = $derived(
+		latest && ui.fixing ? (comparison?.findings.find((f) => f.id === ui.fixing) ?? null) : null
+	);
+	let revertProblem = $state<string | null>(null);
+
+	async function revert(change: Change): Promise<void> {
+		try {
+			await revertChange(change.id);
+			revertProblem = null;
+			ondocumented(changedTarget(change.fix.before, change.fix.after));
+		} catch (err) {
+			revertProblem = err instanceof Error ? err.message : String(err);
+		}
+	}
 
 	const groups = $derived(comparison ? groupFindings(comparison.findings) : []);
 	const counts = $derived.by(() => {
@@ -70,6 +104,17 @@ that on and off.
 				>Show on the map</button
 			>
 		</p>
+		{#if reviewing}
+			<FixReview
+				finding={reviewing}
+				onaccepted={(c) => ondocumented(changedTarget(c.fix.after, c.fix.before))}
+			/>
+		{:else if latest && ui.fixing}
+			<p class="muted">
+				That finding is not in the latest run any more.
+				<button class="link" onclick={() => (ui.fixing = null)}>Close</button>
+			</p>
+		{/if}
 		{#if groups.length === 0}
 			<p class="muted">Everything discovery can see matches the documentation.</p>
 		{/if}
@@ -83,10 +128,38 @@ that on and off.
 							<span class="detail">{finding.detail}</span>
 							{@render when(finding)}
 						</button>
+						{#if latest && finding.fix}
+							<button
+								class="fix"
+								aria-pressed={ui.fixing === finding.id}
+								onclick={() => reviewFix(finding.id, findingTarget(finding))}
+								>Fix: {finding.fix.summary}</button
+							>
+						{/if}
 					</li>
 				{/each}
 			</ul>
 		{/each}
+		{#if changes.length}
+			<h3>Fixed here ({changes.length})</h3>
+			<p class="muted">In the documentation Sunstone shows, not yet in the source of truth.</p>
+			{#if revertProblem}<p class="error" role="alert">{revertProblem}</p>{/if}
+			<ul>
+				{#each changes as change (change.id)}
+					{@const target = changedTarget(change.fix.after, change.fix.before)}
+					<li class="change">
+						<button class="finding" onclick={() => target && select(target, true)}>
+							<span class="title">{changeLine(change)}</span>
+							<span class="detail">{change.title}</span>
+							<span class="when"
+								>{change.by} · {clock(change.at)}{change.note ? ` · ${change.note}` : ''}</span
+							>
+						</button>
+						<button class="link" onclick={() => revert(change)}>Revert</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 		{#if comparison.gone.length}
 			<h3>Seen earlier, not {ui.at ? 'then' : 'now'} ({comparison.gone.length})</h3>
 			<ul>
@@ -157,5 +230,47 @@ that on and off.
 	}
 	.gone {
 		opacity: 0.75;
+	}
+	.fix,
+	.link {
+		border: none;
+		background: none;
+		color: var(--accent);
+		cursor: pointer;
+		text-align: left;
+	}
+	.fix {
+		display: block;
+		width: 100%;
+		margin: -2px 0 6px;
+		padding: 0 8px;
+		font-size: 12px;
+	}
+	.fix:hover,
+	.link:hover {
+		text-decoration: underline;
+	}
+	.fix[aria-pressed='true'] {
+		color: var(--selected);
+	}
+	.link {
+		padding: 0;
+		font-size: 12px;
+	}
+	.change {
+		display: flex;
+		align-items: flex-start;
+		gap: 6px;
+	}
+	.change .finding {
+		flex: 1;
+		min-width: 0;
+	}
+	.change .link {
+		margin-top: 6px;
+	}
+	.error {
+		color: var(--down);
+		font-size: 12px;
 	}
 </style>

@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * Get Topology
-         * @description Return the whole topology.
+         * @description Return the whole topology, as documented with the changes accepted.
          */
         get: operations["get_topology_api_topology_get"];
         put?: never;
@@ -333,6 +333,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Changes
+         * @description Return every fix accepted into the documentation, newest first.
+         */
+        get: operations["get_changes_api_changes_get"];
+        put?: never;
+        /**
+         * Accept Fix
+         * @description Accept the fix a finding of the latest discovery run offers into
+         *     the documentation, which everything then follows.
+         */
+        post: operations["accept_fix_api_changes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review
+         * @description Return what accepting the fix a finding of the latest discovery run
+         *     offers would do now: to the ports involved, to redundancy, and to the
+         *     problems there are.
+         */
+        get: operations["get_review_api_review_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revert Change
+         * @description Take a fix back out of the documentation.
+         */
+        delete: operations["revert_change_api_changes__change_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/layouts": {
         parameters: {
             query?: never;
@@ -433,6 +500,51 @@ export interface components {
             phone: string;
             /** Portal */
             portal?: string | null;
+        };
+        /**
+         * Change
+         * @description A fix accepted into the documentation.
+         */
+        Change: {
+            /** Id */
+            id: string;
+            /** Finding */
+            finding: string;
+            /** Title */
+            title: string;
+            fix: components["schemas"]["Fix"];
+            /** Note */
+            note: string;
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
+        /**
+         * ChangeIn
+         * @description A fix someone accepts: the finding it fixes, as of the latest run.
+         */
+        ChangeIn: {
+            /** Finding */
+            finding: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+        };
+        /**
+         * ChangeSet
+         * @description Every change accepted, newest first.
+         */
+        ChangeSet: {
+            /** Changes */
+            changes: components["schemas"]["Change"][];
         };
         /**
          * Circuit
@@ -695,6 +807,22 @@ export interface components {
             first_seen?: string | null;
             /** Last Seen */
             last_seen?: string | null;
+            fix?: components["schemas"]["Fix"] | null;
+        };
+        /**
+         * Fix
+         * @description A change to the documentation that makes it say what discovery sees.
+         */
+        Fix: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "move" | "add" | "retire";
+            /** Summary */
+            summary: string;
+            before?: components["schemas"]["Link"] | null;
+            after?: components["schemas"]["Link"] | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1030,6 +1158,17 @@ export interface components {
             interface: string;
         };
         /**
+         * PortNow
+         * @description A port a fix takes out of the documentation or puts in, as Live reads it now.
+         */
+        PortNow: {
+            /** Device */
+            device: string;
+            /** Interface */
+            interface: string;
+            reading?: components["schemas"]["InterfaceState"] | null;
+        };
+        /**
          * Position
          * @description Where a node was drawn.
          */
@@ -1050,6 +1189,29 @@ export interface components {
             rtt_ms: number | null;
             /** Loss Pct */
             loss_pct: number | null;
+        };
+        /**
+         * Review
+         * @description What accepting a fix would do, worked out against the network now.
+         */
+        Review: {
+            finding: components["schemas"]["Finding"];
+            /** Removes */
+            removes: components["schemas"]["PortNow"][];
+            /** Adds */
+            adds: components["schemas"]["PortNow"][];
+            /** Exposed */
+            exposed: {
+                [key: string]: string[];
+            };
+            /** Restored */
+            restored: string[];
+            /** Cut Off */
+            cut_off: string[];
+            /** Cleared */
+            cleared: string[];
+            /** Raised */
+            raised: string[];
         };
         /**
          * RoutedProblem
@@ -1897,6 +2059,119 @@ export interface operations {
             header?: never;
             path: {
                 cover_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_changes_api_changes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeSet"];
+                };
+            };
+        };
+    };
+    accept_fix_api_changes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_api_review_get: {
+        parameters: {
+            query: {
+                finding: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revert_change_api_changes__change_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
             };
             cookie?: never;
         };

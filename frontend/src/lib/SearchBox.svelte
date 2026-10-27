@@ -70,12 +70,14 @@ Press `/` or Ctrl+K to get here.
 	let open = $state(false);
 	let active = $state(0);
 
-	// The topology never changes while the page is open, so its entries are
-	// built once: when the browser is next idle, or at the first search if sooner.
-	let built: Entry[] | null = null;
+	// The topology's entries are built once for each version of it: when the
+	// browser is next idle, or at the first search if sooner.
+	let built: { index: TopologyIndex; entries: Entry[] } | null = null;
 	function items(): Entry[] {
-		built ??= timed('search index', () => topologyEntries(index));
-		return built;
+		if (built?.index !== index) {
+			built = { index, entries: timed('search index', () => topologyEntries(index)) };
+		}
+		return built.entries;
 	}
 
 	onMount(() => {

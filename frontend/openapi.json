@@ -8,7 +8,7 @@
   "/api/topology": {
    "get": {
     "summary": "Get Topology",
-    "description": "Return the whole topology.",
+    "description": "Return the whole topology, as documented with the changes accepted.",
     "operationId": "get_topology_api_topology_get",
     "responses": {
      "200": {
@@ -686,6 +686,135 @@
     }
    }
   },
+  "/api/changes": {
+   "get": {
+    "summary": "Get Changes",
+    "description": "Return every fix accepted into the documentation, newest first.",
+    "operationId": "get_changes_api_changes_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChangeSet"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Accept Fix",
+    "description": "Accept the fix a finding of the latest discovery run offers into\nthe documentation, which everything then follows.",
+    "operationId": "accept_fix_api_changes_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChangeIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Change"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/review": {
+   "get": {
+    "summary": "Get Review",
+    "description": "Return what accepting the fix a finding of the latest discovery run\noffers would do now: to the ports involved, to redundancy, and to the\nproblems there are.",
+    "operationId": "get_review_api_review_get",
+    "parameters": [
+     {
+      "name": "finding",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Finding"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Review"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/changes/{change_id}": {
+   "delete": {
+    "summary": "Revert Change",
+    "description": "Take a fix back out of the documentation.",
+    "operationId": "revert_change_api_changes__change_id__delete",
+    "parameters": [
+     {
+      "name": "change_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Change Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/layouts": {
    "get": {
     "summary": "List Layouts",
@@ -950,6 +1079,97 @@
     ],
     "title": "Carrier",
     "description": "How to reach a carrier's NOC about its circuits."
+   },
+   "Change": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "finding": {
+      "type": "string",
+      "title": "Finding"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "fix": {
+      "$ref": "#/components/schemas/Fix"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note"
+     },
+     "by": {
+      "type": "string",
+      "title": "By"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "finding",
+     "title",
+     "fix",
+     "note",
+     "by",
+     "at"
+    ],
+    "title": "Change",
+    "description": "A fix accepted into the documentation."
+   },
+   "ChangeIn": {
+    "properties": {
+     "finding": {
+      "type": "string",
+      "title": "Finding"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "finding",
+     "by"
+    ],
+    "title": "ChangeIn",
+    "description": "A fix someone accepts: the finding it fixes, as of the latest run."
+   },
+   "ChangeSet": {
+    "properties": {
+     "changes": {
+      "items": {
+       "$ref": "#/components/schemas/Change"
+      },
+      "type": "array",
+      "title": "Changes"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "changes"
+    ],
+    "title": "ChangeSet",
+    "description": "Every change accepted, newest first."
    },
    "Circuit": {
     "properties": {
@@ -1531,6 +1751,16 @@
        }
       ],
       "title": "Last Seen"
+     },
+     "fix": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Fix"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "additionalProperties": false,
@@ -1544,6 +1774,51 @@
     ],
     "title": "Finding",
     "description": "One place where the documentation and the network disagree."
+   },
+   "Fix": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "move",
+       "add",
+       "retire"
+      ],
+      "title": "Kind"
+     },
+     "summary": {
+      "type": "string",
+      "title": "Summary"
+     },
+     "before": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Link"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "after": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Link"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "kind",
+     "summary"
+    ],
+    "title": "Fix",
+    "description": "A change to the documentation that makes it say what discovery sees."
    },
    "HTTPValidationError": {
     "properties": {
@@ -2360,6 +2635,36 @@
     "title": "Port",
     "description": "A device's port, as documented or as seen."
    },
+   "PortNow": {
+    "properties": {
+     "device": {
+      "type": "string",
+      "title": "Device"
+     },
+     "interface": {
+      "type": "string",
+      "title": "Interface"
+     },
+     "reading": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/InterfaceState"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "device",
+     "interface"
+    ],
+    "title": "PortNow",
+    "description": "A port a fix takes out of the documentation or puts in, as Live reads it now."
+   },
    "Position": {
     "properties": {
      "x": {
@@ -2418,6 +2723,79 @@
     ],
     "title": "Reachability",
     "description": "Round-trip time and loss to a device from one monitoring position."
+   },
+   "Review": {
+    "properties": {
+     "finding": {
+      "$ref": "#/components/schemas/Finding"
+     },
+     "removes": {
+      "items": {
+       "$ref": "#/components/schemas/PortNow"
+      },
+      "type": "array",
+      "title": "Removes"
+     },
+     "adds": {
+      "items": {
+       "$ref": "#/components/schemas/PortNow"
+      },
+      "type": "array",
+      "title": "Adds"
+     },
+     "exposed": {
+      "additionalProperties": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "type": "object",
+      "title": "Exposed"
+     },
+     "restored": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Restored"
+     },
+     "cut_off": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Cut Off"
+     },
+     "cleared": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Cleared"
+     },
+     "raised": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Raised"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "finding",
+     "removes",
+     "adds",
+     "exposed",
+     "restored",
+     "cut_off",
+     "cleared",
+     "raised"
+    ],
+    "title": "Review",
+    "description": "What accepting a fix would do, worked out against the network now."
    },
    "RoutedProblem": {
     "properties": {

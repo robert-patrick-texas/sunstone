@@ -28,6 +28,12 @@ def main() -> None:
         "(default: beside the topology, NAME.operations.json)",
     )
     parser.add_argument(
+        "--changes",
+        type=Path,
+        help="fixes accepted into the documentation "
+        "(default: beside the topology, NAME.changes.json)",
+    )
+    parser.add_argument(
         "--oncall",
         type=Path,
         help="on-call directory: teams, rotations, and what they own "
@@ -47,6 +53,8 @@ def main() -> None:
         os.environ["SUNSTONE_LAYOUTS"] = str(args.layouts.resolve())
     if args.operations:
         os.environ["SUNSTONE_OPERATIONS"] = str(args.operations.resolve())
+    if args.changes:
+        os.environ["SUNSTONE_CHANGES"] = str(args.changes.resolve())
     if args.oncall:
         os.environ["SUNSTONE_ONCALL"] = str(args.oncall.resolve())
     uvicorn.run(

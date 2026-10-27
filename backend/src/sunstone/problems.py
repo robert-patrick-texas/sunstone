@@ -412,7 +412,7 @@ def _device_problems(
     return problems
 
 
-_ABBREVIATIONS = [
+ABBREVIATIONS = [
     ("HundredGigE", "Hu"),
     ("FortyGigabitEthernet", "Fo"),
     ("TwentyFiveGigE", "Twe"),
@@ -437,7 +437,7 @@ def short_interface(name: str) -> str:
     Raises:
         None
     """
-    for long, short in _ABBREVIATIONS:
+    for long, short in ABBREVIATIONS:
         if name[: len(long)].lower() == long.lower():
             return short + name[len(long) :]
     return name
