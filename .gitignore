@@ -15,3 +15,4 @@ frontend/playwright-report/
 # Saved layouts are each user's own state
 *.layouts.json
 *.operations.json
+*.changes.json

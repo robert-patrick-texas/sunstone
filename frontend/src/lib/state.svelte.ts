@@ -82,7 +82,9 @@ export const ui = $state({
 	/** Devices, sites, and links supposed to fail, to see what that would do. */
 	whatIf: [] as Selection[],
 	/** Show where discovery and the documentation disagree, on the map. */
-	discovery: false
+	discovery: false,
+	/** The discovery finding whose fix is being reviewed, by id. */
+	fixing: null as string | null
 });
 
 /**
@@ -244,4 +246,18 @@ export function showTeam(team: string): void {
 	ui.team = team;
 	ui.sideTab = 'oncall';
 	ui.problemsOpen = true;
+}
+
+/**
+ * Review the fix a discovery finding offers, in the side panel, with the
+ * finding shown on the map.
+ *
+ * @param finding - The finding's id.
+ * @param target - What to select for it.
+ */
+export function reviewFix(finding: string, target: Selection | null): void {
+	ui.fixing = finding;
+	ui.sideTab = 'discovery';
+	ui.problemsOpen = true;
+	showDiscovery(target);
 }

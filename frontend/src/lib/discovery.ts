@@ -1,11 +1,14 @@
 /**
  * Discovery findings as the UI shows them: how each kind is headed, what to
- * select for one, and what discovery says about a device or a link.
+ * select for one, and what discovery says about a device or a link; and the
+ * fixes they offer: what a review of one says, and the change set's lines.
  */
+import type { Change, PortNow, Review } from './api/changes.ts';
 import type { Comparison, Finding, FindingKind, LinkCheck } from './api/discovery.ts';
+import type { Link } from './api/topology.ts';
 import { clock } from './history.ts';
 import type { Selection } from './state.svelte.ts';
-import type { TopologyIndex } from './topology.ts';
+import { shortInterface, type TopologyIndex } from './topology.ts';
 
 /** Kinds in the order the server ranks them, most misleading first. */
 export const FINDING_KINDS: { kind: FindingKind; label: string }[] = [
@@ -113,4 +116,123 @@ export function deviceCheck(
 		confirmed: links.filter((l) => linkCheck(comparison, l.id) === 'confirmed').length,
 		findings: comparison.findings.filter((f) => f.devices.includes(device))
 	};
+}
+
+/** Why discovery offers no fix, for the kinds it never offers one for. */
+export const NO_FIX: Partial<Record<FindingKind, string>> = {
+	'unknown-device': 'Document the device first, or unplug it.',
+	'no-neighbors': 'Turn LLDP or CDP on, and its links can be checked.'
+};
+
+/**
+ * A link by its two ends.
+ *
+ * @param link - The link.
+ * @returns For example "d-dist-02 Te1/0/48 – d-acc-05 Te1/0/1".
+ */
+export function linkEnds(link: Link): string {
+	return (
+		`${link.a.device} ${shortInterface(link.a.interface)} – ` +
+		`${link.b.device} ${shortInterface(link.b.interface)}`
+	);
+}
+
+const DONE: Record<Change['fix']['kind'], string> = {
+	move: 'Moved to',
+	add: 'Added',
+	retire: 'Retired'
+};
+
+/**
+ * What a change did, for its line in the change set.
+ *
+ * @param change - The change.
+ * @returns For example "Moved to d-dist-02 Te1/0/48 – d-acc-05 Te1/0/1".
+ */
+export function changeLine(change: Change): string {
+	const link = change.fix.after ?? change.fix.before;
+	return link ? `${DONE[change.fix.kind]} ${linkEnds(link)}` : change.fix.summary;
+}
+
+/**
+ * What to select once a fix is in the documentation, or out of it again.
+ *
+ * @param now - The link as now documented, if there is one.
+ * @param then - The link as it was.
+ * @returns The link now, or else a device at the end of the one that was.
+ */
+export function changedTarget(
+	now: Link | null | undefined,
+	then: Link | null | undefined
+): Selection | null {
+	if (now) return { kind: 'links', ids: [now.id] };
+	return then ? { kind: 'device', id: then.a.device } : null;
+}
+
+/**
+ * The change that put a link in the documentation as it now is, if any.
+ *
+ * @param changes - Changes accepted, newest first.
+ * @param link - The link's id.
+ * @returns The latest change that moved or added it.
+ */
+export function changeOf(changes: Change[], link: string): Change | undefined {
+	return changes.find((c) => c.fix.after?.id === link);
+}
+
+/**
+ * A port as Live reads it now, for a review.
+ *
+ * @param port - The port and its reading.
+ * @returns For example "dal-dist-02 Te1/0/48: up · 8% in, 14% out", or
+ *   "…: not monitored" when nothing reads it.
+ */
+export function portNow(port: PortNow): string {
+	const name = `${port.device} ${shortInterface(port.interface)}`;
+	const r = port.reading;
+	if (!r) return `${name}: not monitored`;
+	if (r.stale) return `${name}: no recent reading`;
+	if (r.oper === 'down') return `${name}: down`;
+	return `${name}: up · ${Math.round(r.in_pct ?? 0)}% in, ${Math.round(r.out_pct ?? 0)}% out`;
+}
+
+/**
+ * What Live says against accepting a fix: a port it takes out of the
+ * documentation that still reads up.
+ *
+ * @param review - The review.
+ * @returns A warning, or null if Live has nothing against it.
+ */
+export function reviewWarning(review: Review): string | null {
+	const up = review.removes.filter((p) => p.reading?.oper === 'up' && !p.reading.stale);
+	if (up.length === 0) return null;
+	if (review.finding.fix?.kind === 'retire') {
+		const where = up.length === 2 ? 'both ends' : 'one end';
+		return (
+			`Live shows it up and carrying traffic at ${where}: the link is likely there, ` +
+			'hidden from LLDP and CDP (by a media converter, say). Retire it only if you know the cable is gone.'
+		);
+	}
+	const [port] = up;
+	return port
+		? `Live shows ${port.device} ${shortInterface(port.interface)} up: something is still plugged into it.`
+		: null;
+}
+
+/**
+ * What accepting a fix would do, a line each.
+ *
+ * @param review - The review.
+ * @returns Lines on redundancy, then on problems; empty if it changes neither.
+ */
+export function reviewEffects(review: Review): string[] {
+	const lines = Object.entries(review.exposed).map(
+		([device, via]) =>
+			`${device} would depend on ${via.join(' and ')}${via.length === 1 ? ' alone' : ''}`
+	);
+	lines.push(...review.restored.map((d) => `${d} would have a second way to the core again`));
+	lines.push(...review.cut_off.map((d) => `${d} would have no documented way to the core`));
+	lines.push(...review.cleared.map((t) => `Clears “${t}”`));
+	lines.push(...review.raised.map((t) => `Raises “${t}”`));
+	return lines;
 }

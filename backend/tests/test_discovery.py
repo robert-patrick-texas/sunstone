@@ -8,8 +8,11 @@ from fastapi.testclient import TestClient
 
 from sunstone.api import Files, create_app
 from sunstone.cabling import Cabling
+from sunstone.changes import Change, ChangesError, ChangeStore, applied
 from sunstone.discovery import (
     Discovery,
+    Finding,
+    Fix,
     Neighbor,
     NeighborTable,
     SimulatedDiscovery,
@@ -384,3 +387,232 @@ def test_the_api_compares_the_latest_run_once(
     assert earlier["at"] < first["at"]
     too_old = (datetime.now(UTC) - timedelta(days=2)).isoformat()
     assert client.get("/api/discovery", params={"at": too_old}).status_code == 422
+
+
+def fixable(topology: Topology) -> tuple[Cabling, list[Finding]]:
+    """Every disagreement seeded, and the findings discovery makes of them."""
+    state = AllUp(topology)
+    cabling = drifted(topology)
+    at = lab_in(cabling)
+    found = SimulatedDiscovery(topology, cabling, state).discover(at)
+    return cabling, compare(topology, found, Visibility.of(state.snapshot(at))).findings
+
+
+class TestFixes:
+    def test_findings_the_documentation_can_settle_offer_a_fix(
+        self, topology: Topology
+    ) -> None:
+        _, findings = fixable(topology)
+        offered = {f.kind: f.fix.kind if f.fix else None for f in findings}
+        assert offered == {
+            "wrong-neighbor": "move",
+            "wrong-port": "move",
+            "not-seen": "retire",
+            "undocumented": "add",
+            "unknown-device": None,
+            "no-neighbors": None,
+        }
+        documented = {
+            f"{e.device}:{e.interface}" for ln in topology.links for e in (ln.a, ln.b)
+        }
+        for f in findings:
+            if f.fix and f.fix.after:
+                ends = [f.fix.after.a, f.fix.after.b]
+                # Spelled out, as the documentation spells ports.
+                assert all(
+                    e.interface.startswith(("Gigabit", "TenGigabit")) for e in ends
+                )
+                if f.fix.before:
+                    assert f.fix.after.speed_mbps == f.fix.before.speed_mbps
+                    moved = [
+                        e for e in ends if f"{e.device}:{e.interface}" not in documented
+                    ]
+                    assert len(moved) == 1
+        added = next(f.fix for f in findings if f.kind == "undocumented" and f.fix)
+        assert added.after is not None
+        assert (added.after.speed_mbps, added.after.kind) == (1_000, "lan")
+
+    def test_with_every_fix_but_retiring_only_what_people_must_settle_is_left(
+        self, topology: Topology
+    ) -> None:
+        cabling, findings = fixable(topology)
+        fixes = [f.fix for f in findings if f.fix and f.fix.kind != "retire"]
+        fixed = applied(topology, fixes)
+        assert len(fixed.links) == len(topology.links) + 1
+        state = AllUp(fixed)
+        real = cabling.documenting(fixed)
+        at = lab_in(cabling)
+        again = compare(
+            fixed,
+            SimulatedDiscovery(fixed, real, state).discover(at),
+            Visibility.of(state.snapshot(at)),
+        )
+        assert [f.kind for f in again.findings] == [
+            "not-seen",
+            "unknown-device",
+            "no-neighbors",
+        ]
+
+    def test_a_port_documented_on_another_link_is_not_moved_to(
+        self, topology: Topology
+    ) -> None:
+        one, two = uplink(topology, 0), uplink(topology, 2)
+        found = tables(topology, skip={one.id, two.id})
+        # The two cables swapped at their B ends.
+        for here, there in ((one.a, two.b), (two.a, one.b)):
+            found[here.device].append(
+                Neighbor(
+                    interface=here.interface,
+                    remote=there.device,
+                    remote_port=there.interface,
+                    protocol="cdp",
+                )
+            )
+        result = compare(topology, run(found))
+        assert {f.link for f in result.findings} == {one.id, two.id}
+        assert all(f.fix is None for f in result.findings)
+
+
+def changes_client(
+    topology: Topology, tmp_path: Path, state: AllUp | None = None
+) -> TestClient:
+    """The API on a copy of the topology, with every device up."""
+    path = tmp_path / "small.yaml"
+    path.write_text(to_yaml(topology, "test"), encoding="utf-8")
+    files = Files(
+        operations=tmp_path / "ops.json",
+        layouts=tmp_path / "l.json",
+        changes=tmp_path / "changes.json",
+    )
+    app = create_app(
+        path, files=files, state_source=state or AllUp(topology), warm=False
+    )
+    return TestClient(app)
+
+
+class TestChangesApi:
+    def test_a_fix_is_reviewed_accepted_kept_and_reverted(
+        self, topology: Topology, tmp_path: Path
+    ) -> None:
+        client = changes_client(topology, tmp_path)
+        finding = next(
+            f
+            for f in client.get("/api/discovery").json()["findings"]
+            if f["kind"] == "wrong-port"
+        )
+        review = client.get("/api/review", params={"finding": finding["id"]}).json()
+        before, after = finding["fix"]["before"], finding["fix"]["after"]
+        assert [p["interface"] for p in review["removes"]] != [
+            p["interface"] for p in review["adds"]
+        ]
+        assert review["removes"][0]["reading"]["oper"] == "up"
+        # Not a port this test's live state watches.
+        assert review["adds"][0]["reading"] is None
+        assert (review["cleared"], review["raised"]) == ([], [])
+        accepted = client.post(
+            "/api/changes",
+            json={"finding": finding["id"], "by": "Pat", "note": "On site"},
+        )
+        assert accepted.status_code == 201
+        change = accepted.json()
+        assert (change["by"], change["title"]) == ("Pat", finding["title"])
+        ids = {ln["id"] for ln in client.get("/api/topology").json()["links"]}
+        assert after["id"] in ids and before["id"] not in ids
+        kinds = [f["kind"] for f in client.get("/api/discovery").json()["findings"]]
+        assert "wrong-port" not in kinds
+        assert client.get("/api/changes").json()["changes"] == [change]
+        # Kept beside the topology, for the next start.
+        restarted = changes_client(topology, tmp_path)
+        assert after["id"] in {
+            ln["id"] for ln in restarted.get("/api/topology").json()["links"]
+        }
+        assert client.delete(f"/api/changes/{change['id']}").status_code == 204
+        ids = {ln["id"] for ln in client.get("/api/topology").json()["links"]}
+        assert before["id"] in ids and after["id"] not in ids
+        assert client.get("/api/changes").json()["changes"] == []
+        assert client.delete(f"/api/changes/{change['id']}").status_code == 404
+
+    def test_a_review_says_what_the_fix_does_to_redundancy(
+        self, topology: Topology, tmp_path: Path
+    ) -> None:
+        client = changes_client(topology, tmp_path)
+        findings = client.get("/api/discovery").json()["findings"]
+        rewired = next(f for f in findings if f["kind"] == "wrong-neighbor")
+        review = client.get("/api/review", params={"finding": rewired["id"]}).json()
+        # Both of its uplinks really go to the same switch.
+        [(device, via)] = review["exposed"].items()
+        assert device in rewired["devices"] and len(via) == 1
+        retired = next(f for f in findings if f["kind"] == "not-seen")
+        review = client.get("/api/review", params={"finding": retired["id"]}).json()
+        assert len(review["removes"]) == 2 and review["adds"] == []
+        assert len(review["exposed"]) == 1
+
+    def test_only_fixes_the_latest_run_offers_are_accepted(
+        self, topology: Topology, tmp_path: Path
+    ) -> None:
+        client = changes_client(topology, tmp_path)
+        findings = client.get("/api/discovery").json()["findings"]
+        silent = next(f for f in findings if f["kind"] == "no-neighbors")
+        assert client.get("/api/review", params={"finding": "nope"}).status_code == 404
+        refused = client.post(
+            "/api/changes", json={"finding": silent["id"], "by": "Pat"}
+        )
+        assert refused.status_code == 409
+        assert "offers no fix" in refused.json()["detail"]
+        unsigned = client.post("/api/changes", json={"finding": findings[0]["id"]})
+        assert unsigned.status_code == 422
+
+    def test_a_change_a_later_one_depends_on_is_reverted_last(
+        self, topology: Topology, tmp_path: Path
+    ) -> None:
+        client = changes_client(topology, tmp_path)
+        finding = next(
+            f
+            for f in client.get("/api/discovery").json()["findings"]
+            if f["kind"] == "wrong-port"
+        )
+        first = client.post(
+            "/api/changes", json={"finding": finding["id"], "by": "Pat"}
+        ).json()
+        # Then someone retires the link as fixed.
+        moved = Link.model_validate(
+            {k: v for k, v in first["fix"]["after"].items() if k != "id"}
+        )
+        later = Change.model_validate(
+            {
+                **first,
+                "id": "later",
+                "fix": {"kind": "retire", "summary": "Retire it", "before": moved},
+            }
+        )
+        store = ChangeStore(tmp_path / "changes.json")
+        store.save([*store.changes(), later])
+        client = changes_client(topology, tmp_path)
+        refused = client.delete(f"/api/changes/{first['id']}")
+        assert refused.status_code == 409
+        assert "revert that first" in refused.json()["detail"]
+        assert client.delete("/api/changes/later").status_code == 204
+        assert client.delete(f"/api/changes/{first['id']}").status_code == 204
+
+    def test_changes_that_no_longer_apply_stop_the_server_starting(
+        self, topology: Topology, tmp_path: Path
+    ) -> None:
+        gone = Link.model_validate(
+            {
+                "a": {"device": "dal-core-01", "interface": "Gi9/9"},
+                "b": {"device": "dal-core-02", "interface": "Gi9/9"},
+                "speed_mbps": 1000,
+            }
+        )
+        change = Change(
+            id="x",
+            finding="not-seen:x",
+            title="Not seen",
+            fix=Fix(kind="retire", summary="Retire it", before=gone),
+            note="",
+            by="Pat",
+            at=AT,
+        )
+        ChangeStore(tmp_path / "changes.json").save([change])
+        with pytest.raises(ChangesError, match="no longer applies"):
+            changes_client(topology, tmp_path)

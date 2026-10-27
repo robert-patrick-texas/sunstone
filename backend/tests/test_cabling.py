@@ -6,7 +6,7 @@ from sunstone.cabling import Cabling
 from sunstone.discovery import Visibility
 from sunstone.impact import Network
 from sunstone.mockgen import PRESETS, generate
-from sunstone.model import Topology
+from sunstone.model import Link, Topology
 from sunstone.monitor import Monitor
 from sunstone.simulate import SimulatedState, monitored
 
@@ -101,3 +101,30 @@ def test_the_simulator_says_who_is_up_as_its_snapshot_would(
     for hours in range(0, 24, 3):
         at = AT - timedelta(hours=hours)
         assert state.visibility(at) == Visibility.of(state.snapshot(at))
+
+
+def test_the_cables_stay_put_when_the_documentation_changes(
+    topology: Topology, cabling: Cabling
+) -> None:
+    assert cabling.documenting(topology).cables == cabling.cables
+    [(link_id, port)] = cabling.moved.items()
+    old = next(ln for ln in topology.links if ln.id == link_id)
+    a = old.a.device == port.device
+    fixed = Link(
+        a=port if a else old.a, b=old.b if a else port, speed_mbps=old.speed_mbps
+    )
+    [undocumented, _] = cabling.extra
+    links = [fixed if ln.id == link_id else ln for ln in topology.links]
+    # The undocumented patch written down, and a link retired.
+    gone = links.pop(0)
+    links.append(undocumented.link)
+    real = cabling.documenting(topology.model_copy(update={"links": links}))
+    carrying = {c.link.id: c for c in real.cables}
+    assert carrying[fixed.id].documented
+    assert (carrying[fixed.id].a, carrying[fixed.id].b) == (fixed.a, fixed.b)
+    assert carrying[undocumented.link.id].documented
+    # The retired link's cable is there all the same, carrying traffic.
+    assert not carrying[gone.id].documented
+    assert [ln.id for _, ln in real.dangling] == [
+        ln.id for _, ln in cabling.dangling if ln.id != link_id
+    ]

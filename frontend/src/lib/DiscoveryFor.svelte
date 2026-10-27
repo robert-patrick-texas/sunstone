@@ -3,28 +3,51 @@
 What discovery says about a device or links: for a device, whether it
 answered the latest run, how many of its documented links devices confirm,
 and the findings that involve it; for links, each one's check, with the
-finding about it if there is one.
+finding about it if there is one. A finding of the latest run that offers
+a fix can be reviewed from here, and a link fixed in Sunstone says so.
 -->
 <script lang="ts">
-	import type { Comparison } from './api/discovery.ts';
-	import { CHECK_LABEL, deviceCheck, linkCheck, seenWhen } from './discovery.ts';
+	import type { Change } from './api/changes.ts';
+	import type { Comparison, Finding } from './api/discovery.ts';
+	import {
+		changeOf,
+		CHECK_LABEL,
+		deviceCheck,
+		findingTarget,
+		linkCheck,
+		NO_FIX,
+		seenWhen
+	} from './discovery.ts';
 	import { clock } from './history.ts';
-	import type { Selection } from './state.svelte.ts';
+	import { reviewFix, ui, type Selection } from './state.svelte.ts';
 	import { linkName, type TopologyIndex } from './topology.ts';
 
 	const {
 		index,
 		comparison,
+		changes,
 		item
 	}: {
 		index: TopologyIndex;
 		comparison: Comparison | null;
+		/** Fixes accepted into the documentation, newest first. */
+		changes: Change[];
 		item: Selection;
 	} = $props();
 
 	/** Links listed one by one; a bundle of many says how many more. */
 	const MAX_LINKS = 4;
 </script>
+
+{#snippet fixOf(f: Finding)}
+	{#if ui.at === null && f.fix}
+		<br /><button class="link" onclick={() => reviewFix(f.id, findingTarget(f))}
+			>Fix: {f.fix.summary}</button
+		>
+	{:else if NO_FIX[f.kind]}
+		<br /><span class="muted">{NO_FIX[f.kind]}</span>
+	{/if}
+{/snippet}
 
 {#if comparison && item.kind !== 'site'}
 	<h3>Discovery</h3>
@@ -45,6 +68,7 @@ finding about it if there is one.
 			{@const when = seenWhen(f, comparison.history_from)}
 			<p class="finding">
 				<b>{f.title}</b><br /><span class="muted">{f.detail}{when ? ` · seen ${when}` : ''}</span>
+				{@render fixOf(f)}
 			</p>
 		{/each}
 	{:else}
@@ -52,6 +76,7 @@ finding about it if there is one.
 			{@const link = index.links.get(id)}
 			{@const check = linkCheck(comparison, id)}
 			{@const finding = comparison.findings.find((f) => f.link === id)}
+			{@const fixed = changeOf(changes, id)}
 			<p class:finding={check !== 'confirmed'}>
 				{#if item.ids.length > 1 && link}{linkName(link)}:
 				{/if}<b>{CHECK_LABEL[check]}</b>
@@ -61,7 +86,14 @@ finding about it if there is one.
 					{:else if check === 'unchecked'}· neither end answers discovery
 					{/if}
 				</span>
+				{#if finding}{@render fixOf(finding)}{/if}
 			</p>
+			{#if fixed}
+				<p class="fixed">
+					Fixed here by {fixed.by} at {clock(fixed.at)}{fixed.note ? `: ${fixed.note}` : ''}
+					<span class="muted">· not yet in the source of truth</span>
+				</p>
+			{/if}
 		{/each}
 		{#if item.ids.length > MAX_LINKS}
 			<p class="muted">and {item.ids.length - MAX_LINKS} more links</p>
@@ -87,5 +119,20 @@ finding about it if there is one.
 	}
 	.muted {
 		color: var(--muted);
+	}
+	.fixed {
+		padding-left: 8px;
+		border-left: 3px solid var(--drift);
+	}
+	.link {
+		border: none;
+		background: none;
+		padding: 0;
+		color: var(--accent);
+		cursor: pointer;
+		text-align: left;
+	}
+	.link:hover {
+		text-decoration: underline;
 	}
 </style>
