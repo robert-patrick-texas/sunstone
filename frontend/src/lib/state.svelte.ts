@@ -16,7 +16,9 @@ export const ui = $state({
 	/** Devices whose shortest paths are highlighted in every view. */
 	path: null as { from: string; to: string } | null,
 	/** Start of a path whose destination the user is choosing. */
-	pathFrom: null as string | null
+	pathFrom: null as string | null,
+	/** Show live state (device status, link load) over the structure. */
+	live: false
 });
 
 /** Sites the graph views show device by device instead of as one box. */

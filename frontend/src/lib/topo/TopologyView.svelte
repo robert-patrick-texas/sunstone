@@ -26,6 +26,7 @@ the backend and opened again later.
 	import type { NodeSingular } from 'cytoscape';
 	import { GraphCanvas } from '../graph/canvas.ts';
 	import type { LayoutIn, SavedLayout } from '../api/layouts.ts';
+	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
 	import { siteNodeId } from '../graph/model.ts';
 	import { expandedSites, select, topo, ui, type Selection } from '../state.svelte.ts';
@@ -35,7 +36,11 @@ the backend and opened again later.
 	import { REFINE_UP_TO, runLayout, SITEWISE_ABOVE } from './layouts.ts';
 	import { neighborhood, seedsOf } from './neighborhood.ts';
 
-	const { index, path }: { index: TopologyIndex; path: PathResult | null } = $props();
+	const {
+		index,
+		path,
+		live
+	}: { index: TopologyIndex; path: PathResult | null; live: LiveIndex | null } = $props();
 
 	const LIMIT = 400;
 	const HOPS = [1, 2, 3, 4];
@@ -113,6 +118,10 @@ the backend and opened again later.
 
 	$effect(() => {
 		canvas?.highlight(ui.selection, path);
+	});
+
+	$effect(() => {
+		canvas?.setLive(live);
 	});
 
 	// A newly shown path is brought into view (the path scope fits it when drawn).

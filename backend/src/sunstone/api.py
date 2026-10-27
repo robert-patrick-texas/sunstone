@@ -1,11 +1,13 @@
 """HTTP API, plus the built web UI served from the same origin."""
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
 from fastapi import Path as PathParam
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from sunstone.layouts import (
@@ -16,8 +18,10 @@ from sunstone.layouts import (
     LayoutSummary,
     SavedLayout,
 )
+from sunstone.live import NetworkState, StateSource
 from sunstone.loader import load_topology
 from sunstone.model import Topology
+from sunstone.simulate import SimulatedState
 
 NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
 
@@ -38,7 +42,10 @@ def default_layouts_path(topology_path: Path) -> Path:
 
 
 def create_app(
-    topology_path: Path, web_dir: Path | None = None, layouts_path: Path | None = None
+    topology_path: Path,
+    web_dir: Path | None = None,
+    layouts_path: Path | None = None,
+    state_source: StateSource | None = None,
 ) -> FastAPI:
     """Build the app around one topology file, loaded once at startup.
 
@@ -48,6 +55,8 @@ def create_app(
             (the Vite dev server serves the UI during development).
         layouts_path: File for saved layouts, or None for the one beside the
             topology file.
+        state_source: Where live state comes from, or None for simulated
+            state (there are no real sources yet).
 
     Returns:
         The FastAPI application.
@@ -57,12 +66,20 @@ def create_app(
     """
     topology = load_topology(topology_path)
     store = LayoutStore(layouts_path or default_layouts_path(topology_path))
+    state = state_source or SimulatedState(topology)
     app = FastAPI(title="Sunstone")
+    # Topology and state run to megabytes for large networks and compress well.
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     @app.get("/api/topology")
     def get_topology() -> Topology:
         """Return the whole topology."""
         return topology
+
+    @app.get("/api/state")
+    def get_state() -> NetworkState:
+        """Return the live state of everything monitored, as of now."""
+        return state.snapshot(datetime.now(UTC))
 
     @app.get("/api/layouts")
     def list_layouts() -> list[LayoutSummary]:

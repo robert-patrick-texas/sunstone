@@ -24,6 +24,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get State
+         * @description Return the live state of everything monitored, as of now.
+         */
+        get: operations["get_state_api_state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/layouts": {
         parameters: {
             query?: never;
@@ -119,6 +139,28 @@ export interface components {
             id: string;
         };
         /**
+         * DeviceState
+         * @description Whether a monitored device answers, and how quickly.
+         */
+        DeviceState: {
+            /** Device */
+            device: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "up" | "down";
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Stale */
+            stale: boolean;
+            /** Reachability */
+            reachability: components["schemas"]["Reachability"][];
+        };
+        /**
          * Endpoint
          * @description One end of a link: a device's interface, optionally a LAG member.
          */
@@ -134,6 +176,32 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InterfaceState
+         * @description A monitored interface's status and load, as a share of its speed.
+         */
+        InterfaceState: {
+            /** Device */
+            device: string;
+            /** Interface */
+            interface: string;
+            /**
+             * Oper
+             * @enum {string}
+             */
+            oper: "up" | "down";
+            /** In Pct */
+            in_pct: number | null;
+            /** Out Pct */
+            out_pct: number | null;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Stale */
+            stale: boolean;
         };
         /**
          * LayoutIn
@@ -227,6 +295,35 @@ export interface components {
             ids: string[];
         };
         /**
+         * MonitoringPosition
+         * @description A place measurements are taken from, such as a collector at a hub.
+         */
+        MonitoringPosition: {
+            /** Name */
+            name: string;
+            /** Site */
+            site: string;
+        };
+        /**
+         * NetworkState
+         * @description One snapshot of everything a source monitors.
+         */
+        NetworkState: {
+            /** Source */
+            source: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Positions */
+            positions: components["schemas"]["MonitoringPosition"][];
+            /** Devices */
+            devices: components["schemas"]["DeviceState"][];
+            /** Interfaces */
+            interfaces: components["schemas"]["InterfaceState"][];
+        };
+        /**
          * PathEnds
          * @description The two devices whose shortest paths are shown.
          */
@@ -245,6 +342,18 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /**
+         * Reachability
+         * @description Round-trip time and loss to a device from one monitoring position.
+         */
+        Reachability: {
+            /** Position */
+            position: string;
+            /** Rtt Ms */
+            rtt_ms: number | null;
+            /** Loss Pct */
+            loss_pct: number | null;
         };
         /**
          * SavedLayout
@@ -343,6 +452,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Topology"];
+                };
+            };
+        };
+    };
+    get_state_api_state_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkState"];
                 };
             };
         };

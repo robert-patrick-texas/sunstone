@@ -6,12 +6,14 @@ and the details panel for whatever is selected.
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
+	import { fetchState } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
 	import DetailsPanel from '#lib/DetailsPanel.svelte';
 	import GeoView from '#lib/geo/GeoView.svelte';
 	import HierarchyView from '#lib/hierarchy/HierarchyView.svelte';
 	import TopologyView from '#lib/topo/TopologyView.svelte';
 	import Legend from '#lib/Legend.svelte';
+	import { indexState, type LiveIndex } from '#lib/live.ts';
 	import { shortestPaths } from '#lib/paths.ts';
 	import SearchBox from '#lib/SearchBox.svelte';
 	import { expandedSites, select, ui, type View } from '#lib/state.svelte.ts';
@@ -25,7 +27,11 @@ and the details panel for whatever is selected.
 		{ id: 'topology', label: 'Topology' }
 	];
 
+	const POLL_MS = 10_000;
+
 	let index = $state.raw<TopologyIndex | null>(null);
+	let live = $state.raw<LiveIndex | null>(null);
+	let liveProblem = $state<string | null>(null);
 	const path = $derived(index && ui.path ? shortestPaths(index, ui.path.from, ui.path.to) : null);
 	let problem = $state<string | null>(null);
 
@@ -39,6 +45,32 @@ and the details panel for whatever is selected.
 		} catch (e) {
 			problem = e instanceof Error ? e.message : String(e);
 		}
+	});
+
+	// While live state is on, fetch it now and every POLL_MS.
+	$effect(() => {
+		if (!ui.live) {
+			live = null;
+			liveProblem = null;
+			return;
+		}
+		let stopped = false;
+		const poll = async () => {
+			try {
+				const state = await fetchState();
+				if (stopped) return;
+				live = indexState(state);
+				liveProblem = null;
+			} catch (e) {
+				if (!stopped) liveProblem = e instanceof Error ? e.message : String(e);
+			}
+		};
+		void poll();
+		const timer = setInterval(poll, POLL_MS);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
 	});
 
 	function onKeydown(e: KeyboardEvent): void {
@@ -61,6 +93,25 @@ and the details panel for whatever is selected.
 				</button>
 			{/each}
 		</div>
+		<button
+			class="live"
+			aria-pressed={ui.live}
+			title="Show device status and link load"
+			onclick={() => (ui.live = !ui.live)}
+		>
+			<span class="pulse" aria-hidden="true"></span>Live
+		</button>
+		{#if ui.live}
+			<span class="live-status" aria-live="polite">
+				{#if liveProblem}
+					Live state unavailable: {liveProblem}
+				{:else if live}
+					{live.state.source} · as of {new Date(live.state.generated_at).toLocaleTimeString()}
+				{:else}
+					Loading live state…
+				{/if}
+			</span>
+		{/if}
 		{#if index}
 			<SearchBox {index} />
 			<span class="stats">
@@ -78,14 +129,14 @@ and the details panel for whatever is selected.
 			<section class="view">
 				{#key ui.view}
 					{#if ui.view === 'geo'}
-						<GeoView {index} {path} />
+						<GeoView {index} {path} {live} />
 					{:else if ui.view === 'hierarchy'}
-						<HierarchyView {index} {path} />
+						<HierarchyView {index} {path} {live} />
 					{:else}
-						<TopologyView {index} {path} />
+						<TopologyView {index} {path} {live} />
 					{/if}
 				{/key}
-				<Legend />
+				<Legend live={live !== null} />
 				{#if ui.pathFrom}
 					<p class="picking" aria-live="polite">
 						Choose the destination for a path from <strong>{ui.pathFrom}</strong>: click a device or
@@ -93,7 +144,7 @@ and the details panel for whatever is selected.
 					</p>
 				{/if}
 			</section>
-			<DetailsPanel {index} {path} />
+			<DetailsPanel {index} {path} {live} />
 		{/if}
 	</main>
 </div>
@@ -120,6 +171,39 @@ and the details panel for whatever is selected.
 		font-size: 17px;
 		font-weight: 600;
 		letter-spacing: 0.02em;
+	}
+	.live {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.pulse {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--muted);
+	}
+	.live[aria-pressed='true'] {
+		border-color: var(--live);
+	}
+	.live[aria-pressed='true'] .pulse {
+		background: var(--live);
+		animation: pulse 2s ease-in-out infinite;
+	}
+	@keyframes pulse {
+		50% {
+			opacity: 0.3;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.live[aria-pressed='true'] .pulse {
+			animation: none;
+		}
+	}
+	.live-status {
+		color: var(--muted);
+		font-size: 12px;
+		white-space: nowrap;
 	}
 	.stats {
 		margin-left: auto;
