@@ -2,6 +2,7 @@
 name = "sunstone"
 version = "0.1.0"
 description = "Sunstone backend: serves network topology to the map views"
+license = "Apache-2.0"
 authors = [
     { name = "Robert Patrick", email = "193846785+robert-patrick-texas@users.noreply.github.com" }
 ]

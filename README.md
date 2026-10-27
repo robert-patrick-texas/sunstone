@@ -84,3 +84,7 @@ $ PW_WS_ENDPOINT=ws://127.0.0.1:3124/ make e2e
 - Topology: paths between two devices, and saving hand-arranged layouts beyond the browser session.
 - Sources: NetBox/Nautobot import, then NMS import and LLDP/CDP discovery.
 - Live state: up/down status, then utilization and latency overlays (vakr among the sources).
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
