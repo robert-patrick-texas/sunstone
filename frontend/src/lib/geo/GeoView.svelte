@@ -27,6 +27,7 @@ styles, everything else faded.
 	// hand it the worker's emitted URL instead.
 	import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 	import type { Impact } from '../impact.ts';
+	import { timed } from '../perf.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
 	import { select, ui, type Selection } from '../state.svelte.ts';
@@ -432,14 +433,16 @@ styles, everything else faded.
 	$effect(() => {
 		const [m, l, i] = [map, live, impact];
 		if (!m) return;
-		untrack(() => {
-			const update = (id: string, data: GeoJSON.FeatureCollection) =>
-				(m.getSource(id) as GeoJSONSource | undefined)?.setData(data);
-			update('sites', siteFeatures(index, l, i));
-			update('site-links', sitePairFeatures(index, pairs, l, i));
-			update('devices', deviceFeatures(index, positions, l, i));
-			update('device-links', linkFeatures(index.topology.links, positions, l, i));
-		});
+		untrack(() =>
+			timed('map update', () => {
+				const update = (id: string, data: GeoJSON.FeatureCollection) =>
+					(m.getSource(id) as GeoJSONSource | undefined)?.setData(data);
+				update('sites', siteFeatures(index, l, i));
+				update('site-links', sitePairFeatures(index, pairs, l, i));
+				update('devices', deviceFeatures(index, positions, l, i));
+				update('device-links', linkFeatures(index.topology.links, positions, l, i));
+			})
+		);
 	});
 
 	$effect(() => {

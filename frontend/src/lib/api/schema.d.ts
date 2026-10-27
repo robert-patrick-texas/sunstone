@@ -34,10 +34,55 @@ export interface paths {
         /**
          * Get State
          * @description Return the state of everything monitored, as of now or an earlier moment.
+         *
+         *     The present is rounded down to the polling interval, and each moment
+         *     is served from one cached, already compressed copy.
          */
         get: operations["get_state_api_state_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Problems
+         * @description Return the problems in the state as of now or an earlier moment.
+         *
+         *     Pass the ``generated_at`` of the state being shown, so the two match.
+         */
+        get: operations["get_problems_api_problems_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Impact
+         * @description Return what failing some devices, sites, and links would do.
+         */
+        post: operations["post_impact_api_impact_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -260,10 +305,33 @@ export interface components {
             /** Events */
             events: components["schemas"]["StateEvent"][];
         };
+        /**
+         * FailedSet
+         * @description Devices and links that fail.
+         */
+        FailedSet: {
+            /** Devices */
+            devices: string[];
+            /** Links */
+            links: string[];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * Impact
+         * @description What some failures do to the network.
+         */
+        Impact: {
+            failed: components["schemas"]["FailedSet"];
+            /** Cut Off */
+            cut_off: string[];
+            /** Exposed */
+            exposed: {
+                [key: string]: string[];
+            };
         };
         /**
          * InterfaceHistory
@@ -446,6 +514,43 @@ export interface components {
             y: number;
         };
         /**
+         * Problem
+         * @description One thing wrong, with what it does to the network.
+         */
+        Problem: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "outage" | "link-down" | "congested" | "loss" | "busy" | "nodata";
+            /** Title */
+            title: string;
+            /** Detail */
+            detail: string;
+            /** Target */
+            target: components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"];
+            impact: components["schemas"]["Impact"] | null;
+            /** Lost */
+            lost: number;
+            /** Exposed */
+            exposed: number;
+        };
+        /**
+         * ProblemList
+         * @description The problems in one snapshot, most urgent first.
+         */
+        ProblemList: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Problems */
+            problems: components["schemas"]["Problem"][];
+        };
+        /**
          * Reachability
          * @description Round-trip time and loss to a device from one monitoring position.
          */
@@ -553,6 +658,26 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /**
+         * WhatIf
+         * @description What failing some items would do, on top of what is already down.
+         */
+        WhatIf: {
+            impact: components["schemas"]["Impact"];
+            /** Already */
+            already: boolean;
+        };
+        /**
+         * WhatIfQuestion
+         * @description Devices, sites, and links to suppose failed, and the moment whose live
+         *     state to start from (none for the healthy network).
+         */
+        WhatIfQuestion: {
+            /** Failures */
+            failures: (components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"])[];
+            /** At */
+            at?: string | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -600,6 +725,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NetworkState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_problems_api_problems_get: {
+        parameters: {
+            query?: {
+                at?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_impact_api_impact_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WhatIfQuestion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatIf"];
                 };
             };
             /** @description Validation Error */

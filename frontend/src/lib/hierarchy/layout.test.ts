@@ -33,8 +33,15 @@ describe('buildHierarchy, one site expanded', () => {
 	const nodes = byId(graph.nodes);
 
 	it('draws the site as a frame with its devices in tier rows', () => {
-		expect(nodes.get(siteNodeId('A'))?.kind).toBe('frame');
-		expect(nodes.get('a-acc-01')?.parent).toBe('site:A');
+		const frame = nodes.get(siteNodeId('A'));
+		expect(frame?.kind).toBe('frame');
+		// The frame is a backdrop sized to hold the site's devices.
+		for (const id of ['a-wan-01', 'a-core-01', 'a-acc-01']) {
+			const d = nodes.get(id);
+			expect(d?.parent).toBeUndefined();
+			expect(Math.abs((d?.x ?? 0) - (frame?.x ?? 0))).toBeLessThan((frame?.w ?? 0) / 2);
+			expect(Math.abs((d?.y ?? 0) - (frame?.y ?? 0))).toBeLessThan((frame?.h ?? 0) / 2);
+		}
 		const y = (id: string) => nodes.get(id)?.y ?? NaN;
 		expect(y('a-wan-01')).toBeLessThan(y('a-core-01'));
 		expect(y('a-core-01')).toBeLessThan(y('a-acc-01'));

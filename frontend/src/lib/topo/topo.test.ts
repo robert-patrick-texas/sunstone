@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureIndex } from '../test-fixture.ts';
 import { neighborhoodGraph, networkGraph, radialRoots } from './graph.ts';
-import { sitewisePositions } from './layouts.ts';
+import { layoutPositions, sitewisePositions } from './layouts.ts';
 import { neighborhood, seedsOf } from './neighborhood.ts';
 
 describe('seedsOf', () => {
@@ -136,5 +136,43 @@ describe('sitewisePositions', () => {
 				expect(apart).toBe(true);
 			}
 		}
+	});
+});
+
+describe('layoutPositions', () => {
+	const index = fixtureIndex();
+
+	it('places every device and site box, and leaves frames to follow', () => {
+		const graph = networkGraph(index, new Set(['A', 'C']), true);
+		const positions = layoutPositions({ ...graph, kind: 'force', roots: [] });
+		const placed = graph.nodes.filter((n) => n.kind !== 'frame').map((n) => n.id);
+		expect([...positions.keys()].sort()).toEqual(placed.sort());
+		const distinct = new Set(
+			[...positions.values()].map((p) => `${p.x.toFixed(0)},${p.y.toFixed(0)}`)
+		);
+		expect(distinct.size).toBe(positions.size);
+	});
+
+	it('puts the roots of a layered layout above everything else', () => {
+		const graph = networkGraph(index, new Set(['A', 'B', 'C']), false);
+		const positions = layoutPositions({ ...graph, kind: 'layered', roots: ['a-core-01'] });
+		const top = positions.get('a-core-01')?.y ?? Infinity;
+		for (const [id, p] of positions) if (id !== 'a-core-01') expect(p.y).toBeGreaterThan(top);
+	});
+
+	it('adjusts given positions rather than starting over', () => {
+		const graph = networkGraph(index, new Set(['A', 'B', 'C']), false);
+		const first = layoutPositions({ ...graph, kind: 'force', roots: [] });
+		const again = layoutPositions({ ...graph, kind: 'force', roots: [], start: first });
+		const moved = [...first].map(([id, p]) => {
+			const q = again.get(id) ?? p;
+			return Math.hypot(p.x - q.x, p.y - q.y);
+		});
+		const xs = [...first.values()].map((p) => p.x);
+		const ys = [...first.values()].map((p) => p.y);
+		const extent = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+		// On average, nodes move a small part of the picture's size.
+		const mean = moved.reduce((a, b) => a + b, 0) / moved.length;
+		expect(mean).toBeLessThan(extent / 4);
 	});
 });

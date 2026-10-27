@@ -223,10 +223,12 @@ function blockNodes(
 	const { code, w, h } = block;
 	const center = { x: left + w / 2, y: top + h / 2, w, h };
 	if (!expanded) return [{ ...siteBoxNode(index, code), ...center }];
+	// The frame is sized here, so it is drawn as a plain node behind the devices rather
+	// than as their compound parent, which costs Cytoscape dearly on large graphs.
 	return [
 		{ ...frameNode(index, code), ...center },
 		...block.devices.map((d) => ({
-			...deviceNode(d.device, true),
+			...deviceNode(d.device, false),
 			x: left + d.x,
 			y: top + d.y
 		}))

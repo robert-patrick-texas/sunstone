@@ -29,13 +29,21 @@ the backend and opened again later.
 	import type { Impact } from '../impact.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
+	import { timed, timedAsync } from '../perf.ts';
 	import { siteNodeId } from '../graph/model.ts';
 	import { expandedSites, select, topo, ui, type Selection } from '../state.svelte.ts';
 	import { siteOf, type TopologyIndex } from '../topology.ts';
-	import { neighborhoodGraph, networkGraph, pathGraph, type TopoGraph } from './graph.ts';
+	import {
+		neighborhoodGraph,
+		networkGraph,
+		pathGraph,
+		radialRoots,
+		type TopoGraph
+	} from './graph.ts';
 	import LayoutMenu from './LayoutMenu.svelte';
-	import { REFINE_UP_TO, runLayout, SITEWISE_ABOVE } from './layouts.ts';
+	import { REFINE_UP_TO, SITEWISE_ABOVE, type LayoutRequest } from './layouts.ts';
 	import { neighborhood, seedsOf } from './neighborhood.ts';
+	import { layoutInWorker, Superseded } from './worker.ts';
 
 	const {
 		index,
@@ -56,6 +64,9 @@ the backend and opened again later.
 	let container: HTMLDivElement;
 	let canvas = $state.raw<GraphCanvas | null>(null);
 	let busy = $state(false);
+	/** A new layout is running and the nodes have no positions yet. */
+	let unplaced = $state(false);
+	let layoutProblem = $state<string | null>(null);
 	let sitewise = $state(false);
 	let lastFocus = ui.focusRequest;
 	let lastPath = untrack(() => path);
@@ -152,8 +163,9 @@ the backend and opened again later.
 	async function draw(c: GraphCanvas, g: TopoGraph | null, k: string, f: string): Promise<void> {
 		const run = ++draws;
 		currentKey = k;
+		layoutProblem = null;
 		if (!g) {
-			busy = false;
+			busy = unplaced = false;
 			c.setGraph([], []);
 			return;
 		}
@@ -163,19 +175,43 @@ the backend and opened again later.
 		// A saved layout may predate devices added since; seeded() places them by their site.
 		const start = cached ?? (incremental ? c.positions() : undefined);
 		c.setGraph(g.nodes, g.edges, start && seeded(g, start));
+		if (start) c.fitFrames();
 		c.core
 			.nodes()
 			.filter((n) => n.data('hop') === 0)
 			.addClass('center');
 		busy = !cached;
+		unplaced = !start;
 		sitewise = topo.layout === 'force' && g.nodes.length > SITEWISE_ABOVE;
 		if (!cached) {
-			// Let "Laying out…" paint before the layout blocks the page.
-			await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-			if (run !== draws) return;
 			const kind = topo.layout === 'force' ? 'force' : topo.scope === 'path' ? 'layered' : 'radial';
-			runLayout(c.core, index, g, kind, incremental);
-			busy = false;
+			const request: LayoutRequest = {
+				nodes: g.nodes,
+				edges: g.edges,
+				kind,
+				roots: kind === 'force' ? [] : radialRoots(index, g.nodes),
+				...(start ? { start: seeded(g, start) } : {})
+			};
+			let positions: Map<string, Position>;
+			try {
+				positions = await timedAsync('topology layout', () => layoutInWorker(request));
+			} catch (e) {
+				if (e instanceof Superseded) return;
+				busy = unplaced = false;
+				layoutProblem = e instanceof Error ? e.message : String(e);
+				return;
+			}
+			if (run !== draws) return;
+			timed('graph place', () =>
+				c.core.batch(() =>
+					c.core.nodes().forEach((n) => {
+						const at = positions.get(n.id());
+						if (at) n.position(at);
+					})
+				)
+			);
+			c.fitFrames();
+			busy = unplaced = false;
 			remember(k, c.positions());
 		}
 		if (topo.layout === 'radial' && topo.scope === 'neighborhood') addRings(c);
@@ -378,8 +414,8 @@ the backend and opened again later.
 			Fit
 		</button>
 	</div>
-	<p class="status" role="status">{busy ? 'Laying out…' : status}</p>
-	<div class="graph" bind:this={container}></div>
+	<p class="status" role="status">{busy ? 'Laying out…' : (layoutProblem ?? status)}</p>
+	<div class="graph" class:unplaced bind:this={container}></div>
 	{#if topo.scope === 'neighborhood' && !graph}
 		<p class="empty">
 			Select a device or site, then choose Neighborhood. Double-clicking a device anywhere in this
@@ -431,6 +467,10 @@ the backend and opened again later.
 		position: relative;
 		flex: 1;
 		min-height: 0;
+	}
+	/* Until a new layout arrives, every node sits at the origin. */
+	.graph.unplaced {
+		visibility: hidden;
 	}
 	.empty {
 		position: absolute;

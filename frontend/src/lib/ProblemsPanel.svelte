@@ -1,16 +1,28 @@
 <!--
 @component
 Problems in the live state shown (now, or a replayed moment), most urgent
-first, grouped by kind. Clicking
+first, grouped by kind. The server finds them, once per moment for every
+viewer. Clicking
 one selects it, brings it into view, and shows its impact in every view;
 clicking it again stops showing the impact.
 -->
 <script lang="ts">
-	import { PROBLEM_KINDS, type Problem, type ProblemKind } from './problems.ts';
+	import type { Problem, ProblemKind } from './api/analysis.ts';
+	import { CRITICAL_PCT, HIGH_PCT } from './live.ts';
 	import { showProblem, ui } from './state.svelte.ts';
 	import { HEALTH_COLOR } from './theme.ts';
 
 	const { problems }: { problems: Problem[] } = $props();
+
+	/** Kinds in the order the server ranks them, with a heading for each. */
+	const KINDS: { kind: ProblemKind; label: string }[] = [
+		{ kind: 'outage', label: 'Unreachable' },
+		{ kind: 'link-down', label: 'Links down' },
+		{ kind: 'congested', label: `Congested, ${CRITICAL_PCT}% or more` },
+		{ kind: 'loss', label: 'Packet loss' },
+		{ kind: 'busy', label: `Busy, ${HIGH_PCT}% or more` },
+		{ kind: 'nodata', label: 'No recent data' }
+	];
 
 	// Status colors, each with its own mark, so color is never the only cue.
 	const MARK: Record<ProblemKind, { color: string; glyph: string }> = {
@@ -23,7 +35,7 @@ clicking it again stops showing the impact.
 	};
 
 	const groups = $derived(
-		PROBLEM_KINDS.map((k) => ({ ...k, items: problems.filter((p) => p.kind === k.kind) })).filter(
+		KINDS.map((k) => ({ ...k, items: problems.filter((p) => p.kind === k.kind) })).filter(
 			(g) => g.items.length > 0
 		)
 	);

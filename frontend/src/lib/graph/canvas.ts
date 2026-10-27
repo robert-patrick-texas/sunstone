@@ -10,11 +10,18 @@
  * draw on top. An impact (a problem's, or a "what if") is drawn like a path:
  * failed, cut-off, and exposed devices and lost links in their own styles,
  * everything else faded.
+ *
+ * Site frames are drawn as backdrops behind their devices, never as Cytoscape
+ * compound parents: on the 3,000-device sample, compound nodes doubled the
+ * time to draw a graph. A frame either comes with its size (the hierarchy
+ * computes it) or is fitted around its devices with {@link GraphCanvas.fitFrames},
+ * and follows them when they are dragged.
  */
 import cytoscape, {
 	type CollectionReturnValue,
 	type Core,
 	type ElementDefinition,
+	type NodeCollection,
 	type NodeSingular,
 	type Position,
 	type StylesheetJson
@@ -35,9 +42,12 @@ import {
 	utilColor
 } from '../theme.ts';
 import { siteOf, type TopologyIndex } from '../topology.ts';
+import { timed } from '../perf.ts';
 import { siteNodeId, type GraphEdge, type GraphNode } from './model.ts';
 
 const LABEL_ZOOM = 2;
+/** Room between a fitted frame and its devices, labels included. */
+const FRAME_PAD = 20;
 
 const STYLE: StylesheetJson = [
 	{
@@ -87,6 +97,11 @@ const STYLE: StylesheetJson = [
 			'text-margin-y': -4,
 			padding: '20px'
 		}
+	},
+	{
+		// A frame with its own size is a backdrop, not a compound parent.
+		selector: 'node[kind = "frame"][w]',
+		style: { width: 'data(w)', height: 'data(h)', 'z-compound-depth': 'bottom' }
 	},
 	{
 		selector: 'node[kind = "ring"]',
@@ -245,7 +260,10 @@ export class GraphCanvas {
 			minZoom: 0.02,
 			maxZoom: 4,
 			autoungrabify: !options.grabbable,
-			boxSelectionEnabled: false
+			boxSelectionEnabled: false,
+			// While panning and zooming, move a picture of the graph instead of
+			// redrawing thousands of elements every frame.
+			textureOnViewport: true
 		});
 		this.core.on('tap', (e) => {
 			if (e.target === this.core) select(null);
@@ -256,6 +274,18 @@ export class GraphCanvas {
 		});
 		this.core.on('tap', 'edge', (e) => select({ kind: 'links', ids: e.target.data('linkIds') }));
 		this.core.on('dbltap', 'node', (e) => options.onDoubleTap(e.target));
+		// A dragged device takes its frame along; a dragged frame takes its devices.
+		this.core.on('drag', 'node[kind = "device"]', (e) => this.fitFrames([e.target.data('site')]));
+		this.core.on('grab', 'node[kind = "frame"]', (e) => {
+			e.target.scratch('_from', { ...e.target.position() });
+		});
+		this.core.on('drag', 'node[kind = "frame"]', (e) => {
+			const frame: NodeSingular = e.target;
+			const from: Position = frame.scratch('_from');
+			const at = frame.position();
+			this.membersOf(frame.data('site')).shift({ x: at.x - from.x, y: at.y - from.y });
+			frame.scratch('_from', { ...at });
+		});
 		this.core.on('zoom', () => this.showLabels());
 		this.resize = new ResizeObserver(() => this.core.resize());
 		this.resize.observe(container);
@@ -269,12 +299,17 @@ export class GraphCanvas {
 	 * @param positions - Placements that override the nodes' own (for example a cached layout).
 	 */
 	setGraph(nodes: GraphNode[], edges: GraphEdge[], positions?: Map<string, Position>): void {
+		timed('graph draw', () => this.draw(nodes, edges, positions));
+	}
+
+	private draw(nodes: GraphNode[], edges: GraphEdge[], positions?: Map<string, Position>): void {
 		const elements: ElementDefinition[] = [
 			...nodes.map((n) => {
 				const at = positions?.get(n.id) ?? (n.x !== undefined && n.y !== undefined ? n : null);
 				return {
 					group: 'nodes' as const,
-					data: { ...n, color: n.role ? ROLE_COLOR[n.role] : COLOR.muted },
+					// Frames are backdrops, not compound parents (see the module comment).
+					data: { ...n, parent: undefined, color: n.role ? ROLE_COLOR[n.role] : COLOR.muted },
 					...(at ? { position: { x: at.x ?? 0, y: at.y ?? 0 } } : {})
 				};
 			}),
@@ -300,7 +335,7 @@ export class GraphCanvas {
 	 */
 	setLive(live: LiveIndex | null): void {
 		this.live = live;
-		this.applyLive();
+		timed('graph live', () => this.applyLive());
 	}
 
 	/**
@@ -334,7 +369,7 @@ export class GraphCanvas {
 		this.selection = selection;
 		this.path = path;
 		this.impact = impact;
-		this.applyHighlight();
+		timed('graph highlight', () => this.applyHighlight());
 	}
 
 	/**
@@ -352,6 +387,26 @@ export class GraphCanvas {
 		);
 	}
 
+	/**
+	 * Size and place frames around their sites' devices.
+	 *
+	 * @param sites - Sites whose frames to fit, or all of them.
+	 */
+	fitFrames(sites?: Iterable<string>): void {
+		const only = sites ? new Set(sites) : null;
+		this.core.batch(() => {
+			this.core.nodes('[kind = "frame"]').forEach((frame) => {
+				const site: string = frame.data('site');
+				if (only && !only.has(site)) return;
+				const members = this.membersOf(site);
+				if (members.empty()) return;
+				const box = members.boundingBox({ includeLabels: true });
+				frame.data({ w: box.w + 2 * FRAME_PAD, h: box.h + 2 * FRAME_PAD });
+				frame.position({ x: (box.x1 + box.x2) / 2, y: (box.y1 + box.y2) / 2 });
+			});
+		});
+	}
+
 	/** Positions of every node, for caching a layout. */
 	positions(): Map<string, Position> {
 		return new Map(this.core.nodes().map((n) => [n.id(), { ...n.position() }] as const));
@@ -360,6 +415,10 @@ export class GraphCanvas {
 	destroy(): void {
 		this.resize.disconnect();
 		this.core.destroy();
+	}
+
+	private membersOf(site: string): NodeCollection {
+		return this.core.nodes(`[kind = "device"][site = "${site}"]`);
 	}
 
 	/** A device's node, or its site's box when the site is collapsed. */
