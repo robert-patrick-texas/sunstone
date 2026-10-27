@@ -48,6 +48,9 @@ function problem(id: string, extra: Partial<Problem> = {}): Problem {
 		exposed: 0,
 		planned: [],
 		ack: null,
+		team: null,
+		urgency: 'high',
+		paging: null,
 		...extra
 	};
 }

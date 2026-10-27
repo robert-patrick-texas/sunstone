@@ -9,11 +9,18 @@ view; clicking it again stops showing the impact.
 -->
 <script lang="ts">
 	import type { Problem } from './api/analysis.ts';
+	import type { OnCall } from './api/oncall.ts';
 	import type { Window } from './api/operations.ts';
+	import { personOf } from './oncall.ts';
 	import { grouped, handling, MARK } from './problem-kinds.ts';
 	import { showProblem, ui } from './state.svelte.ts';
 
-	const { problems, windows }: { problems: Problem[]; windows: Window[] } = $props();
+	const {
+		problems,
+		windows,
+		oncall
+	}: { problems: Problem[]; windows: Window[]; oncall: OnCall | null } = $props();
+	const name = (id: string) => (oncall ? personOf(oncall, id).name : id);
 
 	const groups = $derived(grouped(problems));
 	const titles = $derived(new Map(windows.map((w) => [w.id, w.title])));
@@ -54,6 +61,10 @@ view; clicking it again stops showing the impact.
 										.map((id) => titles.get(id) ?? 'maintenance')
 										.join(', ')}</span
 								>
+							{/if}
+							{#if problem.paging && !problem.paging.stopped}
+								{@const last = problem.paging.notified.at(-1)}
+								<span class="tag paged">Paged{last ? `: ${name(last.person)}` : ''}</span>
 							{/if}
 							{#if problem.ack}
 								<span class="tag ack"
@@ -141,6 +152,9 @@ view; clicking it again stops showing the impact.
 	}
 	.tag.ack::before {
 		background: var(--selected);
+	}
+	.tag.paged::before {
+		background: var(--path);
 	}
 	.detail {
 		display: block;

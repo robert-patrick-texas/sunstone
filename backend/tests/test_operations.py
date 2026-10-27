@@ -181,7 +181,7 @@ def test_an_acknowledgement_ends_when_its_problem_clears(
     store.acknowledge(AckIn(problem="loss:a", note="", by="Pat"), NOW)
     store.acknowledge(AckIn(problem="loss:b", note="", by="Pat"), NOW)
     later = NOW + timedelta(minutes=5)
-    store.clear_acks({"loss:b"}, later)
+    store.clear({"loss:b"}, later)
     acks = {a.problem: a for a in store.acks()}
     assert acks["loss:a"].cleared_at == later
     assert not acks["loss:a"].active(later)
@@ -190,7 +190,7 @@ def test_an_acknowledgement_ends_when_its_problem_clears(
     # Kept a day for replay, then forgotten; and it all survives a restart.
     reopened = OperationsStore(tmp_path / "ops.json", Network(topology))
     assert {a.problem for a in reopened.acks()} == {"loss:a", "loss:b"}
-    reopened.clear_acks({"loss:b"}, later + timedelta(days=2))
+    reopened.clear({"loss:b"}, later + timedelta(days=2))
     assert {a.problem for a in reopened.acks()} == {"loss:b"}
 
 

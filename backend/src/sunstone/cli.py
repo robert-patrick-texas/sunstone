@@ -27,6 +27,12 @@ def main() -> None:
         help="maintenance windows and acknowledgements file "
         "(default: beside the topology, NAME.operations.json)",
     )
+    parser.add_argument(
+        "--oncall",
+        type=Path,
+        help="on-call directory: teams, rotations, and what they own "
+        "(default: beside the topology, NAME.oncall.yaml, if there is one)",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(
@@ -41,6 +47,8 @@ def main() -> None:
         os.environ["SUNSTONE_LAYOUTS"] = str(args.layouts.resolve())
     if args.operations:
         os.environ["SUNSTONE_OPERATIONS"] = str(args.operations.resolve())
+    if args.oncall:
+        os.environ["SUNSTONE_ONCALL"] = str(args.oncall.resolve())
     uvicorn.run(
         "sunstone.api:app_from_env",
         factory=True,

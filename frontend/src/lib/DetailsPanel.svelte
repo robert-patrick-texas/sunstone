@@ -12,6 +12,7 @@ links that select and bring that item into view.
 -->
 <script lang="ts">
 	import { fetchWhatIf, type Problem, type WhatIf } from './api/analysis.ts';
+	import type { OnCall, Ownership } from './api/oncall.ts';
 	import { acknowledge, unacknowledge, type Window } from './api/operations.ts';
 	import { fetchHistory, type DeviceHistory, type InterfaceHistory } from './api/state.ts';
 	import type { Endpoint, Link } from './api/topology.ts';
@@ -40,6 +41,8 @@ links that select and bring that item into view.
 		ui,
 		type Selection
 	} from './state.svelte.ts';
+	import OnCallFor from './OnCallFor.svelte';
+	import Routing from './Routing.svelte';
 	import Spark from './Spark.svelte';
 	import { HEALTH_COLOR, HEALTH_GLYPH, ROLE_COLOR, SERIES_COLOR, utilColor } from './theme.ts';
 	import TimeChart from './TimeChart.svelte';
@@ -63,7 +66,9 @@ links that select and bring that item into view.
 		whatIfProblem,
 		windows,
 		onchange,
-		live
+		live,
+		oncall,
+		ownership
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
@@ -72,9 +77,12 @@ links that select and bring that item into view.
 		/** Why the "what if" impact could not be worked out, if it could not. */
 		whatIfProblem: string | null;
 		windows: Window[];
-		/** Called after a problem is acknowledged or its acknowledgement withdrawn. */
+		/** Called after a problem is acknowledged or paged, or that is withdrawn. */
 		onchange: () => void;
 		live: LiveIndex | null;
+		/** Who is on call, or null without an on-call directory. */
+		oncall: OnCall | null;
+		ownership: Ownership | null;
 	} = $props();
 
 	const HEALTHS: DeviceHealth[] = ['down', 'degraded', 'nodata', 'up', 'unmonitored'];
@@ -517,6 +525,7 @@ links that select and bring that item into view.
 							{problem.ack.by} since {clock(problem.ack.at)}
 						</p>
 					{/if}
+					<Routing {index} {problem} {oncall} {onchange} />
 				{/if}
 				{#if impact}{@render consequences(impact)}{/if}
 			</section>
@@ -599,6 +608,7 @@ links that select and bring that item into view.
 							{@render planButton(selection)}
 						</p>
 						{#if ifFails}<p class="muted">{consequence(ifFails, 'it')}</p>{/if}
+						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
 						<h3>Neighbors ({neighbors.length})</h3>
 						<table>
@@ -697,6 +707,7 @@ links that select and bring that item into view.
 							{@render planButton(selection)}
 						</p>
 						{#if ifFails}<p class="muted">{consequence(ifFails, 'the whole site')}</p>{/if}
+						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
 						<h3>Links to other sites ({wan.length})</h3>
 						<table>
@@ -747,6 +758,7 @@ links that select and bring that item into view.
 					{#if ifFails}
 						<p class="muted">{consequence(ifFails, links.length === 1 ? 'it' : 'them')}</p>
 					{/if}
+					<OnCallFor {index} {oncall} {ownership} item={selection} />
 					{@render maintenanceOf(selection)}
 					<table>
 						<thead>

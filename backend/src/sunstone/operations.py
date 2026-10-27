@@ -1,14 +1,17 @@
-"""Maintenance windows and acknowledged problems: the work a NOC knows about.
+"""Maintenance windows, acknowledged and paged problems, and covered
+shifts: the work a NOC knows about.
 
 A maintenance window names devices, sites, and links, and when they will be
 worked on. While it is open, problems that it explains are marked planned,
 and so are the events it causes; before it opens, "what if" shows what the
 work will take down. An acknowledgement says someone is on a problem, with
-a note; it lasts until the problem clears.
+a note, and a page that a team has been called about it (on paper: nothing
+is sent); both last until the problem clears. A cover puts someone on call
+in place of a team's primary for a while.
 
-There is no sign-in, so people give their own name. Windows and
-acknowledgements for one topology live in one JSON file, kept in memory and
-rewritten whole on each change, the same way as saved layouts.
+There is no sign-in, so people give their own name. All of these for one
+topology live in one JSON file, kept in memory and rewritten whole on each
+change, the same way as saved layouts.
 """
 
 import json
@@ -32,11 +35,14 @@ from pydantic import (
 from sunstone.impact import Failures, Network
 from sunstone.layouts import Center
 from sunstone.live import StateEvent
+from sunstone.oncall import Cover, CoverIn, Page, PageIn
 from sunstone.problems import Ack, AckIn, Note, PersonName, Problem
 
 MAX_WINDOWS = 500
+MAX_COVERS = 500
 LONGEST = timedelta(days=7)
-# Cleared acknowledgements are kept this long, so replaying shows them.
+# Cleared acknowledgements and pages, and ended covers, are kept this long,
+# so replaying shows them.
 KEPT = timedelta(days=1)
 
 Title = Annotated[
@@ -49,7 +55,7 @@ class OperationsError(Exception):
 
 
 class OperationsFull(Exception):
-    """There are already as many maintenance windows as allowed."""
+    """There are already as many maintenance windows, or covers, as allowed."""
 
 
 class _Record(BaseModel):
@@ -86,10 +92,12 @@ class Window(WindowIn):
 class _File(_Record):
     windows: list[Window] = []
     acks: list[Ack] = []
+    pages: list[Page] = []
+    covers: list[Cover] = []
 
 
 class OperationsStore:
-    """Maintenance windows and acknowledgements for one topology."""
+    """Maintenance windows, acknowledgements, pages, and covers for one topology."""
 
     def __init__(self, path: Path, network: Network) -> None:
         """Use an operations file, created on first change.
@@ -220,9 +228,9 @@ class OperationsStore:
             self._save(acks=kept)
             return True
 
-    def clear_acks(self, present: set[str], at: datetime) -> None:
-        """End acknowledgements of problems that have cleared, and forget
-        ones that ended long ago.
+    def clear(self, present: set[str], at: datetime) -> None:
+        """End acknowledgements and pages of problems that have cleared, and
+        forget them, and covers, once they ended long ago.
 
         Args:
             present: Ids of the problems there are now.
@@ -232,15 +240,118 @@ class OperationsStore:
             None
         """
         with self._lock:
-            acks = [
-                a.model_copy(update={"cleared_at": at})
-                if a.cleared_at is None and a.problem not in present
-                else a
-                for a in self._data.acks
-                if a.cleared_at is None or at - a.cleared_at < KEPT
-            ]
-            if acks != self._data.acks:
-                self._save(acks=acks)
+            acks = _cleared(self._data.acks, present, at)
+            pages = _cleared(self._data.pages, present, at)
+            covers = [c for c in self._data.covers if at - c.end < KEPT]
+            if (acks, pages, covers) != (
+                self._data.acks,
+                self._data.pages,
+                self._data.covers,
+            ):
+                self._save(acks=acks, pages=pages, covers=covers)
+
+    def pages(self) -> list[Page]:
+        """Every page, standing or recently cleared.
+
+        Returns:
+            The pages.
+
+        Raises:
+            None
+        """
+        return list(self._data.pages)
+
+    def page(self, page: PageIn, team: str, at: datetime) -> Page:
+        """Record a page to a problem's team, replacing any standing page of it.
+
+        Args:
+            page: The problem, a note, who is paging, and where to look.
+            team: The team paged.
+            at: When.
+
+        Returns:
+            The page.
+
+        Raises:
+            None
+        """
+        made = Page(**page.model_dump(), id=uuid.uuid4().hex[:12], team=team, at=at)
+        with self._lock:
+            kept = [p for p in self._data.pages if not _standing(p, page.problem)]
+            self._save(pages=[*kept, made])
+        return made
+
+    def unpage(self, problem: str) -> bool:
+        """Withdraw a problem's standing page, as if it had never been sent.
+
+        Args:
+            problem: The problem's id.
+
+        Returns:
+            True if there was one.
+
+        Raises:
+            None
+        """
+        with self._lock:
+            kept = [p for p in self._data.pages if not _standing(p, problem)]
+            if len(kept) == len(self._data.pages):
+                return False
+            self._save(pages=kept)
+            return True
+
+    def covers(self) -> list[Cover]:
+        """Every cover, earliest first, until a day after it ends.
+
+        Returns:
+            The covers.
+
+        Raises:
+            None
+        """
+        return sorted(self._data.covers, key=lambda c: (c.start, c.saved_at))
+
+    def save_cover(self, cover: CoverIn) -> Cover:
+        """Put someone on call in place of a team's primary.
+
+        Args:
+            cover: Who, for which team, when, and who says so.
+
+        Returns:
+            The saved cover.
+
+        Raises:
+            OperationsFull: If there are already ``MAX_COVERS``.
+        """
+        with self._lock:
+            if len(self._data.covers) >= MAX_COVERS:
+                raise OperationsFull(f"There are already {MAX_COVERS} covers")
+            saved = Cover(
+                **cover.model_dump(),
+                id=uuid.uuid4().hex[:12],
+                saved_at=datetime.now(UTC),
+            )
+            self._save(covers=[*self._data.covers, saved])
+            return saved
+
+    def delete_cover(self, cover_id: str) -> bool:
+        """Delete a cover.
+
+        Args:
+            cover_id: Its id.
+
+        Returns:
+            True if it existed.
+
+        Raises:
+            None
+        """
+        with self._lock:
+            kept = [c for c in self._data.covers if c.id != cover_id]
+            if len(kept) == len(self._data.covers):
+                return False
+            self._save(covers=kept)
+            return True
 
     def planned_at(self, at: datetime) -> Failures:
         """What open windows take down at a moment.
@@ -271,12 +382,10 @@ class OperationsStore:
             raise OperationsError(f"{self.path}: {e}") from e
 
     def _save(
-        self, windows: list[Window] | None = None, acks: list[Ack] | None = None
+        self, **changes: list[Window] | list[Ack] | list[Page] | list[Cover]
     ) -> None:
-        data = _File(
-            windows=self._data.windows if windows is None else windows,
-            acks=self._data.acks if acks is None else acks,
-        )
+        """Write the file with some of its lists replaced, by name."""
+        data = _File.model_validate({**self._data.model_dump(), **changes})
         temporary = self.path.with_name(f".{self.path.name}.tmp")
         temporary.write_text(
             json.dumps(data.model_dump(mode="json"), indent=1), encoding="utf-8"
@@ -285,8 +394,21 @@ class OperationsStore:
         self._data = data
 
 
-def _standing(ack: Ack, problem: str) -> bool:
-    return ack.problem == problem and ack.cleared_at is None
+def _standing(record: Ack | Page, problem: str) -> bool:
+    return record.problem == problem and record.cleared_at is None
+
+
+def _cleared[T: (Ack, Page)](
+    records: list[T], present: set[str], at: datetime
+) -> list[T]:
+    """End records of problems no longer present, and drop long-ended ones."""
+    return [
+        r.model_copy(update={"cleared_at": at})
+        if r.cleared_at is None and r.problem not in present
+        else r
+        for r in records
+        if r.cleared_at is None or at - r.cleared_at < KEPT
+    ]
 
 
 def accounted_for(

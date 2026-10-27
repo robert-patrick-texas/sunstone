@@ -75,7 +75,7 @@
   "/api/problems": {
    "get": {
     "summary": "Get Problems",
-    "description": "Return the problems in the state as of now or an earlier moment,\nwith the maintenance that accounts for each and who is on it.\n\nPass the ``generated_at`` of the state being shown, so the two match.",
+    "description": "Return the problems in the state as of now or an earlier moment,\nwith the maintenance that accounts for each, who is on it, the team\nthat owns it, and where its page stands.\n\nPass the ``generated_at`` of the state being shown, so the two match.",
     "operationId": "get_problems_api_problems_get",
     "parameters": [
      {
@@ -102,7 +102,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/ProblemList"
+         "$ref": "#/components/schemas/RoutedProblemList"
         }
        }
       }
@@ -429,6 +429,215 @@
     }
    }
   },
+  "/api/oncall": {
+   "get": {
+    "summary": "Get Oncall",
+    "description": "Return who is on call for every team, now or at an earlier moment,\nand how to reach them and the carriers.",
+    "operationId": "get_oncall_api_oncall_get",
+    "parameters": [
+     {
+      "name": "at",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "At"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OnCall"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ownership": {
+   "get": {
+    "summary": "Get Ownership",
+    "description": "Return the team that owns each site, device, and link.",
+    "operationId": "get_ownership_api_ownership_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Ownership"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/pages": {
+   "post": {
+    "summary": "Add Page",
+    "description": "Page the team that owns a problem there is now.\n\nNothing is sent: the page is recorded, and escalates on paper.",
+    "operationId": "add_page_api_pages_post",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PageIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Page"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Withdraw Page",
+    "description": "Withdraw a problem's page.",
+    "operationId": "withdraw_page_api_pages_delete",
+    "parameters": [
+     {
+      "name": "problem",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Problem"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/covers": {
+   "post": {
+    "summary": "Add Cover",
+    "description": "Put someone on call in place of a team's primary for a while.",
+    "operationId": "add_cover_api_covers_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CoverIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Cover"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/covers/{cover_id}": {
+   "delete": {
+    "summary": "Delete Cover",
+    "description": "Delete a cover.",
+    "operationId": "delete_cover_api_covers__cover_id__delete",
+    "parameters": [
+     {
+      "name": "cover_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cover Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/layouts": {
    "get": {
     "summary": "List Layouts",
@@ -658,6 +867,42 @@
     "title": "AckIn",
     "description": "Someone taking on a problem."
    },
+   "Carrier": {
+    "properties": {
+     "provider": {
+      "type": "string",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Provider"
+     },
+     "phone": {
+      "type": "string",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Phone"
+     },
+     "portal": {
+      "anyOf": [
+       {
+        "type": "string",
+        "pattern": "^https?://\\S+$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Portal"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "provider",
+     "phone"
+    ],
+    "title": "Carrier",
+    "description": "How to reach a carrier's NOC about its circuits."
+   },
    "Circuit": {
     "properties": {
      "provider": {
@@ -677,6 +922,111 @@
     ],
     "title": "Circuit",
     "description": "A carrier circuit carrying a WAN link."
+   },
+   "Cover": {
+    "properties": {
+     "team": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+      "title": "Team"
+     },
+     "person": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+      "title": "Person"
+     },
+     "start": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start"
+     },
+     "end": {
+      "type": "string",
+      "format": "date-time",
+      "title": "End"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "saved_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Saved At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "team",
+     "person",
+     "start",
+     "end",
+     "by",
+     "id",
+     "saved_at"
+    ],
+    "title": "Cover",
+    "description": "A saved cover."
+   },
+   "CoverIn": {
+    "properties": {
+     "team": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+      "title": "Team"
+     },
+     "person": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+      "title": "Person"
+     },
+     "start": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start"
+     },
+     "end": {
+      "type": "string",
+      "format": "date-time",
+      "title": "End"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "team",
+     "person",
+     "start",
+     "end",
+     "by"
+    ],
+    "title": "CoverIn",
+    "description": "Someone taking a team's primary turn for a while."
    },
    "Device": {
     "properties": {
@@ -1420,6 +1770,290 @@
     "title": "NetworkState",
     "description": "One snapshot of everything a source monitors."
    },
+   "Notice": {
+    "properties": {
+     "to": {
+      "type": "string",
+      "enum": [
+       "primary",
+       "secondary",
+       "manager"
+      ],
+      "title": "To"
+     },
+     "person": {
+      "type": "string",
+      "title": "Person"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "to",
+     "person",
+     "at"
+    ],
+    "title": "Notice",
+    "description": "One person told, or to be told, about a page."
+   },
+   "OnCall": {
+    "properties": {
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "teams": {
+      "items": {
+       "$ref": "#/components/schemas/TeamNow"
+      },
+      "type": "array",
+      "title": "Teams"
+     },
+     "people": {
+      "items": {
+       "$ref": "#/components/schemas/Person"
+      },
+      "type": "array",
+      "title": "People"
+     },
+     "carriers": {
+      "items": {
+       "$ref": "#/components/schemas/Carrier"
+      },
+      "type": "array",
+      "title": "Carriers"
+     },
+     "covers": {
+      "items": {
+       "$ref": "#/components/schemas/Cover"
+      },
+      "type": "array",
+      "title": "Covers"
+     },
+     "urgency": {
+      "additionalProperties": {
+       "type": "string",
+       "enum": [
+        "high",
+        "low"
+       ]
+      },
+      "propertyNames": {
+       "enum": [
+        "outage",
+        "link-down",
+        "congested",
+        "loss",
+        "busy",
+        "nodata"
+       ]
+      },
+      "type": "object",
+      "title": "Urgency"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "at",
+     "teams",
+     "people",
+     "carriers",
+     "covers",
+     "urgency"
+    ],
+    "title": "OnCall",
+    "description": "Who is on call for every team at a moment, and how to reach them."
+   },
+   "Ownership": {
+    "properties": {
+     "sites": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Sites"
+     },
+     "devices": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Devices"
+     },
+     "links": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Links"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "sites",
+     "devices",
+     "links"
+    ],
+    "title": "Ownership",
+    "description": "The team that owns each site, device, and link, by code, name, and\nid; anything no route matches is left out."
+   },
+   "Page": {
+    "properties": {
+     "problem": {
+      "type": "string",
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Problem"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "link": {
+      "type": "string",
+      "maxLength": 2000,
+      "title": "Link",
+      "default": ""
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "team": {
+      "type": "string",
+      "title": "Team"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "cleared_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleared At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "problem",
+     "by",
+     "id",
+     "team",
+     "at"
+    ],
+    "title": "Page",
+    "description": "A page, as recorded. Nothing is sent."
+   },
+   "PageIn": {
+    "properties": {
+     "problem": {
+      "type": "string",
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Problem"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "link": {
+      "type": "string",
+      "maxLength": 2000,
+      "title": "Link",
+      "default": ""
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "problem",
+     "by"
+    ],
+    "title": "PageIn",
+    "description": "Someone paging a problem's team."
+   },
+   "Paging": {
+    "properties": {
+     "page": {
+      "$ref": "#/components/schemas/Page"
+     },
+     "notified": {
+      "items": {
+       "$ref": "#/components/schemas/Notice"
+      },
+      "type": "array",
+      "title": "Notified"
+     },
+     "next": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Notice"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "stopped": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "acknowledged",
+         "cleared"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stopped"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "page",
+     "notified",
+     "next",
+     "stopped"
+    ],
+    "title": "Paging",
+    "description": "Where a page stands at a moment."
+   },
    "PathEnds": {
     "properties": {
      "from": {
@@ -1439,6 +2073,42 @@
     ],
     "title": "PathEnds",
     "description": "The two devices whose shortest paths are shown."
+   },
+   "Person": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "phone": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 120,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Phone"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "name"
+    ],
+    "title": "Person",
+    "description": "Someone who can be on call."
    },
    "Position": {
     "properties": {
@@ -1460,7 +2130,46 @@
     "title": "Position",
     "description": "Where a node was drawn."
    },
-   "Problem": {
+   "Reachability": {
+    "properties": {
+     "position": {
+      "type": "string",
+      "title": "Position"
+     },
+     "rtt_ms": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rtt Ms"
+     },
+     "loss_pct": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Loss Pct"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "position",
+     "rtt_ms",
+     "loss_pct"
+    ],
+    "title": "Reachability",
+    "description": "Round-trip time and loss to a device from one monitoring position."
+   },
+   "RoutedProblem": {
     "properties": {
      "id": {
       "type": "string",
@@ -1543,6 +2252,36 @@
         "type": "null"
        }
       ]
+     },
+     "team": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Team"
+     },
+     "urgency": {
+      "type": "string",
+      "enum": [
+       "high",
+       "low"
+      ],
+      "title": "Urgency",
+      "default": "high"
+     },
+     "paging": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Paging"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "additionalProperties": false,
@@ -1557,10 +2296,10 @@
      "lost",
      "exposed"
     ],
-    "title": "Problem",
-    "description": "One thing wrong, with what it does to the network."
+    "title": "RoutedProblem",
+    "description": "A problem, with who owns it and whom it has paged."
    },
-   "ProblemList": {
+   "RoutedProblemList": {
     "properties": {
      "at": {
       "type": "string",
@@ -1569,7 +2308,7 @@
      },
      "problems": {
       "items": {
-       "$ref": "#/components/schemas/Problem"
+       "$ref": "#/components/schemas/RoutedProblem"
       },
       "type": "array",
       "title": "Problems"
@@ -1581,47 +2320,8 @@
      "at",
      "problems"
     ],
-    "title": "ProblemList",
-    "description": "The problems in one snapshot, most urgent first."
-   },
-   "Reachability": {
-    "properties": {
-     "position": {
-      "type": "string",
-      "title": "Position"
-     },
-     "rtt_ms": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Rtt Ms"
-     },
-     "loss_pct": {
-      "anyOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Loss Pct"
-     }
-    },
-    "additionalProperties": false,
-    "type": "object",
-    "required": [
-     "position",
-     "rtt_ms",
-     "loss_pct"
-    ],
-    "title": "Reachability",
-    "description": "Round-trip time and loss to a device from one monitoring position."
+    "title": "RoutedProblemList",
+    "description": "The problems in one snapshot, most urgent first, routed."
    },
    "SavedLayout": {
     "properties": {
@@ -1659,6 +2359,61 @@
     ],
     "title": "SavedLayout",
     "description": "A stored layout."
+   },
+   "Shift": {
+    "properties": {
+     "team": {
+      "type": "string",
+      "title": "Team"
+     },
+     "primary": {
+      "type": "string",
+      "title": "Primary"
+     },
+     "secondary": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Secondary"
+     },
+     "since": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Since"
+     },
+     "until": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Until"
+     },
+     "cover": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cover"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "team",
+     "primary",
+     "secondary",
+     "since",
+     "until"
+    ],
+    "title": "Shift",
+    "description": "Who is on call for a team over a stretch of time."
    },
    "Site": {
     "properties": {
@@ -1797,6 +2552,97 @@
     ],
     "title": "StateEvent",
     "description": "A change a source saw: a device or link going down or coming back,\nreadings stopping or resuming, packet loss starting or clearing, or a\nlink's load crossing 80% or 95% (``pct`` is the load after the change)."
+   },
+   "Step": {
+    "properties": {
+     "after_min": {
+      "type": "integer",
+      "maximum": 1440.0,
+      "minimum": 0.0,
+      "title": "After Min"
+     },
+     "to": {
+      "type": "string",
+      "enum": [
+       "primary",
+       "secondary",
+       "manager"
+      ],
+      "title": "To"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "after_min",
+     "to"
+    ],
+    "title": "Step",
+    "description": "One step of escalation: whom to page, so many minutes after the page."
+   },
+   "TeamNow": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "owns": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Owns"
+     },
+     "rotation": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Rotation"
+     },
+     "now": {
+      "$ref": "#/components/schemas/Shift"
+     },
+     "next": {
+      "$ref": "#/components/schemas/Shift"
+     },
+     "manager": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Manager"
+     },
+     "escalation": {
+      "items": {
+       "$ref": "#/components/schemas/Step"
+      },
+      "type": "array",
+      "title": "Escalation"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "owns",
+     "rotation",
+     "now",
+     "next",
+     "manager",
+     "escalation"
+    ],
+    "title": "TeamNow",
+    "description": "A team, who is on call for it, and who is on next."
    },
    "Topology": {
     "properties": {
