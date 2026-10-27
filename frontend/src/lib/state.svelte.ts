@@ -18,7 +18,13 @@ export const ui = $state({
 	/** Start of a path whose destination the user is choosing. */
 	pathFrom: null as string | null,
 	/** Show live state (device status, link load) over the structure. */
-	live: false
+	live: false,
+	/** Show the list of problems in live state. */
+	problemsOpen: true,
+	/** The problem whose impact is shown, by id. */
+	problem: null as string | null,
+	/** Devices, sites, and links supposed to fail, to see what that would do. */
+	whatIf: [] as Selection[]
 });
 
 /** Sites the graph views show device by device instead of as one box. */
@@ -54,12 +60,42 @@ export function showNeighborhood(center: Selection): void {
 export function startPath(from: string): void {
 	ui.path = null;
 	ui.pathFrom = from;
+	ui.problem = null;
+	ui.whatIf = [];
 }
 
 /** Stop showing a path, or stop choosing one. */
 export function clearPath(): void {
 	ui.path = null;
 	ui.pathFrom = null;
+}
+
+/**
+ * Add something to the "what if" failures, unless it is already there.
+ *
+ * @param item - Device, site, or links to suppose failed.
+ */
+export function addFailure(item: Selection): void {
+	clearPath();
+	ui.problem = null;
+	const key = JSON.stringify(item);
+	if (!ui.whatIf.some((f) => JSON.stringify(f) === key)) ui.whatIf.push(item);
+}
+
+/**
+ * Show a problem's impact, or stop showing it if it is already shown.
+ *
+ * @param problem - The problem's id, and what to select for it.
+ */
+export function showProblem(problem: { id: string; target: Selection }): void {
+	if (ui.problem === problem.id) {
+		ui.problem = null;
+		return;
+	}
+	clearPath();
+	ui.whatIf = [];
+	ui.problem = problem.id;
+	select(problem.target, true);
 }
 
 /**

@@ -1,15 +1,19 @@
 <!--
 @component
 Key to what colors and lines mean: device roles and link kinds, or with live
-state, device health and link load. Every live color is named here, and the
-health glyphs are shown, so color is never the only cue.
+state, device health and link load, or while an impact is shown, how
+devices and links are affected. Every color is named here, and the glyphs
+are shown, so color is never the only cue.
 -->
 <script lang="ts">
+	import { IMPACT_LABEL, type DeviceImpact } from './impact.ts';
 	import { HEALTH_LABEL, type DeviceHealth } from './live.ts';
 	import {
 		COLOR,
 		HEALTH_COLOR,
 		HEALTH_GLYPH,
+		IMPACT_COLOR,
+		IMPACT_GLYPH,
 		LINK_NODATA,
 		LINK_UNMONITORED,
 		ROLE_COLOR,
@@ -17,13 +21,26 @@ health glyphs are shown, so color is never the only cue.
 	} from './theme.ts';
 	import { ROLE_LABEL, ROLES } from './topology.ts';
 
-	const { live }: { live: boolean } = $props();
+	const { live, impact }: { live: boolean; impact: boolean } = $props();
 
 	const HEALTHS: DeviceHealth[] = ['up', 'degraded', 'down', 'nodata', 'unmonitored'];
+	const IMPACTS: DeviceImpact[] = ['failed', 'cutoff', 'exposed'];
 </script>
 
-<div class="legend" class:live aria-label="Legend">
-	{#if live}
+<div class="legend" class:live={live && !impact} aria-label="Legend">
+	{#if impact}
+		<div class="row">
+			<b>Impact</b>
+			{#each IMPACTS as i (i)}
+				<span>
+					<i class="dot {i}" style:--c={IMPACT_COLOR[i]}>{IMPACT_GLYPH[i]}</i>{IMPACT_LABEL[i]}
+				</span>
+			{/each}
+			<span><i class="line dashed" style:color={IMPACT_COLOR.failed}></i>Link lost</span>
+			<span><i class="line dashed" style:color={IMPACT_COLOR.exposed}></i>Some links lost</span>
+			<span>Faded: not affected</span>
+		</div>
+	{:else if live}
 		<div class="row">
 			<b>Devices</b>
 			{#each HEALTHS as health (health)}
@@ -127,6 +144,14 @@ health glyphs are shown, so color is never the only cue.
 	.dot.unmonitored {
 		box-sizing: border-box;
 		border: 1px solid var(--muted);
+	}
+	.dot.failed,
+	.dot.exposed {
+		background: var(--c);
+	}
+	.dot.cutoff {
+		box-sizing: border-box;
+		border: 2px solid var(--c);
 	}
 	.bands {
 		display: inline-flex;

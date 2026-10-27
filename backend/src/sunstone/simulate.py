@@ -10,9 +10,12 @@ viewers see the same picture and tests can fix the clock:
   local time, and slow drift. A few WAN circuits run hot in each 15-minute
   window.
 - Faults: in each 5-minute window a few monitored devices are down, a few
-  stop reporting, and a few drop packets. A down device cannot be polled, so
-  its interfaces are absent; the far end of each of its links reports the
-  link down.
+  stop reporting, and a few drop packets. A few carrier circuits are down
+  too, and in about one window in three a branch loses all of its circuits.
+  A down device cannot be polled, so its interfaces are absent; the far end
+  of each of its links reports the link down.
+- Cut off: a device the monitoring positions cannot reach, over devices and
+  links that are up, looks down to them, and its interfaces go unpolled.
 - Reachability: round-trip time from each monitoring position grows with
   distance, about 1 ms per 100 km of fiber, plus jitter.
 """
@@ -34,6 +37,8 @@ from sunstone.model import Link, Site, Topology
 FAULT_WINDOW_S = 300
 LOAD_WINDOW_S = 900
 STALE_AGE = timedelta(minutes=10)
+# Share of fault windows in which one branch loses every circuit.
+ISOLATED_SHARE = 0.3
 
 Condition = Literal["up", "down", "stale", "lossy"]
 
@@ -88,6 +93,14 @@ class SimulatedState:
             if d.role != "access" or _unit("monitored", d.name) < 0.5
         ]
         self.positions = self._positions()
+        position_sites = {p.site for p in self.positions}
+        at_positions = [d for d in topology.devices if d.site in position_sites]
+        # The collectors hang off the core at their sites.
+        self.seeds = [d.name for d in at_positions if d.role == "core"] or [
+            d.name for d in at_positions
+        ]
+        self.branches = [s.code for s in topology.sites if s.code not in position_sites]
+        self.wan = [link for link in topology.links if link.kind == "wan"]
 
     def _positions(self) -> list[MonitoringPosition]:
         """Collectors at up to two core sites, named by which is further east."""
@@ -117,13 +130,15 @@ class SimulatedState:
         window = int(t // FAULT_WINDOW_S)
         count = len(self.monitored)
         down = _pick(self.monitored, max(1, count // 250), "down", window)
-        up = [n for n in self.monitored if n not in down]
+        cut = self._cut_circuits(window)
+        unreachable = self._unreachable(down, cut)
+        up = [n for n in self.monitored if n not in down and n not in unreachable]
         stale = _pick(up, max(1, count // 150), "stale", window)
         lossy = _pick(
             [n for n in up if n not in stale], max(1, count // 200), "loss", window
         )
         condition: dict[str, Condition] = {
-            **{n: "down" for n in down},
+            **{n: "down" for n in down | unreachable},
             **{n: "stale" for n in stale},
             **{n: "lossy" for n in lossy},
         }
@@ -131,7 +146,7 @@ class SimulatedState:
             self._device(name, now, condition.get(name, "up"))
             for name in self.monitored
         ]
-        interfaces = self._interfaces(now, down, stale)
+        interfaces = self._interfaces(now, down | unreachable, cut, stale)
         return NetworkState(
             source=self.source,
             generated_at=now,
@@ -139,6 +154,38 @@ class SimulatedState:
             devices=devices,
             interfaces=interfaces,
         )
+
+    def _cut_circuits(self, window: int) -> set[str]:
+        """Carrier circuits down in a fault window, sometimes all of one branch's."""
+        ids = [link.id for link in self.wan]
+        cut = _pick(ids, max(1, len(ids) // 60), "cut", window)
+        if self.branches and _unit("isolated", window) < ISOLATED_SHARE:
+            (site,) = _pick(self.branches, 1, "isolated", window)
+            ends = {d.name for d in self.topology.devices if d.site == site}
+            cut |= {
+                link.id
+                for link in self.wan
+                if link.a.device in ends or link.b.device in ends
+            }
+        return cut
+
+    def _unreachable(self, down: set[str], cut: set[str]) -> set[str]:
+        """Devices that are up but that no monitoring position can reach."""
+        adjacent: dict[str, list[str]] = {}
+        for link in self.topology.links:
+            if link.id in cut or link.a.device in down or link.b.device in down:
+                continue
+            adjacent.setdefault(link.a.device, []).append(link.b.device)
+            adjacent.setdefault(link.b.device, []).append(link.a.device)
+        reached = {n for n in self.seeds if n not in down}
+        frontier = list(reached)
+        while frontier:
+            device = frontier.pop()
+            for neighbor in adjacent.get(device, []):
+                if neighbor not in reached:
+                    reached.add(neighbor)
+                    frontier.append(neighbor)
+        return set(self.devices) - reached - down
 
     def _device(self, name: str, now: datetime, condition: Condition) -> DeviceState:
         down = condition == "down"
@@ -176,17 +223,24 @@ class SimulatedState:
         )
 
     def _interfaces(
-        self, now: datetime, down: set[str], stale: set[str]
+        self, now: datetime, silent: set[str], cut: set[str], stale: set[str]
     ) -> list[InterfaceState]:
+        """Readings from every monitored device that can be polled.
+
+        ``silent`` devices (down or cut off) report nothing, and a link to
+        one, or a ``cut`` circuit, reads as down at the end that reports.
+        """
         monitored = set(self.monitored)
-        wan = [link.id for link in self.topology.links if link.kind == "wan"]
+        wan = [link.id for link in self.wan]
         window = int(now.timestamp() // LOAD_WINDOW_S)
         hot = _pick(wan, max(1, len(wan) // 40), "hot", window)
         out: list[InterfaceState] = []
         for link in self.topology.links:
-            link_down = link.a.device in down or link.b.device in down
+            link_down = (
+                link.id in cut or link.a.device in silent or link.b.device in silent
+            )
             for near, forward in ((link.a, True), (link.b, False)):
-                if near.device not in monitored or near.device in down:
+                if near.device not in monitored or near.device in silent:
                     continue
                 seen = now - STALE_AGE if near.device in stale else now
                 in_pct, out_pct = 0.0, 0.0

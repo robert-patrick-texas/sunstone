@@ -65,6 +65,56 @@ def test_a_down_device_reports_nothing_and_its_neighbors_see_the_link_down(
                 assert (seen.oper, seen.in_pct, seen.out_pct) == ("down", 0.0, 0.0)
 
 
+def test_some_circuits_go_down_while_both_routers_stay_up(
+    topology: Topology, snapshot: NetworkState
+) -> None:
+    up = {d.device for d in snapshot.devices if d.status == "up"}
+    readings = {(i.device, i.interface): i.oper for i in snapshot.interfaces}
+    cut = [
+        link
+        for link in topology.links
+        if link.kind == "wan"
+        and {link.a.device, link.b.device} <= up
+        and readings.get((link.a.device, link.a.interface)) == "down"
+        and readings.get((link.b.device, link.b.interface)) == "down"
+    ]
+    assert cut
+
+
+def test_a_branch_that_loses_every_circuit_is_cut_off(topology: Topology) -> None:
+    state = SimulatedState(topology)
+    branches = {s.code for s in topology.sites} - {"DAL", "IAD"}
+    for window in range(48):
+        snapshot = state.snapshot(NOW + timedelta(minutes=5 * window))
+        status = {d.device: d.status for d in snapshot.devices}
+        isolated = [
+            site
+            for site in branches
+            if all(
+                status.get(d.name, "down") == "down"
+                for d in topology.devices
+                if d.site == site
+            )
+        ]
+        if isolated:
+            break
+    else:
+        pytest.fail("no branch was cut off in four hours")
+    site = isolated[0]
+    names = {d.name for d in topology.devices if d.site == site}
+    assert not any(i.device in names for i in snapshot.interfaces)
+    readings = {(i.device, i.interface): i.oper for i in snapshot.interfaces}
+    circuits = [
+        link
+        for link in topology.links
+        if link.kind == "wan" and {link.a.device, link.b.device} & names
+    ]
+    assert circuits
+    for link in circuits:
+        hub = link.b if link.a.device in names else link.a
+        assert readings[(hub.device, hub.interface)] == "down"
+
+
 def test_packet_loss_is_a_rare_event(snapshot: NetworkState) -> None:
     lossy = [
         d.device

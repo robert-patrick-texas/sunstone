@@ -1,7 +1,8 @@
 <!--
 @component
 The app: header with view switch and search, the current view, the legend,
-and the details panel for whatever is selected.
+the details panel for whatever is selected, and with live state, the
+problems it shows.
 -->
 <script lang="ts">
 	import '../app.css';
@@ -11,10 +12,13 @@ and the details panel for whatever is selected.
 	import DetailsPanel from '#lib/DetailsPanel.svelte';
 	import GeoView from '#lib/geo/GeoView.svelte';
 	import HierarchyView from '#lib/hierarchy/HierarchyView.svelte';
+	import { failuresOf, impactOf } from '#lib/impact.ts';
 	import TopologyView from '#lib/topo/TopologyView.svelte';
 	import Legend from '#lib/Legend.svelte';
 	import { indexState, type LiveIndex } from '#lib/live.ts';
 	import { shortestPaths } from '#lib/paths.ts';
+	import { currentFailures, findProblems } from '#lib/problems.ts';
+	import ProblemsPanel from '#lib/ProblemsPanel.svelte';
 	import SearchBox from '#lib/SearchBox.svelte';
 	import { expandedSites, select, ui, type View } from '#lib/state.svelte.ts';
 	import { indexTopology, type TopologyIndex } from '#lib/topology.ts';
@@ -33,6 +37,15 @@ and the details panel for whatever is selected.
 	let live = $state.raw<LiveIndex | null>(null);
 	let liveProblem = $state<string | null>(null);
 	const path = $derived(index && ui.path ? shortestPaths(index, ui.path.from, ui.path.to) : null);
+	const problems = $derived(index && live ? findProblems(index, live) : []);
+	const focused = $derived(problems.find((p) => p.id === ui.problem) ?? null);
+	// A path, when shown, takes the place of an impact.
+	const impact = $derived.by(() => {
+		if (!index || path || ui.pathFrom) return null;
+		if (ui.whatIf.length === 0) return focused?.impact ?? null;
+		const before = live ? currentFailures(index, live) : undefined;
+		return impactOf(index, failuresOf(index, ui.whatIf), before);
+	});
 	let problem = $state<string | null>(null);
 
 	onMount(async () => {
@@ -52,6 +65,7 @@ and the details panel for whatever is selected.
 		if (!ui.live) {
 			live = null;
 			liveProblem = null;
+			ui.problem = null;
 			return;
 		}
 		let stopped = false;
@@ -102,6 +116,13 @@ and the details panel for whatever is selected.
 			<span class="pulse" aria-hidden="true"></span>Live
 		</button>
 		{#if ui.live}
+			<button
+				aria-pressed={ui.problemsOpen}
+				title="Show or hide the list of problems"
+				onclick={() => (ui.problemsOpen = !ui.problemsOpen)}
+			>
+				Problems{live ? ` ${problems.length}` : ''}
+			</button>
 			<span class="live-status" aria-live="polite">
 				{#if liveProblem}
 					Live state unavailable: {liveProblem}
@@ -126,17 +147,20 @@ and the details panel for whatever is selected.
 		{:else if !index}
 			<p class="message">Loading topology…</p>
 		{:else}
+			{#if live && ui.problemsOpen}
+				<ProblemsPanel {problems} />
+			{/if}
 			<section class="view">
 				{#key ui.view}
 					{#if ui.view === 'geo'}
-						<GeoView {index} {path} {live} />
+						<GeoView {index} {path} {impact} {live} />
 					{:else if ui.view === 'hierarchy'}
-						<HierarchyView {index} {path} {live} />
+						<HierarchyView {index} {path} {impact} {live} />
 					{:else}
-						<TopologyView {index} {path} {live} />
+						<TopologyView {index} {path} {impact} {live} />
 					{/if}
 				{/key}
-				<Legend live={live !== null} />
+				<Legend live={live !== null} impact={impact !== null} />
 				{#if ui.pathFrom}
 					<p class="picking" aria-live="polite">
 						Choose the destination for a path from <strong>{ui.pathFrom}</strong>: click a device or
@@ -144,7 +168,7 @@ and the details panel for whatever is selected.
 					</p>
 				{/if}
 			</section>
-			<DetailsPanel {index} {path} {live} />
+			<DetailsPanel {index} {path} {impact} problem={focused} {live} />
 		{/if}
 	</main>
 </div>

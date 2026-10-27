@@ -91,6 +91,18 @@ export function siteOf(index: TopologyIndex, device: string): string {
 	return index.devices.get(device)?.site ?? '';
 }
 
+/**
+ * A short name for a link.
+ *
+ * @param link - The link.
+ * @returns A circuit by its ID, any other link by its two devices.
+ */
+export function linkName(link: Link): string {
+	return link.circuit
+		? `Circuit ${link.circuit.circuit_id}`
+		: `${link.a.device} – ${link.b.device}`;
+}
+
 const INTERFACE_ABBREVIATIONS: [RegExp, string][] = [
 	[/^HundredGigE/, 'Hu'],
 	[/^FortyGigabitEthernet/, 'Fo'],

@@ -9,6 +9,7 @@
 	--selected: #ffe066;
 	--path: #4dd0e1;
 	--live: #3987e5;
+	--down: #d03b3b;
 	color-scheme: dark;
 	font-family:
 		system-ui,
@@ -40,6 +41,12 @@ button {
 
 button:hover {
 	background: var(--panel-2);
+}
+
+button:disabled {
+	color: var(--muted);
+	background: var(--panel);
+	cursor: default;
 }
 
 /* A row of buttons acting as one choice; the pressed one is highlighted. */
