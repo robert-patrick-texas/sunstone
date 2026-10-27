@@ -1,5 +1,6 @@
 /**
- * Graphs for the topology view: the whole network, or one neighborhood.
+ * Graphs for the topology view: the whole network, one neighborhood, or the
+ * shortest paths between two devices.
  * Unlike the hierarchy, positions come from a Cytoscape layout.
  */
 import type { Link } from '../api/topology.ts';
@@ -14,6 +15,7 @@ import {
 } from '../graph/model.ts';
 import { siteLevels } from '../hierarchy/layout.ts';
 import { ROLES, siteOf, type TopologyIndex } from '../topology.ts';
+import type { PathResult } from '../paths.ts';
 import type { Neighborhood } from './neighborhood.ts';
 
 export interface TopoGraph {
@@ -65,19 +67,40 @@ export function neighborhoodGraph(
 	hood: Neighborhood,
 	framed: boolean
 ): TopoGraph {
+	const links = [...hood.hops.keys()].flatMap((d) => index.linksByDevice.get(d) ?? []);
+	return devicesGraph(index, hood.hops, new Set(links), framed);
+}
+
+/**
+ * Shortest paths: the devices on them and only the path links.
+ *
+ * @param index - Topology index.
+ * @param path - The paths.
+ * @param framed - Draw devices inside a frame per site.
+ * @returns Nodes carrying their hops from the start, and merged edges.
+ */
+export function pathGraph(index: TopologyIndex, path: PathResult, framed: boolean): TopoGraph {
+	const links = [...path.links].flatMap((id) => index.links.get(id) ?? []);
+	return devicesGraph(index, path.devices, new Set(links), framed);
+}
+
+/** Devices with their hop distances, and those of `links` that join two of them. */
+function devicesGraph(
+	index: TopologyIndex,
+	hops: Map<string, number>,
+	links: Set<Link>,
+	framed: boolean
+): TopoGraph {
 	const nodes: GraphNode[] = [];
-	const links = new Set<Link>();
-	for (const [name, hop] of hood.hops) {
+	for (const [name, hop] of hops) {
 		const device = index.devices.get(name);
-		if (!device) continue;
-		nodes.push({ ...deviceNode(device, framed), hop });
-		for (const link of index.linksByDevice.get(name) ?? []) links.add(link);
+		if (device) nodes.push({ ...deviceNode(device, framed), hop });
 	}
 	if (framed) {
 		const sites = new Set(nodes.map((n) => n.site));
 		nodes.unshift(...[...sites].map((code) => frameNode(index, code)));
 	}
-	const nodeOf = (device: string) => (hood.hops.has(device) ? device : null);
+	const nodeOf = (device: string) => (hops.has(device) ? device : null);
 	return { nodes, edges: mergeLinks([...links], nodeOf) };
 }
 

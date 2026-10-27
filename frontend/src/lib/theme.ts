@@ -21,5 +21,6 @@ export const COLOR = {
 	groupBorder: '#3a4a5e',
 	wan: '#f5a623',
 	lan: '#5c6b80',
-	selected: '#ffe066'
+	selected: '#ffe066',
+	path: '#4dd0e1'
 };

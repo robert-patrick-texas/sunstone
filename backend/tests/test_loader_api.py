@@ -8,13 +8,6 @@ from sunstone.api import create_app
 from sunstone.loader import TopologyError, load_topology
 
 
-@pytest.fixture
-def topology_file(tmp_path: Path, topology_data: dict) -> Path:
-    path = tmp_path / "topology.yaml"
-    path.write_text(yaml.safe_dump(topology_data), encoding="utf-8")
-    return path
-
-
 def test_load_topology(topology_file: Path) -> None:
     assert [d.name for d in load_topology(topology_file).devices] == ["r1", "r2"]
 

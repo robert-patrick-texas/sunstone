@@ -2,21 +2,52 @@
 
 import os
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi import Path as PathParam
 from fastapi.staticfiles import StaticFiles
 
+from sunstone.layouts import (
+    MAX_NAME,
+    LayoutIn,
+    LayoutStore,
+    LayoutStoreFull,
+    LayoutSummary,
+    SavedLayout,
+)
 from sunstone.loader import load_topology
 from sunstone.model import Topology
 
+NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
 
-def create_app(topology_path: Path, web_dir: Path | None = None) -> FastAPI:
+
+def default_layouts_path(topology_path: Path) -> Path:
+    """Where a topology's saved layouts go unless told otherwise.
+
+    Args:
+        topology_path: The topology file, such as ``data/sample/small.yaml``.
+
+    Returns:
+        A file beside it, such as ``data/sample/small.layouts.json``.
+
+    Raises:
+        None
+    """
+    return topology_path.with_name(f"{topology_path.stem}.layouts.json")
+
+
+def create_app(
+    topology_path: Path, web_dir: Path | None = None, layouts_path: Path | None = None
+) -> FastAPI:
     """Build the app around one topology file, loaded once at startup.
 
     Args:
         topology_path: Topology YAML file to serve.
         web_dir: Built frontend to serve at ``/``, or None for API only
             (the Vite dev server serves the UI during development).
+        layouts_path: File for saved layouts, or None for the one beside the
+            topology file.
 
     Returns:
         The FastAPI application.
@@ -25,12 +56,40 @@ def create_app(topology_path: Path, web_dir: Path | None = None) -> FastAPI:
         TopologyError: If the topology file is missing or invalid.
     """
     topology = load_topology(topology_path)
+    store = LayoutStore(layouts_path or default_layouts_path(topology_path))
     app = FastAPI(title="Sunstone")
 
     @app.get("/api/topology")
     def get_topology() -> Topology:
         """Return the whole topology."""
         return topology
+
+    @app.get("/api/layouts")
+    def list_layouts() -> list[LayoutSummary]:
+        """List saved layouts, most recently saved first."""
+        return store.summaries()
+
+    @app.get("/api/layouts/{name}")
+    def get_layout(name: NameParam) -> SavedLayout:
+        """Return one saved layout."""
+        layout = store.get(name)
+        if layout is None:
+            raise HTTPException(404, f"No saved layout named {name!r}")
+        return layout
+
+    @app.put("/api/layouts/{name}")
+    def put_layout(name: NameParam, layout: LayoutIn) -> SavedLayout:
+        """Save a layout, replacing any with the same name."""
+        try:
+            return store.put(name, layout)
+        except LayoutStoreFull as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.delete("/api/layouts/{name}", status_code=204)
+    def delete_layout(name: NameParam) -> None:
+        """Delete a saved layout."""
+        if not store.delete(name):
+            raise HTTPException(404, f"No saved layout named {name!r}")
 
     if web_dir is not None:
         app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
@@ -41,8 +100,8 @@ def app_from_env() -> FastAPI:
     """App factory for uvicorn, configured by the CLI through the environment.
 
     Uvicorn's reloader re-imports the app in a fresh process, so settings
-    travel in ``SUNSTONE_TOPOLOGY`` and ``SUNSTONE_WEB_DIR`` rather than as
-    arguments.
+    travel in ``SUNSTONE_TOPOLOGY``, ``SUNSTONE_WEB_DIR``, and
+    ``SUNSTONE_LAYOUTS`` rather than as arguments.
 
     Returns:
         The FastAPI application.
@@ -52,6 +111,9 @@ def app_from_env() -> FastAPI:
         TopologyError: If the topology file is missing or invalid.
     """
     web_dir = os.environ.get("SUNSTONE_WEB_DIR")
+    layouts = os.environ.get("SUNSTONE_LAYOUTS")
     return create_app(
-        Path(os.environ["SUNSTONE_TOPOLOGY"]), Path(web_dir) if web_dir else None
+        Path(os.environ["SUNSTONE_TOPOLOGY"]),
+        Path(web_dir) if web_dir else None,
+        Path(layouts) if layouts else None,
     )

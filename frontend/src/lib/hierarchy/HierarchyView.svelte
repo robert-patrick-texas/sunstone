@@ -6,17 +6,19 @@ the details panel); expanded sites show devices in tier rows.
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { GraphCanvas } from '../graph/canvas.ts';
+	import type { PathResult } from '../paths.ts';
 	import { expandedSites, ui, type Selection } from '../state.svelte.ts';
 	import { siteOf, type TopologyIndex } from '../topology.ts';
 	import { buildHierarchy } from './layout.ts';
 
-	const { index }: { index: TopologyIndex } = $props();
+	const { index, path }: { index: TopologyIndex; path: PathResult | null } = $props();
 
 	const DEVICE_FOCUS_ZOOM = 1.4;
 
 	let container: HTMLDivElement;
 	let canvas = $state.raw<GraphCanvas | null>(null);
 	let lastFocus = ui.focusRequest;
+	let lastPath = untrack(() => path);
 	let placed = false;
 
 	onMount(() => {
@@ -38,17 +40,27 @@ the details panel); expanded sites show devices in tier rows.
 		const graph = buildHierarchy(index, expandedSites);
 		untrack(() => {
 			c.setGraph(graph.nodes, graph.edges);
-			c.mark(ui.selection);
 			if (placed) return;
 			placed = true;
-			if (ui.selection) void focus(c, ui.selection);
+			// On opening, a shown path matters more than the selection (often its end).
+			const onPath = path ? c.pathElements(path) : null;
+			if (onPath?.nonempty()) c.core.fit(onPath, 80);
+			else if (ui.selection) void focus(c, ui.selection);
 			else c.core.fit(undefined, 40);
 		});
 	});
 
 	$effect(() => {
-		const selection = ui.selection;
-		canvas?.mark(selection);
+		canvas?.highlight(ui.selection, path);
+	});
+
+	// A newly shown path is brought into view.
+	$effect(() => {
+		const [c, p] = [canvas, path];
+		if (!c || p === lastPath) return;
+		lastPath = p;
+		const eles = p ? untrack(() => c.pathElements(p)) : null;
+		if (eles?.nonempty()) c.core.animate({ fit: { eles, padding: 80 } });
 	});
 
 	$effect(() => {
