@@ -38,8 +38,9 @@ test('a monitored device shows round-trip times and load on each link', async ({
 	const neighbors = panel
 		.getByRole('table')
 		.filter({ has: page.getByRole('columnheader', { name: 'Out / in' }) });
-	const loads = neighbors.locator('tbody tr td:last-child');
-	await expect(loads.first()).toHaveText(/\d+% \/ \d+%|down|no data|not monitored/);
+	await expect(neighbors.locator('tbody tr').first()).toContainText(
+		/\d+% \/ \d+%|down|no data|not monitored/
+	);
 });
 
 test('a device the source does not watch says so instead of showing zero', async ({ page }) => {

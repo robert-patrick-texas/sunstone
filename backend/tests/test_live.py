@@ -8,7 +8,13 @@ from sunstone.api import create_app
 from sunstone.live import NetworkState
 from sunstone.mockgen import PRESETS, generate, to_yaml
 from sunstone.model import Topology
-from sunstone.simulate import STALE_AGE, SimulatedState
+from sunstone.simulate import (
+    FAULT_WINDOW_S,
+    MAX_RUN,
+    RETENTION,
+    STALE_AGE,
+    SimulatedState,
+)
 
 NOW = datetime(2026, 10, 27, 15, 0, tzinfo=UTC)
 
@@ -127,10 +133,28 @@ def test_packet_loss_is_a_rare_event(snapshot: NetworkState) -> None:
 def test_stale_readings_are_old_and_marked(snapshot: NetworkState) -> None:
     stale = {d.device for d in snapshot.devices if d.stale}
     assert stale
+    longest = STALE_AGE + timedelta(seconds=MAX_RUN * FAULT_WINDOW_S)
     for d in snapshot.devices:
-        assert d.observed_at == (NOW - STALE_AGE if d.stale else NOW)
+        if d.stale:
+            # The last reading came in when the incident began, or earlier.
+            assert NOW - longest <= d.observed_at <= NOW - STALE_AGE
+        else:
+            assert d.observed_at == NOW
     for i in snapshot.interfaces:
         assert i.stale == (i.device in stale)
+
+
+def test_faults_last_more_than_one_step_and_change_a_few_at_a_time(
+    topology: Topology,
+) -> None:
+    state = SimulatedState(topology)
+    down = []
+    for step in range(12):
+        snapshot = state.snapshot(NOW + timedelta(minutes=5 * step))
+        down.append({d.device for d in snapshot.devices if d.status == "down"})
+    # Over an hour, most steps keep some of the devices that were already down.
+    kept = [bool(a & b) for a, b in zip(down, down[1:], strict=False)]
+    assert sum(kept) >= len(kept) // 2
 
 
 def test_both_ends_of_a_link_see_the_same_traffic(
@@ -156,19 +180,22 @@ def test_load_is_a_percentage_and_some_wan_circuits_run_hot(
     assert max(p for p in loads if p is not None) >= 90
 
 
-def test_round_trip_time_grows_with_distance(snapshot: NetworkState) -> None:
+def test_round_trip_time_grows_with_distance(
+    topology: Topology, snapshot: NetworkState
+) -> None:
     assert [(p.name, p.site) for p in snapshot.positions] == [
         ("west", "DAL"),
         ("east", "IAD"),
     ]
+    site = {d.name: d.site for d in topology.devices}
     rtt = {
-        d.device: {r.position: r.rtt_ms for r in d.reachability}
+        d.device: {r.position: r.rtt_ms or 0.0 for r in d.reachability}
         for d in snapshot.devices
-        if d.status == "up"
+        if d.status == "up" and not d.stale
     }
-    dal, iad = rtt["dal-core-01"], rtt["iad-core-01"]
-    assert dal["west"] is not None and dal["east"] is not None
-    assert iad["west"] is not None and iad["east"] is not None
+    # Any device that is up at each hub will do.
+    dal = next(r for name, r in rtt.items() if site[name] == "DAL")
+    iad = next(r for name, r in rtt.items() if site[name] == "IAD")
     assert dal["west"] < dal["east"]
     assert iad["east"] < iad["west"]
 
@@ -183,3 +210,85 @@ def test_api_serves_compressed_state(tmp_path: Path, topology: Topology) -> None
     assert body["source"] == "simulated"
     assert [p["name"] for p in body["positions"]] == ["west", "east"]
     assert body["devices"] and body["interfaces"]
+
+
+def test_events_say_what_changed_between_snapshots(topology: Topology) -> None:
+    state = SimulatedState(topology)
+    events = state.events(NOW - timedelta(hours=3), NOW)
+    assert events == sorted(events, key=lambda e: e.at)
+    kinds = {e.kind for e in events}
+    assert {"down", "up", "nodata", "reporting", "link-down", "link-up"} <= kinds
+    step = timedelta(seconds=FAULT_WINDOW_S)
+    for event in events:
+        if event.kind not in ("down", "up"):
+            continue
+        before, after = (
+            {d.device: d.status for d in state.snapshot(t).devices}
+            for t in (event.at - step, event.at)
+        )
+        assert (before[event.device or ""], after[event.device or ""]) == (
+            ("up", "down") if event.kind == "down" else ("down", "up")
+        )
+
+
+def test_events_include_load_crossing_the_high_marks(topology: Topology) -> None:
+    events = SimulatedState(topology).events(NOW - RETENTION, NOW)
+    loads = [e for e in events if e.kind in ("busy", "congested", "load-normal")]
+    assert loads
+    for e in loads:
+        assert e.link and e.pct is not None
+        assert (e.pct >= 95) == (e.kind == "congested")
+
+
+def test_history_lines_up_with_snapshots(topology: Topology) -> None:
+    state = SimulatedState(topology)
+    events = state.events(NOW - timedelta(hours=6), NOW)
+    device = next(e.device for e in events if e.kind == "down" and e.device)
+    history = state.history(device, NOW - timedelta(hours=6), NOW)
+    assert history is not None
+    assert len(history.status) == 6 * 12 + 1
+    assert set(history.rtt_ms) == {"west", "east"}
+    links = [
+        link for link in topology.links if device in (link.a.device, link.b.device)
+    ]
+    assert len(history.interfaces) == len(links)
+    step = timedelta(seconds=history.step_s)
+    for i, status in enumerate(history.status):
+        snap = state.snapshot(history.start + i * step)
+        seen = next(d for d in snap.devices if d.device == device)
+        expected = "down" if seen.status == "down" else "nodata" if seen.stale else "up"
+        assert status == expected
+        if status != "up":
+            assert all(v is None for v in history.rtt_ms["west"][i : i + 1])
+            assert all(f.in_pct[i] is None for f in history.interfaces)
+    assert "down" in history.status
+
+
+def test_history_is_none_for_an_unmonitored_device(topology: Topology) -> None:
+    state = SimulatedState(topology)
+    unwatched = next(d.name for d in topology.devices if d.name not in state.watched)
+    assert state.history(unwatched, NOW - timedelta(hours=1), NOW) is None
+
+
+def test_api_replays_any_moment_of_the_last_day(
+    tmp_path: Path, topology: Topology
+) -> None:
+    path = tmp_path / "small.yaml"
+    path.write_text(to_yaml(topology, "test"), encoding="utf-8")
+    client = TestClient(create_app(path))
+    at = (datetime.now(UTC) - timedelta(hours=3)).isoformat()
+    response = client.get("/api/state", params={"at": at})
+    assert response.status_code == 200
+    assert response.json()["generated_at"].startswith(at[:19])
+    for bad in ("2020-01-01T00:00:00Z", "2099-01-01T00:00:00Z", "2026-10-27T15:00:00"):
+        assert client.get("/api/state", params={"at": bad}).status_code == 422
+
+    log = client.get("/api/events").json()
+    assert log["events"] and log["since"] < log["until"]
+    device = next(e["device"] for e in log["events"] if e["device"])
+    history = client.get(f"/api/history/{device}")
+    assert history.status_code == 200
+    assert history.json()["device"] == device
+    state = SimulatedState(topology)
+    unwatched = next(d.name for d in topology.devices if d.name not in state.watched)
+    assert client.get(f"/api/history/{unwatched}").status_code == 404

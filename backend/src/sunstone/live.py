@@ -13,9 +13,12 @@ Sunstone works out each link's state from the interfaces at its two ends.
 Sources cover only what they monitor. A device or interface absent from a
 snapshot is not monitored; one present but ``stale`` is monitored with no
 fresh reading. Neither is ever reported as zero.
+
+Sources also keep a while of history: the state as of any moment in it,
+the changes they saw, and one device's readings over time.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
@@ -72,17 +75,114 @@ class NetworkState(_Record):
     interfaces: list[InterfaceState]
 
 
+EventKind = Literal[
+    "down",
+    "up",
+    "nodata",
+    "reporting",
+    "loss",
+    "loss-cleared",
+    "link-down",
+    "link-up",
+    "busy",
+    "congested",
+    "load-normal",
+]
+
+
+class StateEvent(_Record):
+    """A change a source saw: a device or link going down or coming back,
+    readings stopping or resuming, packet loss starting or clearing, or a
+    link's load crossing 80% or 95% (``pct`` is the load after the change).
+    """
+
+    at: datetime
+    kind: EventKind
+    device: str | None = None
+    link: str | None = None
+    pct: float | None = None
+
+
+class EventLog(_Record):
+    """The changes seen between two moments, oldest first."""
+
+    since: datetime
+    until: datetime
+    events: list[StateEvent]
+
+
+class InterfaceHistory(_Record):
+    """One interface's readings at each step of a device history."""
+
+    interface: str
+    oper: list[Literal["up", "down"] | None]
+    in_pct: list[float | None]
+    out_pct: list[float | None]
+
+
+class DeviceHistory(_Record):
+    """One device's readings at regular steps, oldest first.
+
+    Step ``i`` is at ``start + i * step_s``. Values are None where there was
+    no fresh reading: the device was down, cut off, or not reporting.
+    """
+
+    device: str
+    start: datetime
+    step_s: int
+    status: list[Literal["up", "down", "nodata"]]
+    rtt_ms: dict[str, list[float | None]]
+    loss_pct: dict[str, list[float | None]]
+    interfaces: list[InterfaceHistory]
+
+
 class StateSource(Protocol):
-    """Anything that can report the network's current state."""
+    """Anything that can report the network's state, now and for a while back."""
+
+    retention: timedelta
+    """How far back history goes."""
 
     def snapshot(self, now: datetime) -> NetworkState:
         """Report the state as of a moment.
 
         Args:
-            now: The moment, timezone-aware.
+            now: The moment, timezone-aware, within the retention.
 
         Returns:
             The snapshot.
+
+        Raises:
+            None
+        """
+        ...
+
+    def events(self, since: datetime, until: datetime) -> list[StateEvent]:
+        """Report the changes seen after one moment, up to another.
+
+        Args:
+            since: Start, exclusive, timezone-aware.
+            until: End, inclusive.
+
+        Returns:
+            The events, oldest first.
+
+        Raises:
+            None
+        """
+        ...
+
+    def history(
+        self, device: str, since: datetime, until: datetime
+    ) -> DeviceHistory | None:
+        """Report one device's readings over a span.
+
+        Args:
+            device: Device name.
+            since: Start, timezone-aware.
+            until: End.
+
+        Returns:
+            The readings, or None if the source does not monitor the device.
 
         Raises:
             None

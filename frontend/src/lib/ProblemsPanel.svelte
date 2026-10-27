@@ -1,6 +1,7 @@
 <!--
 @component
-Current problems in live state, most urgent first, grouped by kind. Clicking
+Problems in the live state shown (now, or a replayed moment), most urgent
+first, grouped by kind. Clicking
 one selects it, brings it into view, and shows its impact in every view;
 clicking it again stops showing the impact.
 -->
@@ -28,10 +29,9 @@ clicking it again stops showing the impact.
 	);
 </script>
 
-<aside class="problems" aria-label="Problems">
-	<h2>Problems <span class="count">{problems.length}</span></h2>
+<section aria-label="Problems">
 	{#if problems.length === 0}
-		<p class="muted">Nothing wrong in the latest snapshot.</p>
+		<p class="muted">Nothing wrong {ui.at ? 'at this moment' : 'in the latest snapshot'}.</p>
 	{:else}
 		<p class="muted">Click one to see it and what it affects.</p>
 	{/if}
@@ -56,26 +56,9 @@ clicking it again stops showing the impact.
 			{/each}
 		</ul>
 	{/each}
-</aside>
+</section>
 
 <style>
-	.problems {
-		flex: none;
-		width: min(300px, 30vw);
-		overflow-y: auto;
-		background: var(--panel);
-		border-right: 1px solid var(--border);
-		padding: 12px 10px;
-		font-size: 13px;
-	}
-	h2 {
-		margin: 0 4px 4px;
-		font-size: 15px;
-	}
-	.count {
-		color: var(--muted);
-		font-weight: normal;
-	}
 	h3 {
 		margin: 14px 4px 4px;
 		font-size: 12px;

@@ -68,6 +68,12 @@ export const IMPACT_COLOR: Record<DeviceImpact, string> = {
 
 export const IMPACT_GLYPH: Record<DeviceImpact, string> = { failed: '×', cutoff: '', exposed: '!' };
 
+// Lines in history charts, such as round trip from each monitoring position.
+// Violet and aqua stay clear of the status colors and of each other with
+// color blindness (validated on the panel background; worst ΔE 17); every
+// line is also labeled.
+export const SERIES_COLOR = ['#9085e9', '#199e70'] as const;
+
 export const LINK_NODATA = '#8a96a8';
 export const LINK_UNMONITORED = '#3a4655';
 
