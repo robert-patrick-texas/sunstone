@@ -111,6 +111,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/handover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Handover
+         * @description Return what the incoming shift needs to know about the last hours:
+         *     what is wrong now and who is on it, outages that began or ended,
+         *     pages and acknowledgements made, maintenance done, open, and coming,
+         *     fixes recorded, discovery findings first seen, and who is on call.
+         */
+        get: operations["get_handover_api_handover_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/discovery": {
         parameters: {
             query?: never;
@@ -476,6 +499,8 @@ export interface components {
             at: string;
             /** Cleared At */
             cleared_at?: string | null;
+            /** Title */
+            title?: string | null;
         };
         /**
          * AckIn
@@ -846,6 +871,37 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * Handover
+         * @description What the incoming shift needs to know.
+         */
+        Handover: {
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /**
+             * Until
+             * Format: date-time
+             */
+            until: string;
+            /** Problems */
+            problems: components["schemas"]["RoutedProblem"][];
+            /** Outages */
+            outages: components["schemas"]["Outage"][];
+            /** Pages */
+            pages: components["schemas"]["Page"][];
+            /** Acks */
+            acks: components["schemas"]["Ack"][];
+            /** Windows */
+            windows: components["schemas"]["Window"][];
+            /** Changes */
+            changes: components["schemas"]["Change"][];
+            /** Findings */
+            findings: components["schemas"]["Finding"][];
+            oncall: components["schemas"]["OnCall"] | null;
+        };
+        /**
          * Impact
          * @description What some failures do to the network.
          */
@@ -1060,6 +1116,26 @@ export interface components {
             };
         };
         /**
+         * Outage
+         * @description Devices and links that went down together, and came back.
+         */
+        Outage: {
+            /** Title */
+            title: string;
+            /** Target */
+            target: components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"];
+            /** Devices */
+            devices: string[];
+            /** Links */
+            links: string[];
+            /** Start */
+            start: string | null;
+            /** End */
+            end: string | null;
+            /** Planned */
+            planned: boolean;
+        };
+        /**
          * Ownership
          * @description The team that owns each site, device, and link, by code, name, and
          *     id; anything no route matches is left out.
@@ -1108,6 +1184,8 @@ export interface components {
             at: string;
             /** Cleared At */
             cleared_at?: string | null;
+            /** Title */
+            title?: string | null;
         };
         /**
          * PageIn
@@ -1683,6 +1761,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventLog"];
+                };
+            };
+        };
+    };
+    get_handover_api_handover_get: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Handover"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

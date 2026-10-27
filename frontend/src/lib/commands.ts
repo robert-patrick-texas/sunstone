@@ -33,7 +33,8 @@ export type CommandId =
 	| 'later'
 	| 'now'
 	| 'copy-link'
-	| 'wall';
+	| 'wall'
+	| 'handover';
 
 /** What a command needs before it can run. */
 export type Need = 'selection' | 'device' | 'live' | 'problems' | 'replay';
@@ -216,7 +217,14 @@ export const COMMANDS: Command[] = [
 		keys: ['c'],
 		also: ['share', 'url', 'address']
 	},
-	{ id: 'wall', label: 'Wall display', group: 'Share', keys: [], also: ['kiosk', 'noc', 'screen'] }
+	{ id: 'wall', label: 'Wall display', group: 'Share', keys: [], also: ['kiosk', 'noc', 'screen'] },
+	{
+		id: 'handover',
+		label: 'Shift handover',
+		group: 'Share',
+		keys: ['h'],
+		also: ['shift', 'report', 'summary', 'print']
+	}
 ];
 
 /** What commands can act on at the moment. */

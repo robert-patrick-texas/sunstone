@@ -22,7 +22,12 @@ test('a fix is reviewed, accepted into the documentation, and reverted', async (
 	const summary = ((await fix.textContent()) ?? '').replace(/^Fix: /, '');
 	await fix.click();
 	await expect(review(page).getByText(summary)).toBeVisible();
-	await expect(review(page).getByText(/^seen.*: up · \d+% in, \d+% out$/)).toBeVisible();
+	// What Live reads on the port seen, whatever the simulator has wrong with it now.
+	await expect(
+		review(page).getByText(
+			/^seen.*: (up · \d+% in, \d+% out|down|no recent reading|not monitored)$/
+		)
+	).toBeVisible();
 	await expect(review(page).getByRole('heading', { name: 'What it changes' })).toBeVisible();
 	// Documented on both switches of the pair, both uplinks really go to one.
 	if (summary.includes('dal-dist-01')) {

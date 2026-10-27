@@ -190,12 +190,13 @@ class OperationsStore:
         """
         return list(self._data.acks)
 
-    def acknowledge(self, ack: AckIn, at: datetime) -> Ack:
+    def acknowledge(self, ack: AckIn, at: datetime, title: str | None = None) -> Ack:
         """Acknowledge a problem, replacing any standing acknowledgement of it.
 
         Args:
             ack: The problem, a note, and who.
             at: When.
+            title: The problem's title, to keep with it.
 
         Returns:
             The acknowledgement.
@@ -203,7 +204,7 @@ class OperationsStore:
         Raises:
             None
         """
-        made = Ack(**ack.model_dump(), at=at)
+        made = Ack(**ack.model_dump(), at=at, title=title)
         with self._lock:
             kept = [a for a in self._data.acks if not _standing(a, ack.problem)]
             self._save(acks=[*kept, made])
@@ -261,13 +262,16 @@ class OperationsStore:
         """
         return list(self._data.pages)
 
-    def page(self, page: PageIn, team: str, at: datetime) -> Page:
+    def page(
+        self, page: PageIn, team: str, at: datetime, title: str | None = None
+    ) -> Page:
         """Record a page to a problem's team, replacing any standing page of it.
 
         Args:
             page: The problem, a note, who is paging, and where to look.
             team: The team paged.
             at: When.
+            title: The problem's title, to keep with it.
 
         Returns:
             The page.
@@ -275,7 +279,9 @@ class OperationsStore:
         Raises:
             None
         """
-        made = Page(**page.model_dump(), id=uuid.uuid4().hex[:12], team=team, at=at)
+        made = Page(
+            **page.model_dump(), id=uuid.uuid4().hex[:12], team=team, at=at, title=title
+        )
         with self._lock:
             kept = [p for p in self._data.pages if not _standing(p, page.problem)]
             self._save(pages=[*kept, made])

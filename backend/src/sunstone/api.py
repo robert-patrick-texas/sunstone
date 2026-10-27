@@ -3,11 +3,11 @@
 import os
 import threading
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi import Path as PathParam
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -37,6 +37,7 @@ from sunstone.discovery import (
     expecting,
 )
 from sunstone.discovery_log import DiscoveryLog
+from sunstone.handover import Handover, outages
 from sunstone.impact import Failures, Network, WhatIf
 from sunstone.layouts import (
     MAX_NAME,
@@ -47,7 +48,13 @@ from sunstone.layouts import (
     LayoutSummary,
     SavedLayout,
 )
-from sunstone.live import DeviceHistory, EventLog, NetworkState, StateSource
+from sunstone.live import (
+    DeviceHistory,
+    EventLog,
+    NetworkState,
+    StateEvent,
+    StateSource,
+)
 from sunstone.loader import load_topology
 from sunstone.model import Topology
 from sunstone.monitor import POLL, Monitor
@@ -315,7 +322,11 @@ def create_app(
         Pass the ``generated_at`` of the state being shown, so the two match.
         """
         d = docs
-        when = moment_at(d, at)
+        return routed(d, moment_at(d, at))
+
+    def routed(d: _Documented, when: datetime) -> RoutedProblemList:
+        """The problems at a moment, each with the maintenance that accounts
+        for it, who is on it, the team that owns it, and its page."""
         found = d.monitor.moment(when).problems
         windows = [w for w in operations.windows() if w.start <= when < w.end]
         # The present is rounded down; acknowledgements made since still count.
@@ -362,13 +373,51 @@ def create_app(
         d = docs
         now = datetime.now(UTC)
         since = now - d.state.retention
+        return EventLog(since=since, until=now, events=events_of(d, since, now))
+
+    def events_of(d: _Documented, since: datetime, now: datetime) -> list[StateEvent]:
+        """The source's events, each marked planned if maintenance accounts for it."""
         events = d.state.events(since, now)
         work = {at: operations.planned_at(at) for at in {e.at for e in events}}
-        events = [
+        return [
             e.model_copy(update={"planned": event_planned(e, work[e.at], d.network)})
             for e in events
         ]
-        return EventLog(since=since, until=now, events=events)
+
+    @app.get("/api/handover")
+    def get_handover(hours: Annotated[int, Query(ge=1, le=24)] = 12) -> Handover:
+        """Return what the incoming shift needs to know about the last hours:
+        what is wrong now and who is on it, outages that began or ended,
+        pages and acknowledgements made, maintenance done, open, and coming,
+        fixes recorded, discovery findings first seen, and who is on call."""
+        d = docs
+        now = datetime.now(UTC)
+        span = timedelta(hours=hours)
+        since = now - span
+        events = events_of(d, now - d.state.retention, now)
+        when = d.monitor.now()
+        problems = routed(d, when).problems
+        # Acknowledgements and pages last until their problem clears, as in live state.
+        operations.clear({p.id for p in problems}, when)
+        pages = [pg for pg in operations.pages() if since <= pg.at][::-1]
+        acks = [a for a in operations.acks() if since <= a.at][::-1]
+        found = discovered(d, now).findings
+        return Handover(
+            since=since,
+            until=now,
+            problems=problems,
+            outages=outages(events, d.topology, since),
+            pages=pages,
+            acks=acks,
+            windows=[
+                w
+                for w in operations.windows()
+                if w.end > since and w.start < now + span
+            ],
+            changes=[c for c in changes.changes() if since <= c.at][::-1],
+            findings=[f for f in found if f.first_seen and since <= f.first_seen],
+            oncall=on_call(directory, now, operations.covers()) if directory else None,
+        )
 
     @app.get("/api/discovery")
     def get_discovery(at: datetime | None = None) -> Comparison:
@@ -450,10 +499,11 @@ def create_app(
     def acknowledge(ack: AckIn) -> Ack:
         """Acknowledge a problem there is now, with a note."""
         monitor = docs.monitor
-        present = {p.id for p in monitor.moment(monitor.now()).problems.problems}
+        present = {p.id: p for p in monitor.moment(monitor.now()).problems.problems}
         if ack.problem not in present:
             raise HTTPException(404, f"No problem {ack.problem!r} now")
-        return operations.acknowledge(ack, datetime.now(UTC))
+        title = present[ack.problem].title
+        return operations.acknowledge(ack, datetime.now(UTC), title)
 
     @app.delete("/api/acks", status_code=204)
     def unacknowledge(problem: str) -> None:
@@ -504,7 +554,7 @@ def create_app(
             raise HTTPException(
                 409, "No team owns this: add a route for it to the on-call directory"
             )
-        return operations.page(page, team, datetime.now(UTC))
+        return operations.page(page, team, datetime.now(UTC), problem.title)
 
     @app.delete("/api/pages", status_code=204)
     def withdraw_page(problem: str) -> None:
