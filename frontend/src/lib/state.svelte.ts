@@ -60,7 +60,9 @@ export const ui = $state({
 	/** Show the list of problems in live state. */
 	problemsOpen: true,
 	/** Which list the side panel shows. */
-	sideTab: 'problems' as 'problems' | 'events' | 'maintenance',
+	sideTab: 'problems' as 'problems' | 'events' | 'maintenance' | 'oncall',
+	/** The team the on-call list is showing, by id. */
+	team: null as string | null,
 	/** Who is using Sunstone, for signing maintenance and acknowledgements. */
 	person: rememberedName(),
 	/** The maintenance window being planned or changed, if any. */
@@ -215,4 +217,15 @@ export function select(selection: Selection | null, focus = false): void {
 		ui.path = { from: ui.pathFrom, to: selection.id };
 		ui.pathFrom = null;
 	}
+}
+
+/**
+ * Show a team in the on-call list.
+ *
+ * @param team - The team's id.
+ */
+export function showTeam(team: string): void {
+	ui.team = team;
+	ui.sideTab = 'oncall';
+	ui.problemsOpen = true;
 }

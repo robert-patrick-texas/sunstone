@@ -5,43 +5,13 @@
  * The types are aliases of `schema.d.ts`, generated from the backend's
  * OpenAPI description.
  */
+import { send } from './http.ts';
 import type { components } from './schema.d.ts';
 
 type Schemas = components['schemas'];
 export type Window = Schemas['Window'];
 export type WindowIn = Schemas['WindowIn'];
 export type Ack = Schemas['Ack'];
-
-/** The reason the API gives for refusing something, readably. */
-async function refusal(response: Response, what: string): Promise<Error> {
-	try {
-		const body = (await response.json()) as { detail?: unknown };
-		const { detail } = body;
-		if (typeof detail === 'string') return new Error(detail);
-		if (Array.isArray(detail)) {
-			// Validation errors: say what each one is about.
-			const messages = detail.map((d: { msg?: string; loc?: unknown[] }) => {
-				const field = d.loc?.filter((l) => typeof l === 'string' && l !== 'body').join(' ');
-				return field ? `${field}: ${d.msg}` : String(d.msg);
-			});
-			return new Error(messages.join('; '));
-		}
-	} catch {
-		// Not JSON; fall through to the status.
-	}
-	return new Error(`${what} answered ${response.status}`);
-}
-
-async function send<T>(method: string, url: string, body?: unknown): Promise<T> {
-	const response = await fetch(url, {
-		method,
-		...(body === undefined
-			? {}
-			: { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-	});
-	if (!response.ok) throw await refusal(response, `${method} ${url}`);
-	return (response.status === 204 ? undefined : await response.json()) as T;
-}
 
 /**
  * Fetch every maintenance window.

@@ -27,6 +27,22 @@ from sunstone.live import DeviceHistory, EventLog, NetworkState, StateSource
 from sunstone.loader import load_topology
 from sunstone.model import Topology
 from sunstone.monitor import POLL, Monitor
+from sunstone.oncall import (
+    DEFAULT_URGENCY,
+    Cover,
+    CoverIn,
+    Directory,
+    OnCall,
+    Ownership,
+    Page,
+    PageIn,
+    RoutedProblem,
+    RoutedProblemList,
+    escalation,
+    load_directory,
+    on_call,
+    ownership,
+)
 from sunstone.operations import (
     OperationsFull,
     OperationsStore,
@@ -35,7 +51,7 @@ from sunstone.operations import (
     accounted_for,
     event_planned,
 )
-from sunstone.problems import Ack, AckIn, ProblemList
+from sunstone.problems import Ack, AckIn
 from sunstone.simulate import SimulatedState
 
 NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
@@ -53,19 +69,23 @@ class WhatIfQuestion(BaseModel):
 
 @dataclass(frozen=True)
 class Files:
-    """Where the server keeps what people save; None for a file beside the
-    topology, such as ``small.layouts.json`` for ``small.yaml``."""
+    """Where the server keeps what people save, and the on-call directory;
+    None for a file beside the topology, such as ``small.layouts.json`` for
+    ``small.yaml``."""
 
     layouts: Path | None = None
     operations: Path | None = None
-    """Maintenance windows and acknowledgements."""
+    """Maintenance windows, acknowledgements, pages, and covers."""
+    oncall: Path | None = None
+    """Teams, rotations, and what they own. Beside the topology
+    (``small.oncall.yaml``) it is optional; named here, it must exist."""
 
     def path(self, topology_path: Path, kind: str) -> Path:
-        """The file for one kind of saved data.
+        """The file for one kind of data.
 
         Args:
             topology_path: The topology file.
-            kind: ``layouts`` or ``operations``.
+            kind: ``layouts``, ``operations``, or ``oncall``.
 
         Returns:
             The file given for it, or one beside the topology.
@@ -73,8 +93,11 @@ class Files:
         Raises:
             None
         """
-        given = self.layouts if kind == "layouts" else self.operations
-        return given or topology_path.with_name(f"{topology_path.stem}.{kind}.json")
+        given = {"layouts": self.layouts, "operations": self.operations}.get(
+            kind, self.oncall
+        )
+        suffix = "yaml" if kind == "oncall" else "json"
+        return given or topology_path.with_name(f"{topology_path.stem}.{kind}.{suffix}")
 
 
 def create_app(
@@ -90,8 +113,8 @@ def create_app(
         topology_path: Topology YAML file to serve.
         web_dir: Built frontend to serve at ``/``, or None for API only
             (the Vite dev server serves the UI during development).
-        files: Where saved layouts, maintenance windows, and
-            acknowledgements go, or None for files beside the topology.
+        files: Where saved layouts and operations go, and the on-call
+            directory is, or None for files beside the topology.
         state_source: Where live state comes from, or None for simulated
             state (there are no real sources yet), which acts out planned
             maintenance.
@@ -105,9 +128,18 @@ def create_app(
     Raises:
         TopologyError: If the topology file is missing or invalid.
         OperationsError: If the operations file exists but cannot be read.
+        DirectoryError: If the on-call directory is invalid, or was named
+            and is missing.
     """
     topology = load_topology(topology_path)
     files = files or Files()
+    oncall_path = files.path(topology_path, "oncall")
+    directory: Directory | None = (
+        load_directory(oncall_path, topology)
+        if files.oncall or oncall_path.exists()
+        else None
+    )
+    owners = ownership(directory, topology) if directory else None
     store = LayoutStore(files.path(topology_path, "layouts"))
     network = Network(topology)
     operations = OperationsStore(files.path(topology_path, "operations"), network)
@@ -157,7 +189,7 @@ def create_app(
         if at is None:
             # Acknowledgements last until their problem clears.
             present = {p.id for p in moment.problems.problems}
-            operations.clear_acks(present, when)
+            operations.clear(present, when)
         if "gzip" in request.headers.get("accept-encoding", ""):
             return Response(
                 moment.gzipped,
@@ -167,9 +199,10 @@ def create_app(
         return Response(moment.body, media_type="application/json")
 
     @app.get("/api/problems")
-    def get_problems(at: datetime | None = None) -> ProblemList:
+    def get_problems(at: datetime | None = None) -> RoutedProblemList:
         """Return the problems in the state as of now or an earlier moment,
-        with the maintenance that accounts for each and who is on it.
+        with the maintenance that accounts for each, who is on it, the team
+        that owns it, and where its page stands.
 
         Pass the ``generated_at`` of the state being shown, so the two match.
         """
@@ -180,16 +213,29 @@ def create_app(
         now = datetime.now(UTC)
         as_of = now if now - when < POLL else when
         acks = {a.problem: a for a in operations.acks() if a.active(as_of)}
-        problems = [
-            p.model_copy(
-                update={
-                    "planned": accounted_for(p, windows, network),
-                    "ack": acks.get(p.id),
-                }
-            )
-            for p in found.problems
-        ]
-        return ProblemList(at=found.at, problems=problems)
+        pages = {pg.problem: pg for pg in operations.pages() if pg.active(as_of)}
+        covers = operations.covers()
+        problems = []
+        for p in found.problems:
+            team_id = owners.owner(p.target) if owners else None
+            team = directory.team(team_id) if directory and team_id else None
+            page = pages.get(p.id)
+            ack = acks.get(p.id)
+            routed = {
+                "planned": accounted_for(p, windows, network),
+                "ack": ack,
+                "team": team_id,
+                "urgency": (
+                    directory.urgency_of(p.kind)
+                    if directory
+                    else DEFAULT_URGENCY[p.kind]
+                ),
+                "paging": escalation(page, team, ack, covers, as_of)
+                if page and team
+                else None,
+            }
+            problems.append(RoutedProblem.model_validate({**dict(p), **routed}))
+        return RoutedProblemList(at=found.at, problems=problems)
 
     @app.post("/api/impact")
     def post_impact(question: WhatIfQuestion) -> WhatIf:
@@ -285,6 +331,74 @@ def create_app(
         if not operations.unacknowledge(problem):
             raise HTTPException(404, f"{problem!r} is not acknowledged")
 
+    def need_directory() -> tuple[Directory, Ownership]:
+        """The on-call directory and who owns what, or a 404 saying where it goes."""
+        if directory is None or owners is None:
+            raise HTTPException(
+                404,
+                f"No on-call directory: put one at {oncall_path.name}, "
+                "or give --oncall",
+            )
+        return directory, owners
+
+    @app.get("/api/oncall")
+    def get_oncall(at: datetime | None = None) -> OnCall:
+        """Return who is on call for every team, now or at an earlier moment,
+        and how to reach them and the carriers."""
+        found, _ = need_directory()
+        now = datetime.now(UTC)
+        when = now if at is None else in_history(at, now)
+        return on_call(found, when, operations.covers())
+
+    @app.get("/api/ownership")
+    def get_ownership() -> Ownership:
+        """Return the team that owns each site, device, and link."""
+        _, found = need_directory()
+        return found
+
+    @app.post("/api/pages", status_code=201)
+    def add_page(page: PageIn) -> Page:
+        """Page the team that owns a problem there is now.
+
+        Nothing is sent: the page is recorded, and escalates on paper.
+        """
+        _, found = need_directory()
+        present = {p.id: p for p in monitor.moment(monitor.now()).problems.problems}
+        problem = present.get(page.problem)
+        if problem is None:
+            raise HTTPException(404, f"No problem {page.problem!r} now")
+        team = found.owner(problem.target)
+        if team is None:
+            raise HTTPException(
+                409, "No team owns this: add a route for it to the on-call directory"
+            )
+        return operations.page(page, team, datetime.now(UTC))
+
+    @app.delete("/api/pages", status_code=204)
+    def withdraw_page(problem: str) -> None:
+        """Withdraw a problem's page."""
+        if not operations.unpage(problem):
+            raise HTTPException(404, f"{problem!r} has not been paged")
+
+    @app.post("/api/covers", status_code=201)
+    def add_cover(cover: CoverIn) -> Cover:
+        """Put someone on call in place of a team's primary for a while."""
+        found, _ = need_directory()
+        if found.team(cover.team) is None:
+            raise HTTPException(422, f"No team {cover.team!r}")
+        if cover.person not in {p.id for p in found.people}:
+            raise HTTPException(422, f"No person {cover.person!r}")
+        try:
+            return operations.save_cover(cover)
+        except OperationsFull as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.delete("/api/covers/{cover_id}", status_code=204)
+    def delete_cover(cover_id: str) -> None:
+        """Delete a cover."""
+        if not operations.delete_cover(cover_id):
+            raise HTTPException(404, f"No cover {cover_id!r}")
+
     @app.get("/api/layouts")
     def list_layouts() -> list[LayoutSummary]:
         """List saved layouts, most recently saved first."""
@@ -322,8 +436,8 @@ def app_from_env() -> FastAPI:
 
     Uvicorn's reloader re-imports the app in a fresh process, so settings
     travel in ``SUNSTONE_TOPOLOGY``, ``SUNSTONE_WEB_DIR``,
-    ``SUNSTONE_LAYOUTS``, and ``SUNSTONE_OPERATIONS`` rather than as
-    arguments.
+    ``SUNSTONE_LAYOUTS``, ``SUNSTONE_OPERATIONS``, and ``SUNSTONE_ONCALL``
+    rather than as arguments.
 
     Returns:
         The FastAPI application.
@@ -331,15 +445,19 @@ def app_from_env() -> FastAPI:
     Raises:
         KeyError: If ``SUNSTONE_TOPOLOGY`` is not set.
         TopologyError: If the topology file is missing or invalid.
+        DirectoryError: If the on-call directory is invalid, or was named
+            and is missing.
     """
     web_dir = os.environ.get("SUNSTONE_WEB_DIR")
     layouts = os.environ.get("SUNSTONE_LAYOUTS")
     operations = os.environ.get("SUNSTONE_OPERATIONS")
+    oncall = os.environ.get("SUNSTONE_ONCALL")
     return create_app(
         Path(os.environ["SUNSTONE_TOPOLOGY"]),
         Path(web_dir) if web_dir else None,
         Files(
             layouts=Path(layouts) if layouts else None,
             operations=Path(operations) if operations else None,
+            oncall=Path(oncall) if oncall else None,
         ),
     )

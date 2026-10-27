@@ -2,8 +2,8 @@
 @component
 The app: header with view switch and search, the current view, the legend,
 the details panel for whatever is selected, a side panel of maintenance
-windows, and with live state, a time slider over the last day and problems
-and events in the side panel too. The address bar always holds a link to
+windows and who is on call, and with live state, a time slider over the
+last day and problems and events in the side panel too. The address bar always holds a link to
 what is on screen, and opening such a link shows it again; going somewhere
 new (another view, selection, path, or problem) adds a step that Back
 returns from. Every command has a place in search and most have a key;
@@ -15,6 +15,7 @@ place of the controls.
 	import { onMount, untrack } from 'svelte';
 	import { pushState, replaceState } from '$app/navigation';
 	import { fetchProblems, fetchWhatIf, type Problem } from '#lib/api/analysis.ts';
+	import { fetchOnCall, fetchOwnership, type OnCall, type Ownership } from '#lib/api/oncall.ts';
 	import { fetchWindows, type Window } from '#lib/api/operations.ts';
 	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
@@ -30,6 +31,7 @@ place of the controls.
 	import Legend from '#lib/Legend.svelte';
 	import { phaseOf } from '#lib/maintenance.ts';
 	import MaintenancePanel from '#lib/MaintenancePanel.svelte';
+	import OnCallPanel from '#lib/OnCallPanel.svelte';
 	import { indexState, type LiveIndex } from '#lib/live.ts';
 	import { shortestPaths } from '#lib/paths.ts';
 	import { stepEarlier, stepLater, type Span } from '#lib/history.ts';
@@ -70,6 +72,8 @@ place of the controls.
 	const EVENTS_POLL_MS = 60_000;
 	// Maintenance windows change when someone plans one, so check now and then.
 	const WINDOWS_POLL_MS = 60_000;
+	// Shifts change hands on the hour at most; covers when someone adds one.
+	const ONCALL_POLL_MS = 60_000;
 	// While the time slider is dragged, wait for it to settle before fetching.
 	const REPLAY_WAIT_MS = 200;
 	// How far back sources keep history, for stepping back before the events arrive.
@@ -82,6 +86,9 @@ place of the controls.
 	let eventsProblem = $state<string | null>(null);
 	let windows = $state.raw<Window[]>([]);
 	let windowsProblem = $state<string | null>(null);
+	let oncall = $state.raw<OnCall | null>(null);
+	let oncallProblem = $state<string | null>(null);
+	let ownership = $state.raw<Ownership | null>(null);
 	/** Bumped to fetch live state and events again at once, after planned work changes. */
 	let refresh = $state(0);
 	const coming = $derived(windows.filter((w) => phaseOf(w, Date.now()) !== 'ended').length);
@@ -357,9 +364,45 @@ place of the controls.
 		return () => clearInterval(timer);
 	});
 
+	// Who owns what never changes while the server runs.
+	onMount(async () => {
+		try {
+			ownership = await fetchOwnership();
+		} catch (e) {
+			// Without a directory there is no one to route to; the on-call list says why.
+			console.warn('No ownership', e);
+		}
+	});
+
+	// Who is on call: now, checked now and then, or at the moment replayed.
+	$effect(() => {
+		const at = ui.at;
+		void refresh;
+		let stopped = false;
+		const load = async () => {
+			try {
+				const found = await fetchOnCall(at ?? undefined);
+				if (stopped) return;
+				oncall = found;
+				oncallProblem = null;
+			} catch (e) {
+				if (stopped) return;
+				oncall = null;
+				oncallProblem = e instanceof Error ? e.message : String(e);
+			}
+		};
+		void load();
+		const timer = setInterval(load, ONCALL_POLL_MS);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
+	});
+
 	/**
-	 * After a window is saved or deleted, or a problem acknowledged: fetch
-	 * what changed, and live state too, since the simulator acts out planned work.
+	 * After a window is saved or deleted, a problem acknowledged or paged, or
+	 * a shift covered: fetch what changed, and live state too, since the
+	 * simulator acts out planned work.
 	 */
 	function refetch(): void {
 		void loadWindows();
@@ -413,6 +456,7 @@ place of the controls.
 		problems: () => toggleTab('problems'),
 		events: () => toggleTab('events'),
 		maintenance: () => toggleTab('maintenance'),
+		oncall: () => toggleTab('oncall'),
 		'next-problem': () => stepThrough(1),
 		'previous-problem': () => stepThrough(-1),
 		earlier: () => (ui.at = stepEarlier(ui.at, historySpan())),
@@ -448,7 +492,7 @@ place of the controls.
 
 <div class="app" class:wall={ui.wall.on}>
 	{#if ui.wall.on}
-		{#if index}<WallDisplay {index} {problems} {live} {liveProblem} />{/if}
+		{#if index}<WallDisplay {index} {problems} {live} {liveProblem} {oncall} />{/if}
 	{:else}
 		<header>
 			<h1><img src="/favicon.svg" alt="" width="22" height="22" />Sunstone</h1>
@@ -498,6 +542,13 @@ place of the controls.
 			>
 				Maintenance{coming ? ` ${coming}` : ''}
 			</button>
+			<button
+				aria-pressed={ui.problemsOpen && ui.sideTab === 'oncall'}
+				title="Show or hide who is on call"
+				onclick={() => toggleTab('oncall')}
+			>
+				On call
+			</button>
 			{#if index}
 				<SearchBox
 					bind:this={searchBox}
@@ -505,6 +556,7 @@ place of the controls.
 					{live}
 					{problems}
 					{windows}
+					{oncall}
 					{recent}
 					commands={ready}
 					oncommand={run}
@@ -536,8 +588,8 @@ place of the controls.
 		{:else if !index}
 			<p class="message">Loading topology…</p>
 		{:else}
-			{#if !ui.wall.on && ui.problemsOpen && (live || ui.sideTab === 'maintenance')}
-				<aside class="side" aria-label="Problems, events, and maintenance">
+			{#if !ui.wall.on && ui.problemsOpen && (live || ui.sideTab === 'maintenance' || ui.sideTab === 'oncall')}
+				<aside class="side" aria-label="Problems, events, maintenance, and on call">
 					<div class="segmented tabs" role="tablist" aria-label="List">
 						{#if live}
 							<button
@@ -559,11 +611,18 @@ place of the controls.
 							onclick={() => (ui.sideTab = 'maintenance')}
 							>Maintenance{coming ? ` ${coming}` : ''}</button
 						>
+						<button
+							role="tab"
+							aria-selected={ui.sideTab === 'oncall'}
+							onclick={() => (ui.sideTab = 'oncall')}>On call</button
+						>
 					</div>
-					{#if ui.sideTab === 'maintenance'}
+					{#if ui.sideTab === 'oncall'}
+						<OnCallPanel {oncall} problem={oncallProblem} {problems} onchange={refetch} />
+					{:else if ui.sideTab === 'maintenance'}
 						<MaintenancePanel {index} {windows} problem={windowsProblem} onchange={refetch} />
 					{:else if ui.sideTab === 'problems'}
-						<ProblemsPanel {problems} {windows} />
+						<ProblemsPanel {problems} {windows} {oncall} />
 					{:else}
 						<EventsPanel {index} log={events} problem={eventsProblem} />
 					{/if}
@@ -597,6 +656,8 @@ place of the controls.
 					{windows}
 					onchange={refetch}
 					{live}
+					{oncall}
+					{ownership}
 				/>
 			{/if}
 		{/if}
@@ -613,7 +674,7 @@ place of the controls.
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 8px 16px;
+		gap: 8px 12px;
 		padding: 8px 14px;
 		background: var(--panel);
 		border-bottom: 1px solid var(--border);
@@ -665,7 +726,7 @@ place of the controls.
 	}
 	.side {
 		flex: none;
-		width: min(300px, 30vw);
+		width: min(330px, 30vw);
 		overflow-y: auto;
 		background: var(--panel);
 		border-right: 1px solid var(--border);

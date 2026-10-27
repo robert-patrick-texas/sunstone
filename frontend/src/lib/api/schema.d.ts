@@ -57,7 +57,8 @@ export interface paths {
         /**
          * Get Problems
          * @description Return the problems in the state as of now or an earlier moment,
-         *     with the maintenance that accounts for each and who is on it.
+         *     with the maintenance that accounts for each, who is on it, the team
+         *     that owns it, and where its page stands.
          *
          *     Pass the ``generated_at`` of the state being shown, so the two match.
          */
@@ -202,6 +203,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/oncall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Oncall
+         * @description Return who is on call for every team, now or at an earlier moment,
+         *     and how to reach them and the carriers.
+         */
+        get: operations["get_oncall_api_oncall_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ownership
+         * @description Return the team that owns each site, device, and link.
+         */
+        get: operations["get_ownership_api_ownership_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Page
+         * @description Page the team that owns a problem there is now.
+         *
+         *     Nothing is sent: the page is recorded, and escalates on paper.
+         */
+        post: operations["add_page_api_pages_post"];
+        /**
+         * Withdraw Page
+         * @description Withdraw a problem's page.
+         */
+        delete: operations["withdraw_page_api_pages_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/covers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Cover
+         * @description Put someone on call in place of a team's primary for a while.
+         */
+        post: operations["add_cover_api_covers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/covers/{cover_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Cover
+         * @description Delete a cover.
+         */
+        delete: operations["delete_cover_api_covers__cover_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/layouts": {
         parameters: {
             query?: never;
@@ -292,6 +400,18 @@ export interface components {
             by: string;
         };
         /**
+         * Carrier
+         * @description How to reach a carrier's NOC about its circuits.
+         */
+        Carrier: {
+            /** Provider */
+            provider: string;
+            /** Phone */
+            phone: string;
+            /** Portal */
+            portal?: string | null;
+        };
+        /**
          * Circuit
          * @description A carrier circuit carrying a WAN link.
          */
@@ -300,6 +420,67 @@ export interface components {
             provider: string;
             /** Circuit Id */
             circuit_id: string;
+        };
+        /**
+         * Cover
+         * @description A saved cover.
+         */
+        Cover: {
+            /** Team */
+            team: string;
+            /** Person */
+            person: string;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /** Id */
+            id: string;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+        };
+        /**
+         * CoverIn
+         * @description Someone taking a team's primary turn for a while.
+         */
+        CoverIn: {
+            /** Team */
+            team: string;
+            /** Person */
+            person: string;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
         };
         /**
          * Device
@@ -604,6 +785,129 @@ export interface components {
             interfaces: components["schemas"]["InterfaceState"][];
         };
         /**
+         * Notice
+         * @description One person told, or to be told, about a page.
+         */
+        Notice: {
+            /**
+             * To
+             * @enum {string}
+             */
+            to: "primary" | "secondary" | "manager";
+            /** Person */
+            person: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
+        /**
+         * OnCall
+         * @description Who is on call for every team at a moment, and how to reach them.
+         */
+        OnCall: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Teams */
+            teams: components["schemas"]["TeamNow"][];
+            /** People */
+            people: components["schemas"]["Person"][];
+            /** Carriers */
+            carriers: components["schemas"]["Carrier"][];
+            /** Covers */
+            covers: components["schemas"]["Cover"][];
+            /** Urgency */
+            urgency: {
+                [key: string]: "high" | "low";
+            };
+        };
+        /**
+         * Ownership
+         * @description The team that owns each site, device, and link, by code, name, and
+         *     id; anything no route matches is left out.
+         */
+        Ownership: {
+            /** Sites */
+            sites: {
+                [key: string]: string;
+            };
+            /** Devices */
+            devices: {
+                [key: string]: string;
+            };
+            /** Links */
+            links: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * Page
+         * @description A page, as recorded. Nothing is sent.
+         */
+        Page: {
+            /** Problem */
+            problem: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /**
+             * Link
+             * @default
+             */
+            link: string;
+            /** Id */
+            id: string;
+            /** Team */
+            team: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Cleared At */
+            cleared_at?: string | null;
+        };
+        /**
+         * PageIn
+         * @description Someone paging a problem's team.
+         */
+        PageIn: {
+            /** Problem */
+            problem: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /**
+             * Link
+             * @default
+             */
+            link: string;
+        };
+        /**
+         * Paging
+         * @description Where a page stands at a moment.
+         */
+        Paging: {
+            page: components["schemas"]["Page"];
+            /** Notified */
+            notified: components["schemas"]["Notice"][];
+            next: components["schemas"]["Notice"] | null;
+            /** Stopped */
+            stopped: ("acknowledged" | "cleared") | null;
+        };
+        /**
          * PathEnds
          * @description The two devices whose shortest paths are shown.
          */
@@ -612,6 +916,18 @@ export interface components {
             from: string;
             /** To */
             to: string;
+        };
+        /**
+         * Person
+         * @description Someone who can be on call.
+         */
+        Person: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Phone */
+            phone?: string | null;
         };
         /**
          * Position
@@ -624,10 +940,22 @@ export interface components {
             y: number;
         };
         /**
-         * Problem
-         * @description One thing wrong, with what it does to the network.
+         * Reachability
+         * @description Round-trip time and loss to a device from one monitoring position.
          */
-        Problem: {
+        Reachability: {
+            /** Position */
+            position: string;
+            /** Rtt Ms */
+            rtt_ms: number | null;
+            /** Loss Pct */
+            loss_pct: number | null;
+        };
+        /**
+         * RoutedProblem
+         * @description A problem, with who owns it and whom it has paged.
+         */
+        RoutedProblem: {
             /** Id */
             id: string;
             /**
@@ -652,31 +980,28 @@ export interface components {
              */
             planned: string[];
             ack?: components["schemas"]["Ack"] | null;
+            /** Team */
+            team?: string | null;
+            /**
+             * Urgency
+             * @default high
+             * @enum {string}
+             */
+            urgency: "high" | "low";
+            paging?: components["schemas"]["Paging"] | null;
         };
         /**
-         * ProblemList
-         * @description The problems in one snapshot, most urgent first.
+         * RoutedProblemList
+         * @description The problems in one snapshot, most urgent first, routed.
          */
-        ProblemList: {
+        RoutedProblemList: {
             /**
              * At
              * Format: date-time
              */
             at: string;
             /** Problems */
-            problems: components["schemas"]["Problem"][];
-        };
-        /**
-         * Reachability
-         * @description Round-trip time and loss to a device from one monitoring position.
-         */
-        Reachability: {
-            /** Position */
-            position: string;
-            /** Rtt Ms */
-            rtt_ms: number | null;
-            /** Loss Pct */
-            loss_pct: number | null;
+            problems: components["schemas"]["RoutedProblem"][];
         };
         /**
          * SavedLayout
@@ -695,6 +1020,30 @@ export interface components {
              * Format: date-time
              */
             saved_at: string;
+        };
+        /**
+         * Shift
+         * @description Who is on call for a team over a stretch of time.
+         */
+        Shift: {
+            /** Team */
+            team: string;
+            /** Primary */
+            primary: string;
+            /** Secondary */
+            secondary: string | null;
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /**
+             * Until
+             * Format: date-time
+             */
+            until: string;
+            /** Cover */
+            cover?: string | null;
         };
         /**
          * Site
@@ -753,6 +1102,39 @@ export interface components {
              * @default false
              */
             planned: boolean;
+        };
+        /**
+         * Step
+         * @description One step of escalation: whom to page, so many minutes after the page.
+         */
+        Step: {
+            /** After Min */
+            after_min: number;
+            /**
+             * To
+             * @enum {string}
+             */
+            to: "primary" | "secondary" | "manager";
+        };
+        /**
+         * TeamNow
+         * @description A team, who is on call for it, and who is on next.
+         */
+        TeamNow: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Owns */
+            owns: string[];
+            /** Rotation */
+            rotation: string[];
+            now: components["schemas"]["Shift"];
+            next: components["schemas"]["Shift"];
+            /** Manager */
+            manager: string | null;
+            /** Escalation */
+            escalation: components["schemas"]["Step"][];
         };
         /**
          * Topology
@@ -937,7 +1319,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProblemList"];
+                    "application/json": components["schemas"]["RoutedProblemList"];
                 };
             };
             /** @description Validation Error */
@@ -1192,6 +1574,181 @@ export interface operations {
             };
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_oncall_api_oncall_get: {
+        parameters: {
+            query?: {
+                at?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnCall"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ownership_api_ownership_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ownership"];
+                };
+            };
+        };
+    };
+    add_page_api_pages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_page_api_pages_delete: {
+        parameters: {
+            query: {
+                problem: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_cover_api_covers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoverIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cover"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_cover_api_covers__cover_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cover_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

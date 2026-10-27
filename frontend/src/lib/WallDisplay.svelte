@@ -4,13 +4,16 @@ The NOC wall display, for a screen no one sits at. A bar across the top
 gives the time, how fresh live state is, and how many problems of each kind
 no one is on yet; below it, the views show in turn an overview of the
 network, with a small label, then each of those problems close up, with a
-large caption saying where it is and a bar showing how long until the next. Moving the mouse shows controls;
-Space pauses, the arrow keys step, and Escape leaves.
+large caption saying where it is and who is on call for it, and a bar
+showing how long until the next. Moving the mouse shows controls; Space
+pauses, the arrow keys step, and Escape leaves.
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import type { Problem } from './api/analysis.ts';
+	import type { OnCall } from './api/oncall.ts';
 	import type { LiveIndex } from './live.ts';
+	import { personOf } from './oncall.ts';
 	import { MARK } from './problem-kinds.ts';
 	import { select, ui, type Selection } from './state.svelte.ts';
 	import { siteOf, type TopologyIndex } from './topology.ts';
@@ -20,12 +23,14 @@ Space pauses, the arrow keys step, and Escape leaves.
 		index,
 		problems,
 		live,
-		liveProblem
+		liveProblem,
+		oncall
 	}: {
 		index: TopologyIndex;
 		problems: Problem[];
 		live: LiveIndex | null;
 		liveProblem: string | null;
+		oncall: OnCall | null;
 	} = $props();
 
 	const CONTROLS_MS = 3000;
@@ -181,6 +186,15 @@ Space pauses, the arrow keys step, and Escape leaves.
 				>{slide.problem.title}
 			</p>
 			{#if slide.problem.detail}<p class="detail">{slide.problem.detail}</p>{/if}
+			{@const team = oncall?.teams.find((t) => t.id === slide.problem.team)}
+			{#if oncall && team}
+				{@const paging = slide.problem.paging}
+				<p class="detail">
+					{team.name} · on call {personOf(oncall, team.now.primary).name}{paging && !paging.stopped
+						? ' · paged'
+						: ''}
+				</p>
+			{/if}
 		{/if}
 		{#key shownAt}
 			<div

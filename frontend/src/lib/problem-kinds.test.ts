@@ -14,6 +14,9 @@ function problem(id: string, kind: Problem['kind'], extra: Partial<Problem> = {}
 		exposed: 0,
 		planned: [],
 		ack: null,
+		team: null,
+		urgency: 'high',
+		paging: null,
 		...extra
 	};
 }

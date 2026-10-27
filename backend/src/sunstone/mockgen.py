@@ -5,20 +5,37 @@ tier, and branch sites dual-homed to both hubs over carrier circuits. Every
 access switch uplinks to a distribution pair, and pairs are joined by
 two-member LAGs, so the hierarchy and neighbor views have realistic shapes.
 
+With ``--oncall``, it also writes an on-call directory for the topology:
+a team for WAN circuits, one for the hub data centers, one per area of the
+country, and a NOC team for everything else, each with fictional people on
+a rotation, and contacts for the fictional carriers.
+
 Usage::
 
-    uv run python -m sunstone.mockgen --preset large -o ../data/sample/large.yaml
+    uv run python -m sunstone.mockgen --preset large -o ../data/sample/large.yaml \
+        --oncall ../data/sample/large.oncall.yaml
 """
 
 import argparse
 import random
 from collections import Counter
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import yaml
 
 from sunstone.model import Circuit, Device, Endpoint, Link, Role, Site, Topology
+from sunstone.oncall import (
+    DEFAULT_URGENCY,
+    Carrier,
+    Directory,
+    Match,
+    Person,
+    Rotation,
+    Route,
+    Team,
+)
 
 # (code, name, region, lat, lon). The first two are the hubs.
 CITIES = [
@@ -112,6 +129,30 @@ PORT_PREFIX = {
     10_000: "TenGigabitEthernet1/0/",
     1_000: "GigabitEthernet1/0/",
 }
+
+
+# Fictional people for the on-call directory.
+FIRST_NAMES = [
+    "Pat", "Sam", "Lee", "Robin", "Alex", "Jordan", "Casey", "Morgan", "Riley",
+    "Quinn", "Avery", "Drew", "Jamie", "Kai", "Noel", "Reese", "Sage", "Rowan",
+]  # fmt: skip
+LAST_NAMES = [
+    "Rivera", "Chen", "Okafor", "Novak", "Haddad", "Lindqvist", "Moreau", "Tanaka",
+    "Ibarra", "Kowalski", "Mensah", "Varga", "Duarte", "Byrne", "Sato", "Abara",
+]  # fmt: skip
+# Area teams: (id, name, regions, time zone). Areas without sites are left out.
+AREAS = [
+    ("network-central", "Network Central", ["South", "Midwest"], "America/Chicago"),
+    (
+        "network-east",
+        "Network East",
+        ["Southeast", "Northeast", "Mid-Atlantic"],
+        "America/New_York",
+    ),
+    ("network-west", "Network West", ["West", "Mountain"], "America/Denver"),
+]
+# A Monday, when every rotation's first turn began.
+ROTATIONS_START = date(2026, 1, 5)
 
 
 @dataclass(frozen=True)
@@ -307,6 +348,109 @@ def generate(preset: Preset, seed: int) -> Topology:
     return Topology(sites=sites, devices=b.devices, links=b.links)
 
 
+def generate_directory(topology: Topology, seed: int) -> Directory:
+    """Generate an on-call directory for a topology.
+
+    Args:
+        topology: The topology the teams own.
+        seed: Random seed; the same seed and topology give the same directory.
+
+    Returns:
+        Teams for WAN circuits, the hub data centers, each area with branch
+        sites, and everything else, in that order of routes; fictional people with
+        phone numbers from the range kept for fiction (555-0100 to 555-0199);
+        and a contact for each carrier.
+
+    Raises:
+        None
+    """
+    rng = random.Random(seed)
+    names = rng.sample([f"{f} {last}" for f in FIRST_NAMES for last in LAST_NAMES], 60)
+    people: list[Person] = []
+
+    def hire(count: int) -> list[str]:
+        hired = []
+        for _ in range(count):
+            name = names.pop()
+            person_id = name.lower().replace(" ", "-")
+            phone = f"+1 214 555 01{len(people):02d}"
+            people.append(Person(id=person_id, name=name, phone=phone))
+            hired.append(person_id)
+        return hired
+
+    def team(head: tuple[str, str], rotation: dict, size: int) -> Team:
+        team_id, name = head
+        return Team(
+            id=team_id,
+            name=name,
+            rotation=Rotation(people=hire(size), starts=ROTATIONS_START, **rotation),
+            manager=hire(1)[0],
+        )
+
+    weekly = {"every_days": 7, "handoff": "09:00"}
+    daily = {"every_days": 1, "handoff": "08:00", "timezone": "America/Chicago"}
+    teams = [
+        team(("wan", "WAN and carriers"), daily, 3),
+        team(
+            ("datacenter", "Data centers"), weekly | {"timezone": "America/Chicago"}, 4
+        ),
+    ]
+    routes = [
+        Route(match=Match(kinds=["wan"]), team="wan"),
+        Route(
+            match=Match(sites=[s.code for s in topology.sites[:2]]), team="datacenter"
+        ),
+    ]
+    # The hubs are the data centers' whatever their region.
+    regions = {s.region for s in topology.sites[2:] if s.region}
+    for team_id, name, area, zone in AREAS:
+        present = [r for r in area if r in regions]
+        if present:
+            teams.append(team((team_id, name), weekly | {"timezone": zone}, 4))
+            routes.append(Route(match=Match(regions=present), team=team_id))
+    teams.append(team(("noc", "NOC"), daily | {"handoff": "07:00"}, 3))
+    routes.append(Route(team="noc"))
+    providers = sorted({ln.circuit.provider for ln in topology.links if ln.circuit})
+    carriers = [
+        Carrier(
+            provider=p,
+            phone=f"+1 800 555 01{i:02d}",
+            portal=f"https://noc.{p.split()[0].lower()}.example",
+        )
+        for i, p in enumerate(providers)
+    ]
+    return Directory(
+        people=people,
+        teams=teams,
+        routes=routes,
+        carriers=carriers,
+        urgency=dict(DEFAULT_URGENCY),
+    )
+
+
+def directory_yaml(directory: Directory, header: str) -> str:
+    """Render an on-call directory as the YAML the loader reads.
+
+    Args:
+        directory: The directory.
+        header: Comment placed at the top of the file.
+
+    Returns:
+        YAML text that spells out rotations and escalation, but leaves out
+        empty conditions.
+
+    Raises:
+        None
+    """
+    data = directory.model_dump(mode="json", exclude_none=True)
+    for route in data["routes"]:
+        match = {k: v for k, v in route.pop("match").items() if v}
+        if match:
+            route["match"] = match
+    body = yaml.safe_dump(data, sort_keys=False, default_flow_style=None, width=120)
+    return f"# {header}\n{body}"
+
+
 def to_yaml(topology: Topology, header: str) -> str:
     """Render a topology as the YAML the loader reads.
 
@@ -340,6 +484,7 @@ def main() -> None:
     parser.add_argument("--preset", choices=sorted(PRESETS), default="small")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("-o", "--output", type=Path, required=True)
+    parser.add_argument("--oncall", type=Path, help="also write an on-call directory")
     args = parser.parse_args()
 
     topology = generate(PRESETS[args.preset], args.seed)
@@ -352,6 +497,13 @@ def main() -> None:
         f"{args.output}: {len(topology.sites)} sites, {len(topology.devices)} devices, "
         f"{len(topology.links)} links"
     )
+    if args.oncall:
+        directory = generate_directory(topology, args.seed)
+        args.oncall.write_text(directory_yaml(directory, header), encoding="utf-8")
+        print(
+            f"{args.oncall}: {len(directory.teams)} teams, "
+            f"{len(directory.people)} people"
+        )
 
 
 if __name__ == "__main__":

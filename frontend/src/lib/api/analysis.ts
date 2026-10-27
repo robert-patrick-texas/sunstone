@@ -13,8 +13,9 @@ import type { components } from './schema.d.ts';
 
 type Schemas = components['schemas'];
 type ApiImpact = Schemas['Impact'];
-export type ProblemKind = Schemas['Problem']['kind'];
-export type Problem = Omit<Schemas['Problem'], 'impact'> & { impact: Impact | null };
+export type ProblemKind = Schemas['RoutedProblem']['kind'];
+/** A problem, with the team that owns it and where its page stands. */
+export type Problem = Omit<Schemas['RoutedProblem'], 'impact'> & { impact: Impact | null };
 
 export interface WhatIf {
 	impact: Impact;
@@ -41,7 +42,7 @@ export async function fetchProblems(at: string): Promise<Problem[]> {
 	const url = `/api/problems?at=${encodeURIComponent(at)}`;
 	const response = await fetch(url);
 	if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`);
-	const list = (await response.json()) as Schemas['ProblemList'];
+	const list = (await response.json()) as Schemas['RoutedProblemList'];
 	return list.problems.map((p) => ({ ...p, impact: p.impact ? toImpact(p.impact) : null }));
 }
 

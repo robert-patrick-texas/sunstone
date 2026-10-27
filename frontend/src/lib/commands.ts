@@ -24,6 +24,7 @@ export type CommandId =
 	| 'problems'
 	| 'events'
 	| 'maintenance'
+	| 'oncall'
 	| 'next-problem'
 	| 'previous-problem'
 	| 'earlier'
@@ -146,6 +147,13 @@ export const COMMANDS: Command[] = [
 		group: 'Live',
 		keys: ['m'],
 		also: ['planned', 'windows', 'change']
+	},
+	{
+		id: 'oncall',
+		label: 'On-call list',
+		group: 'Live',
+		keys: ['o'],
+		also: ['who', 'page', 'pager', 'rota', 'escalation', 'carriers']
 	},
 	{
 		id: 'next-problem',

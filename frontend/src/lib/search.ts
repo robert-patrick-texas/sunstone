@@ -1,7 +1,7 @@
 /**
  * One search over everything Sunstone knows by name: sites, devices, links
  * (by circuit, carrier, or the device and interface at either end),
- * problems, maintenance windows, and commands.
+ * problems, maintenance windows, on-call teams and people, and commands.
  *
  * Every word typed must match something about an entry. A match counts for
  * more when it is a whole name than when it starts one, when it starts a
@@ -13,6 +13,7 @@
  * problems first among equals, since a problem is likely why someone is looking.
  */
 import type { Problem } from './api/analysis.ts';
+import type { OnCall } from './api/oncall.ts';
 import type { Window } from './api/operations.ts';
 import type { Command, CommandId } from './commands.ts';
 import { span, targetName } from './maintenance.ts';
@@ -28,13 +29,15 @@ import {
 } from './topology.ts';
 import { readItem, writeItem } from './url.ts';
 
-export type EntryKind = 'problem' | 'site' | 'device' | 'link' | 'window' | 'command';
+export type EntryKind =
+	'problem' | 'site' | 'device' | 'link' | 'window' | 'team' | 'person' | 'command';
 
 /** What choosing an entry goes to. */
 export type Target =
 	| { kind: 'item'; item: Selection }
 	| { kind: 'problem'; problem: Problem }
 	| { kind: 'window'; window: Window }
+	| { kind: 'team'; team: string }
 	| { kind: 'command'; command: CommandId };
 
 /**
@@ -86,6 +89,8 @@ const GROUPS: { kind: EntryKind; label: string; limit: number }[] = [
 	{ kind: 'device', label: 'Devices', limit: 8 },
 	{ kind: 'link', label: 'Links', limit: 6 },
 	{ kind: 'window', label: 'Maintenance', limit: 4 },
+	{ kind: 'team', label: 'Teams', limit: 4 },
+	{ kind: 'person', label: 'People', limit: 5 },
 	{ kind: 'command', label: 'Commands', limit: 4 }
 ];
 
@@ -304,6 +309,49 @@ export function windowEntries(index: TopologyIndex, windows: Window[]): Entry[] 
 			]
 		)
 	);
+}
+
+/**
+ * Entries for on-call teams and the people on them.
+ *
+ * @param oncall - Who is on call.
+ * @returns A team is found by name or what it owns; a person by name or
+ *   phone number, and leads to their team.
+ */
+export function oncallEntries(oncall: OnCall): Entry[] {
+	const teams = oncall.teams.map((team) =>
+		entry(
+			{ kind: 'team', key: team.id, label: team.name, detail: team.owns.join('; ') },
+			{ kind: 'team', team: team.id },
+			[...field(team.name, NAME), ...team.owns.flatMap((o) => field(o, CONTEXT, 'words'))]
+		)
+	);
+	const people = oncall.people.flatMap((person) => {
+		const theirs = oncall.teams.filter(
+			(t) => t.rotation.includes(person.id) || t.manager === person.id
+		);
+		const [first] = theirs;
+		if (!first) return [];
+		const now = theirs.find((t) => t.now.primary === person.id);
+		return [
+			entry(
+				{
+					kind: 'person',
+					key: person.id,
+					label: person.name,
+					detail: [
+						now ? `On call for ${now.name}` : theirs.map((t) => t.name).join(', '),
+						person.phone
+					]
+						.filter(Boolean)
+						.join(' · ')
+				},
+				{ kind: 'team', team: (now ?? first).id },
+				[...field(person.name, NAME), ...field(person.phone, CONTEXT)]
+			)
+		];
+	});
+	return [...teams, ...people];
 }
 
 /**

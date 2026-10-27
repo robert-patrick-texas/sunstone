@@ -2,16 +2,18 @@
 @component
 One search for everything: devices, sites, and links (by circuit, carrier,
 or interface), management addresses and address ranges, problems,
-maintenance windows, and commands. Before anything is typed it offers what
-was looked at recently. Choosing a result selects it and brings it into
-view in whichever view is open; a problem shows its impact, a window opens
-the maintenance list on what it works on, and a command runs. The arrow keys
-move through the results, Enter chooses, Escape closes. Press `/` or Ctrl+K
-to get here.
+maintenance windows, on-call teams and people, and commands. Before
+anything is typed it offers what was looked at recently. Choosing a result
+selects it and brings it into view in whichever view is open; a problem
+shows its impact, a window opens the maintenance list on what it works on,
+a team or person opens the on-call list on their team, and a command runs.
+The arrow keys move through the results, Enter chooses, Escape closes.
+Press `/` or Ctrl+K to get here.
 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Problem } from './api/analysis.ts';
+	import type { OnCall } from './api/oncall.ts';
 	import type { Window } from './api/operations.ts';
 	import type { Command, CommandId } from './commands.ts';
 	import { deviceHealth, type LiveIndex } from './live.ts';
@@ -19,6 +21,7 @@ to get here.
 	import { MARK } from './problem-kinds.ts';
 	import {
 		commandEntries,
+		oncallEntries,
 		problemEntries,
 		recentEntries,
 		search,
@@ -26,7 +29,7 @@ to get here.
 		windowEntries,
 		type Entry
 	} from './search.ts';
-	import { select, showProblem, ui, type Selection } from './state.svelte.ts';
+	import { select, showProblem, showTeam, ui, type Selection } from './state.svelte.ts';
 	import { HEALTH_COLOR, HEALTH_GLYPH } from './theme.ts';
 	import type { TopologyIndex } from './topology.ts';
 
@@ -35,6 +38,7 @@ to get here.
 		live,
 		problems,
 		windows,
+		oncall,
 		recent,
 		commands,
 		oncommand,
@@ -44,6 +48,7 @@ to get here.
 		live: LiveIndex | null;
 		problems: Problem[];
 		windows: Window[];
+		oncall: OnCall | null;
 		/** What was looked at recently, newest first, as links write it. */
 		recent: string[];
 		/** The commands that can run now. */
@@ -84,12 +89,13 @@ to get here.
 	const problemList = $derived(problemEntries(index, problems));
 	const windowList = $derived(windowEntries(index, windows));
 	const commandList = $derived(commandEntries(commands));
+	const oncallList = $derived(oncall ? oncallEntries(oncall) : []);
 	const groups: Shown[] = $derived.by(() => {
 		if (!query.trim()) {
 			const entries = recentEntries(index, recent);
 			return entries.length ? [{ label: 'Recent', entries, more: 0, recent: true }] : [];
 		}
-		const lists = [problemList, items(), windowList, commandList];
+		const lists = [problemList, items(), windowList, oncallList, commandList];
 		return timed('search', () => search(query, lists));
 	});
 	const flat = $derived(groups.flatMap((g) => g.entries));
@@ -122,6 +128,8 @@ to get here.
 			oncommand(target.command);
 		} else if (target.kind === 'item') {
 			select(target.item, true);
+		} else if (target.kind === 'team') {
+			showTeam(target.team);
 		} else if (target.kind === 'problem') {
 			ui.sideTab = 'problems';
 			ui.problemsOpen = true;
