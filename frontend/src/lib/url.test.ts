@@ -25,7 +25,8 @@ const OPENING: Shared = {
 	expanded: [],
 	camera: null,
 	wall: null,
-	discovery: false
+	discovery: false,
+	handover: null
 };
 
 describe('toQuery and fromQuery', () => {
@@ -155,6 +156,17 @@ describe('movesOn', () => {
 		const index = fixtureIndex();
 		expect(toQuery(on, index).toString()).toBe('discovery=1');
 		expect(fromQuery(new URLSearchParams('discovery=1'), index)).toEqual({ discovery: true });
+	});
+
+	it('opens the shift handover from a link, going somewhere new, and closes it in place', () => {
+		const on = { ...OPENING, handover: 8 };
+		expect(movesOn(OPENING, on)).toBe(true);
+		expect(movesOn(on, { ...on, handover: 12 })).toBe(true);
+		expect(movesOn(on, OPENING)).toBe(false);
+		const index = fixtureIndex();
+		expect(toQuery(on, index).toString()).toBe('handover=8');
+		expect(fromQuery(new URLSearchParams('handover=8'), index)).toEqual({ handover: 8 });
+		expect(fromQuery(new URLSearchParams('handover=99'), index)).toEqual({ handover: 12 });
 	});
 
 	it('stays in place when the same place changes how it looks, or is cleared', () => {

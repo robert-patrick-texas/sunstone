@@ -178,6 +178,49 @@
     }
    }
   },
+  "/api/handover": {
+   "get": {
+    "summary": "Get Handover",
+    "description": "Return what the incoming shift needs to know about the last hours:\nwhat is wrong now and who is on it, outages that began or ended,\npages and acknowledgements made, maintenance done, open, and coming,\nfixes recorded, discovery findings first seen, and who is on call.",
+    "operationId": "get_handover_api_handover_get",
+    "parameters": [
+     {
+      "name": "hours",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 24,
+       "minimum": 1,
+       "default": 12,
+       "title": "Hours"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Handover"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/discovery": {
    "get": {
     "summary": "Get Discovery",
@@ -1012,6 +1055,17 @@
        }
       ],
       "title": "Cleared At"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
      }
     },
     "additionalProperties": false,
@@ -1869,6 +1923,95 @@
     "type": "object",
     "title": "HTTPValidationError"
    },
+   "Handover": {
+    "properties": {
+     "since": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Since"
+     },
+     "until": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Until"
+     },
+     "problems": {
+      "items": {
+       "$ref": "#/components/schemas/RoutedProblem"
+      },
+      "type": "array",
+      "title": "Problems"
+     },
+     "outages": {
+      "items": {
+       "$ref": "#/components/schemas/Outage"
+      },
+      "type": "array",
+      "title": "Outages"
+     },
+     "pages": {
+      "items": {
+       "$ref": "#/components/schemas/Page"
+      },
+      "type": "array",
+      "title": "Pages"
+     },
+     "acks": {
+      "items": {
+       "$ref": "#/components/schemas/Ack"
+      },
+      "type": "array",
+      "title": "Acks"
+     },
+     "windows": {
+      "items": {
+       "$ref": "#/components/schemas/Window"
+      },
+      "type": "array",
+      "title": "Windows"
+     },
+     "changes": {
+      "items": {
+       "$ref": "#/components/schemas/Change"
+      },
+      "type": "array",
+      "title": "Changes"
+     },
+     "findings": {
+      "items": {
+       "$ref": "#/components/schemas/Finding"
+      },
+      "type": "array",
+      "title": "Findings"
+     },
+     "oncall": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/OnCall"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "since",
+     "until",
+     "problems",
+     "outages",
+     "pages",
+     "acks",
+     "windows",
+     "changes",
+     "findings",
+     "oncall"
+    ],
+    "title": "Handover",
+    "description": "What the incoming shift needs to know."
+   },
    "Impact": {
     "properties": {
      "failed": {
@@ -2412,6 +2555,91 @@
     "title": "OnCall",
     "description": "Who is on call for every team at a moment, and how to reach them."
    },
+   "Outage": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "target": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/DeviceCenter"
+       },
+       {
+        "$ref": "#/components/schemas/SiteCenter"
+       },
+       {
+        "$ref": "#/components/schemas/LinksCenter"
+       }
+      ],
+      "title": "Target",
+      "discriminator": {
+       "propertyName": "kind",
+       "mapping": {
+        "device": "#/components/schemas/DeviceCenter",
+        "links": "#/components/schemas/LinksCenter",
+        "site": "#/components/schemas/SiteCenter"
+       }
+      }
+     },
+     "devices": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Devices"
+     },
+     "links": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Links"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Start"
+     },
+     "end": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "End"
+     },
+     "planned": {
+      "type": "boolean",
+      "title": "Planned"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "title",
+     "target",
+     "devices",
+     "links",
+     "start",
+     "end",
+     "planned"
+    ],
+    "title": "Outage",
+    "description": "Devices and links that went down together, and came back."
+   },
    "Ownership": {
     "properties": {
      "sites": {
@@ -2496,6 +2724,17 @@
        }
       ],
       "title": "Cleared At"
+     },
+     "title": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
      }
     },
     "additionalProperties": false,

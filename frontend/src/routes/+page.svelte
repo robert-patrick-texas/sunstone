@@ -8,7 +8,8 @@ what is on screen, and opening such a link shows it again; going somewhere
 new (another view, selection, path, or problem) adds a step that Back
 returns from. Every command has a place in search and most have a key;
 `?` lists them. In wall display mode, the wall's bar and captions take the
-place of the controls.
+place of the controls. The shift handover covers everything while it is
+open, and leaves it as it was when it closes.
 -->
 <script lang="ts">
 	import '../app.css';
@@ -28,6 +29,7 @@ place of the controls.
 	import PerfPanel from '#lib/PerfPanel.svelte';
 	import EventsPanel from '#lib/EventsPanel.svelte';
 	import GeoView from '#lib/geo/GeoView.svelte';
+	import HandoverReport from '#lib/HandoverReport.svelte';
 	import HierarchyView from '#lib/hierarchy/HierarchyView.svelte';
 	import type { Impact } from '#lib/impact.ts';
 	import TopologyView from '#lib/topo/TopologyView.svelte';
@@ -59,7 +61,15 @@ place of the controls.
 	} from '#lib/state.svelte.ts';
 	import Timeline from '#lib/Timeline.svelte';
 	import { compareNatural, indexTopology, type TopologyIndex } from '#lib/topology.ts';
-	import { fromQuery, movesOn, OPENING, readable, toQuery, type Shared } from '#lib/url.ts';
+	import {
+		DEFAULT_HANDOVER_H,
+		fromQuery,
+		movesOn,
+		OPENING,
+		readable,
+		toQuery,
+		type Shared
+	} from '#lib/url.ts';
 	import WallDisplay from '#lib/WallDisplay.svelte';
 
 	// Small networks open fully expanded in the hierarchy; larger ones start as one box per site.
@@ -172,6 +182,7 @@ place of the controls.
 		}
 		if (found.camera) fromLink.camera = found.camera;
 		if (found.discovery !== undefined) ui.discovery = found.discovery;
+		if (found.handover !== undefined) ui.handover = found.handover;
 		if (found.wall !== undefined) {
 			ui.wall.on = found.wall !== null;
 			if (found.wall) ui.wall.dwell = found.wall.dwell;
@@ -192,7 +203,8 @@ place of the controls.
 			expanded: [...expandedSites].sort(compareNatural),
 			camera: ui.camera,
 			wall: ui.wall.on ? { dwell: ui.wall.dwell } : null,
-			discovery: ui.discovery
+			discovery: ui.discovery,
+			handover: ui.handover
 		};
 	}
 
@@ -552,7 +564,8 @@ place of the controls.
 		later: () => ui.at && (ui.at = stepLater(ui.at, historySpan())),
 		now: () => (ui.at = null),
 		'copy-link': () => void copyLink(),
-		wall: enterWall
+		wall: enterWall,
+		handover: () => (ui.handover = ui.handover === null ? DEFAULT_HANDOVER_H : null)
 	};
 
 	function run(id: CommandId): void {
@@ -560,8 +573,8 @@ place of the controls.
 	}
 
 	function onKeydown(e: KeyboardEvent): void {
-		// The wall display has keys of its own, and the help is modal.
-		if (ui.wall.on || helpOpen || e.defaultPrevented) return;
+		// The wall display and the handover have keys of their own, and the help is modal.
+		if (ui.wall.on || ui.handover !== null || helpOpen || e.defaultPrevented) return;
 		// Keys are for typing while in a box, except Ctrl+K and the like.
 		const target = e.target;
 		const typing =
@@ -659,6 +672,10 @@ place of the controls.
 			<button title="Copy a link that shows someone else exactly this" onclick={copyLink}>
 				{copied ?? 'Copy link'}
 			</button>
+			<button
+				title="What the incoming shift needs to know about the last hours (h)"
+				onclick={() => (ui.handover = DEFAULT_HANDOVER_H)}>Handover</button
+			>
 			<button title="Full-screen display for a NOC wall" onclick={enterWall}>Wall display</button>
 			<button
 				class="help"
@@ -771,6 +788,9 @@ place of the controls.
 			{/if}
 		{/if}
 	</main>
+	{#if ui.handover !== null && !ui.wall.on && index}
+		<HandoverReport hours={ui.handover} {copied} oncopy={copyLink} />
+	{/if}
 </div>
 
 <style>

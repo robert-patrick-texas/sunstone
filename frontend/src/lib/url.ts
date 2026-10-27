@@ -42,9 +42,12 @@ export interface Shared {
 	wall: { dwell: number } | null;
 	/** Discovery against the documentation, shown on the map. */
 	discovery: boolean;
+	/** The shift handover report, by how many hours it covers; null when not shown. */
+	handover: number | null;
 }
 
 export const DEFAULT_DWELL_S = 20;
+export const DEFAULT_HANDOVER_H = 12;
 const VIEWS: View[] = ['geo', 'hierarchy', 'topology'];
 const SCOPES = ['network', 'neighborhood', 'path'] as const;
 
@@ -88,6 +91,7 @@ export function toQuery(shared: Shared, index: TopologyIndex): URLSearchParams {
 		q.set('wall', '1');
 		if (shared.wall.dwell !== DEFAULT_DWELL_S) q.set('dwell', String(shared.wall.dwell));
 	}
+	if (shared.handover !== null) q.set('handover', String(shared.handover));
 	if (shared.view !== 'geo') q.set('view', shared.view);
 	if (shared.selection) q.set('select', writeItem(shared.selection));
 	if (shared.live) {
@@ -183,6 +187,11 @@ export function fromQuery(q: URLSearchParams, index: TopologyIndex): Partial<Sha
 		const dwell = Number(q.get('dwell'));
 		found.wall = { dwell: dwell >= 5 && dwell <= 600 ? dwell : DEFAULT_DWELL_S };
 	}
+	if (q.has('handover')) {
+		const hours = Number(q.get('handover'));
+		found.handover =
+			Number.isInteger(hours) && hours >= 1 && hours <= 24 ? hours : DEFAULT_HANDOVER_H;
+	}
 	return found;
 }
 
@@ -212,13 +221,14 @@ export const OPENING = {
 	whatIf: [],
 	problem: null,
 	wall: null,
-	discovery: false
+	discovery: false,
+	handover: null
 } satisfies Partial<Shared>;
 
 /**
  * Whether going from one screen to another goes somewhere new, so that Back
  * should return from it: another view, neighborhood, selection, path,
- * problem, "what if", or discovery on the map. Moving the map, Live, the time, and expanded sites
+ * problem, "what if", discovery on the map, or the shift handover. Moving the map, Live, the time, and expanded sites
  * change how the same place looks, and clearing something stays in place.
  *
  * @param before - What was on screen.
@@ -238,6 +248,7 @@ export function movesOn(before: Shared, after: Shared): boolean {
 		(after.path !== null && differs(before.path, after.path)) ||
 		(after.problem !== null && before.problem !== after.problem) ||
 		(after.whatIf.length > 0 && differs(before.whatIf, after.whatIf)) ||
-		(after.discovery && !before.discovery)
+		(after.discovery && !before.discovery) ||
+		(after.handover !== null && before.handover !== after.handover)
 	);
 }

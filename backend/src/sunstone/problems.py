@@ -71,6 +71,9 @@ class Ack(AckIn):
     at: datetime
     cleared_at: datetime | None = None
     """When the problem cleared, ending the acknowledgement."""
+    title: str | None = None
+    """The problem's title when it was acknowledged, to say what it was about
+    once it has cleared."""
 
     def active(self, at: datetime) -> bool:
         """Whether it stands at a moment.
