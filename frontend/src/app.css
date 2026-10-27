@@ -39,3 +39,30 @@ button {
 button:hover {
 	background: var(--panel-2);
 }
+
+/* A row of buttons acting as one choice; the pressed one is highlighted. */
+.segmented {
+	display: flex;
+}
+
+.segmented button {
+	border-radius: 0;
+}
+
+.segmented button + button {
+	border-left: none;
+}
+
+.segmented button:first-child {
+	border-radius: 6px 0 0 6px;
+}
+
+.segmented button:last-child {
+	border-radius: 0 6px 6px 0;
+}
+
+.segmented button[aria-pressed='true'] {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: #1a1300;
+}

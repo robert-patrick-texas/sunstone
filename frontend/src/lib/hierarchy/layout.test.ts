@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fixture, fixtureIndex, link } from '../test-fixture.ts';
 import { indexTopology } from '../topology.ts';
-import { buildHierarchy, siteLevels, siteNodeId, type HNode } from './layout.ts';
+import { siteNodeId } from '../graph/model.ts';
+import { buildHierarchy, siteLevels, type HNode } from './layout.ts';
 
 const byId = (nodes: HNode[]) => new Map(nodes.map((n) => [n.id, n]));
 

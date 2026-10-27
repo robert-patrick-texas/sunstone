@@ -6,7 +6,7 @@ and bring that item into view.
 -->
 <script lang="ts">
 	import type { Endpoint, Link } from './api/topology.ts';
-	import { expandedSites, select, ui, type Selection } from './state.svelte.ts';
+	import { expandedSites, select, showNeighborhood, ui, type Selection } from './state.svelte.ts';
 	import { ROLE_COLOR } from './theme.ts';
 	import {
 		formatSpeed,
@@ -69,6 +69,11 @@ and bring that item into view.
 					{#if device.mgmt_ip}<dt>Management</dt>
 						<dd class="mono">{device.mgmt_ip}</dd>{/if}
 				</dl>
+				<p class="actions">
+					<button onclick={() => showNeighborhood({ kind: 'device', id: device.name })}>
+						Show neighborhood
+					</button>
+				</p>
 				<h3>Neighbors ({neighbors.length})</h3>
 				<table>
 					<thead><tr><th>Local</th><th>Neighbor</th><th>Remote</th><th>Speed</th></tr></thead>
@@ -107,14 +112,20 @@ and bring that item into view.
 						{/if}
 					{/each}
 				</p>
-				<button
-					onclick={() =>
-						expandedSites.has(site.code)
-							? expandedSites.delete(site.code)
-							: expandedSites.add(site.code)}
-				>
-					{expandedSites.has(site.code) ? 'Collapse' : 'Expand'} in hierarchy
-				</button>
+				<p class="actions">
+					<button
+						title="Show the site's devices in the hierarchy and topology views"
+						onclick={() =>
+							expandedSites.has(site.code)
+								? expandedSites.delete(site.code)
+								: expandedSites.add(site.code)}
+					>
+						{expandedSites.has(site.code) ? 'Collapse site' : 'Expand site'}
+					</button>
+					<button onclick={() => showNeighborhood({ kind: 'site', id: site.code })}>
+						Show neighborhood
+					</button>
+				</p>
 				<h3>Links to other sites ({wan.length})</h3>
 				<table>
 					<thead><tr><th>Local</th><th>Remote</th><th>Speed</th><th>Circuit</th></tr></thead>
@@ -291,6 +302,11 @@ and bring that item into view.
 	}
 	.roles {
 		margin: 8px 0;
+	}
+	.actions {
+		display: flex;
+		gap: 6px;
+		margin: 10px 0;
 	}
 	.devices {
 		columns: 2;
