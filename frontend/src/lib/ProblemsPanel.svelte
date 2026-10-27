@@ -8,33 +8,12 @@ Clicking one selects it, brings it into view, and shows its impact in every
 view; clicking it again stops showing the impact.
 -->
 <script lang="ts">
-	import type { Problem, ProblemKind } from './api/analysis.ts';
+	import type { Problem } from './api/analysis.ts';
 	import type { Window } from './api/operations.ts';
-	import { CRITICAL_PCT, HIGH_PCT } from './live.ts';
+	import { KINDS, MARK } from './problem-kinds.ts';
 	import { showProblem, ui } from './state.svelte.ts';
-	import { HEALTH_COLOR } from './theme.ts';
 
 	const { problems, windows }: { problems: Problem[]; windows: Window[] } = $props();
-
-	/** Kinds in the order the server ranks them, with a heading for each. */
-	const KINDS: { kind: ProblemKind; label: string }[] = [
-		{ kind: 'outage', label: 'Unreachable' },
-		{ kind: 'link-down', label: 'Links down' },
-		{ kind: 'congested', label: `Congested, ${CRITICAL_PCT}% or more` },
-		{ kind: 'loss', label: 'Packet loss' },
-		{ kind: 'busy', label: `Busy, ${HIGH_PCT}% or more` },
-		{ kind: 'nodata', label: 'No recent data' }
-	];
-
-	// Status colors, each with its own mark, so color is never the only cue.
-	const MARK: Record<ProblemKind, { color: string; glyph: string }> = {
-		outage: { color: HEALTH_COLOR.down, glyph: '×' },
-		'link-down': { color: HEALTH_COLOR.down, glyph: '×' },
-		congested: { color: HEALTH_COLOR.down, glyph: '%' },
-		loss: { color: HEALTH_COLOR.degraded, glyph: '!' },
-		busy: { color: HEALTH_COLOR.degraded, glyph: '%' },
-		nodata: { color: HEALTH_COLOR.nodata, glyph: '?' }
-	};
 
 	/** 0 for a problem no one is on, 1 acknowledged, 2 accounted for by planned work. */
 	const handling = (p: Problem) => (p.planned.length ? 2 : p.ack ? 1 : 0);

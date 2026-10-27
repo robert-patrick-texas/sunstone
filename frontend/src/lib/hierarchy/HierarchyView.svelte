@@ -31,6 +31,7 @@ the details panel); expanded sites show devices in tier rows.
 	let container: HTMLDivElement;
 	let canvas = $state.raw<GraphCanvas | null>(null);
 	let lastFocus = ui.focusRequest;
+	let lastFit = ui.fitRequest;
 	let lastPath = untrack(() => path);
 	let placed = false;
 
@@ -78,6 +79,14 @@ the details panel); expanded sites show devices in tier rows.
 		lastPath = p;
 		const eles = p ? untrack(() => c.pathElements(p)) : null;
 		if (eles?.nonempty()) c.core.animate({ fit: { eles, padding: 80 } });
+	});
+
+	$effect(() => {
+		const request = ui.fitRequest;
+		const c = canvas;
+		if (!c || request === lastFit) return;
+		lastFit = request;
+		c.core.animate({ fit: { eles: c.core.elements(), padding: 40 } });
 	});
 
 	$effect(() => {

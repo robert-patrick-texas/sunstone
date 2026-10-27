@@ -69,6 +69,7 @@ the backend and opened again later.
 	let layoutProblem = $state<string | null>(null);
 	let sitewise = $state(false);
 	let lastFocus = ui.focusRequest;
+	let lastFit = ui.fitRequest;
 	let lastPath = untrack(() => path);
 	let pendingFocus = false;
 	let placed = false;
@@ -150,6 +151,14 @@ the backend and opened again later.
 		if (!p || topo.scope === 'path') return;
 		const eles = untrack(() => c.pathElements(p));
 		if (eles.nonempty()) c.core.animate({ fit: { eles, padding: 80 } });
+	});
+
+	$effect(() => {
+		const request = ui.fitRequest;
+		const c = canvas;
+		if (!c || request === lastFit) return;
+		lastFit = request;
+		c.core.animate({ fit: { eles: c.core.elements(), padding: 40 } });
 	});
 
 	$effect(() => {

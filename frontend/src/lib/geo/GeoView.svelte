@@ -7,7 +7,8 @@ its own color with everything else faded. With live state, sites and
 devices take their health colors and glyphs, and links their load colors;
 links that are down or partly down are dashed, and links with no data dotted.
 An impact is drawn like a path: affected sites, devices, and links in impact
-styles, everything else faded.
+styles, everything else faded. Where the map is goes into `ui.camera`, for
+links; a link's camera, if any, is where the map opens.
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
@@ -30,7 +31,7 @@ styles, everything else faded.
 	import { timed } from '../perf.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
-	import { select, ui, type Selection } from '../state.svelte.ts';
+	import { fromLink, select, ui, type Selection } from '../state.svelte.ts';
 	import {
 		COLOR,
 		HEALTH_COLOR,
@@ -85,6 +86,7 @@ styles, everything else faded.
 	let container: HTMLDivElement;
 	let map = $state.raw<MapLibre | null>(null);
 	let lastFocus = ui.focusRequest;
+	let lastFit = ui.fitRequest;
 	let lastPath = untrack(() => path);
 
 	// The topology never changes while the view is open, so these are computed once.
@@ -183,11 +185,15 @@ styles, everything else faded.
 	};
 
 	onMount(() => {
+		// A link's camera wins over everything else, once.
+		const camera = fromLink.camera;
+		fromLink.camera = null;
 		const m = new MapLibre({
 			container,
 			style: STYLE_URL,
-			bounds: allSitesBounds(),
-			fitBoundsOptions: { padding: FIT_PADDING },
+			...(camera
+				? { center: [camera.lon, camera.lat] as LonLat, zoom: camera.zoom }
+				: { bounds: allSitesBounds(), fitBoundsOptions: { padding: FIT_PADDING } }),
 			attributionControl: { compact: true }
 		});
 		m.addControl(new NavigationControl({ showCompass: false }), 'top-right');
@@ -200,8 +206,13 @@ styles, everything else faded.
 			m.on('mousemove', (e) => {
 				m.getCanvas().style.cursor = featureAt(m, e.point) ? 'pointer' : '';
 			});
+			m.on('moveend', () => {
+				const c = m.getCenter();
+				ui.camera = { lon: c.lng, lat: c.lat, zoom: m.getZoom() };
+			});
 			map = m;
 			// On opening, a shown path matters more than the selection (often its end).
+			if (camera) return;
 			if (path) fitDevices(m, [...path.devices.keys()]);
 			else if (ui.selection) focus(m, ui.selection);
 		});
@@ -486,6 +497,14 @@ styles, everything else faded.
 		if (!m || request === lastFocus) return;
 		lastFocus = request;
 		untrack(() => ui.selection && focus(m, ui.selection));
+	});
+
+	$effect(() => {
+		const request = ui.fitRequest;
+		const m = map;
+		if (!m || request === lastFit) return;
+		lastFit = request;
+		m.fitBounds(allSitesBounds(), { padding: FIT_PADDING });
 	});
 
 	// A newly shown path is brought into view.
