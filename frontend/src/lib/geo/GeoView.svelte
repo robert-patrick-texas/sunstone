@@ -27,6 +27,7 @@ links; a link's camera, if any, is where the map opens.
 	// MapLibre looks for its worker next to its own module, which bundling moves;
 	// hand it the worker's emitted URL instead.
 	import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
+	import type { Comparison } from '../api/discovery.ts';
 	import type { Impact } from '../impact.ts';
 	import { timed } from '../perf.ts';
 	import type { LiveIndex } from '../live.ts';
@@ -34,6 +35,7 @@ links; a link's camera, if any, is where the map opens.
 	import { fromLink, select, ui, type Selection } from '../state.svelte.ts';
 	import {
 		COLOR,
+		DRIFT_COLOR,
 		HEALTH_COLOR,
 		IMPACT_COLOR,
 		LINK_NODATA,
@@ -48,6 +50,7 @@ links; a link's camera, if any, is where the map opens.
 		deviceFeatures,
 		linkFeatures,
 		pairKey,
+		seenFeatures,
 		siteFeatures,
 		sitePairFeatures,
 		sitePairs,
@@ -58,12 +61,15 @@ links; a link's camera, if any, is where the map opens.
 		index,
 		path,
 		impact,
-		live
+		live,
+		discovery
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
 		impact: Impact | null;
 		live: LiveIndex | null;
+		/** Discovery against the documentation, to draw when there is no path or impact. */
+		discovery: Comparison | null;
 	} = $props();
 
 	setWorkerUrl(workerUrl);
@@ -74,11 +80,13 @@ links; a link's camera, if any, is where the map opens.
 	const FIT_PADDING = { top: 60, right: 60, bottom: 100, left: 60 };
 	const DEVICE_FOCUS_ZOOM = 16.5;
 	// Topmost first: the order clicks are resolved in when features overlap.
-	const SOURCES = ['devices', 'sites', 'device-links', 'site-links'];
+	const SOURCES = ['devices', 'sites', 'seen', 'device-links', 'site-links'];
 	const LINE_STYLES = ['', '-dashed', '-dotted'];
 	const CLICKABLE = [
 		'devices',
 		'sites',
+		'seen-points',
+		'seen-lines',
 		...['device-links', 'site-links'].flatMap((s) => LINE_STYLES.map((style) => s + style))
 	];
 	const FONT = ['Noto Sans Regular'];
@@ -110,6 +118,7 @@ links; a link's camera, if any, is where the map opens.
 	];
 	const isSelected: ExpressionSpecification = ['boolean', ['feature-state', 'selected'], false];
 	const onPath: ExpressionSpecification = ['boolean', ['feature-state', 'path'], false];
+	const onDrift: ExpressionSpecification = ['boolean', ['feature-state', 'drift'], false];
 	const FADED = 0.12;
 
 	// Live styling applies only to features that carry live properties.
@@ -168,16 +177,23 @@ links; a link's camera, if any, is where the map opens.
 		['coalesce', ['get', key], ''],
 		['literal', values]
 	];
+	// Links discovery does not see as documented, while discovery is shown.
+	const drifted: ExpressionSpecification = ['has', 'drift'];
 	const dashed: ExpressionSpecification = [
-		'any',
-		valueIn('health', ['down', 'partial']),
-		valueIn('impact', ['lost', 'partial'])
+		'all',
+		['!', drifted],
+		['any', valueIn('health', ['down', 'partial']), valueIn('impact', ['lost', 'partial'])]
+	];
+	const dotted: ExpressionSpecification = [
+		'all',
+		['!', dashed],
+		['any', drifted, valueIn('health', ['nodata'])]
 	];
 	// One layer per line style: dash patterns cannot vary feature by feature.
 	const LINE_FILTER: Record<string, FilterSpecification> = {
-		'': ['all', ['!', dashed], ['!', valueIn('health', ['nodata'])]],
+		'': ['all', ['!', dashed], ['!', dotted]],
 		'-dashed': dashed,
-		'-dotted': ['all', ['!', dashed], valueIn('health', ['nodata'])]
+		'-dotted': dotted
 	};
 	const LINE_DASH: Record<string, number[] | undefined> = {
 		'': undefined,
@@ -254,6 +270,8 @@ links; a link's camera, if any, is where the map opens.
 						COLOR.selected,
 						onPath,
 						COLOR.path,
+						drifted,
+						DRIFT_COLOR,
 						hasImpact,
 						impactLine,
 						hasLive,
@@ -291,6 +309,8 @@ links; a link's camera, if any, is where the map opens.
 						COLOR.selected,
 						onPath,
 						COLOR.path,
+						drifted,
+						DRIFT_COLOR,
 						hasImpact,
 						impactLine,
 						hasLive,
@@ -310,6 +330,8 @@ links; a link's camera, if any, is where the map opens.
 			COLOR.selected,
 			onPath,
 			COLOR.path,
+			onDrift,
+			DRIFT_COLOR,
 			impactIs('cutoff'),
 			IMPACT_COLOR.cutoff,
 			hasImpact,
@@ -330,7 +352,18 @@ links; a link's camera, if any, is where the map opens.
 				'circle-color': ['case', hasImpact, impactFill, hasLive, healthFill, COLOR.site],
 				'circle-opacity': 0.9,
 				'circle-stroke-color': ring,
-				'circle-stroke-width': ['case', isSelected, 3, onPath, 3, impactIs('cutoff'), 2.5, 1.5]
+				'circle-stroke-width': [
+					'case',
+					isSelected,
+					3,
+					onPath,
+					3,
+					onDrift,
+					3,
+					impactIs('cutoff'),
+					2.5,
+					1.5
+				]
 			}
 		});
 		m.addLayer({
@@ -348,6 +381,8 @@ links; a link's camera, if any, is where the map opens.
 					3,
 					onPath,
 					3,
+					onDrift,
+					2.5,
 					impactIs('cutoff'),
 					2,
 					hasImpact,
@@ -372,6 +407,55 @@ links; a link's camera, if any, is where the map opens.
 				'text-ignore-placement': true
 			},
 			paint: { 'text-color': COLOR.background }
+		});
+		// What discovery sees that the documentation does not have, over the rest.
+		m.addSource('seen', {
+			type: 'geojson',
+			data: seenFeatures(
+				index,
+				untrack(() => discovery?.seen ?? []),
+				positions
+			)
+		});
+		m.addLayer({
+			id: 'seen-lines',
+			type: 'line',
+			source: 'seen',
+			minzoom: DEVICE_ZOOM,
+			filter: ['==', ['geometry-type'], 'LineString'],
+			paint: { 'line-color': DRIFT_COLOR, 'line-width': 2, 'line-dasharray': [2, 1.5] }
+		});
+		m.addLayer({
+			id: 'seen-points',
+			type: 'circle',
+			source: 'seen',
+			minzoom: DEVICE_ZOOM,
+			filter: ['==', ['geometry-type'], 'Point'],
+			paint: {
+				'circle-radius': ['interpolate', ['linear'], ['zoom'], DEVICE_ZOOM, 3, 18, 9],
+				'circle-color': COLOR.background,
+				'circle-stroke-color': DRIFT_COLOR,
+				'circle-stroke-width': 2
+			}
+		});
+		m.addLayer({
+			id: 'seen-labels',
+			type: 'symbol',
+			source: 'seen',
+			minzoom: 15.5,
+			filter: ['==', ['geometry-type'], 'Point'],
+			layout: {
+				'text-field': ['get', 'label'],
+				'text-font': FONT,
+				'text-size': 10,
+				'text-offset': [0, 0.9],
+				'text-anchor': 'top'
+			},
+			paint: {
+				'text-color': COLOR.text,
+				'text-halo-color': COLOR.background,
+				'text-halo-width': 1.5
+			}
 		});
 		m.addLayer({
 			id: 'site-labels',
@@ -432,6 +516,9 @@ links; a link's camera, if any, is where the map opens.
 				return select({ kind: 'site', id: String(p['code']) }, true);
 			case 'device-links':
 				return select({ kind: 'links', ids: [String(p['id'])] });
+			case 'seen':
+				// Seen but not documented: the device it hangs off.
+				return select({ kind: 'device', id: String(p['device']) });
 			case 'site-links': {
 				const pair = pairs.find((x) => x.key === p['key']);
 				return select(pair ? { kind: 'links', ids: pair.linkIds } : null);
@@ -441,18 +528,35 @@ links; a link's camera, if any, is where the map opens.
 		}
 	}
 
-	// New snapshots, or a new impact to show, replace the features' properties.
+	// Cables discovery sees but the documentation does not have, while it is shown.
 	$effect(() => {
-		const [m, l, i] = [map, live, impact];
+		const [m, seen] = [map, discovery?.seen ?? []];
+		if (!m) return;
+		const source = m.getSource('seen') as GeoJSONSource | undefined;
+		source?.setData(seenFeatures(index, seen, positions));
+	});
+
+	// Links discovery disagrees about, while discovery is shown.
+	const drift = $derived.by(() => {
+		if (!discovery || path || impact) return null;
+		const checks = Object.entries(discovery.links);
+		return new Set(
+			checks.filter(([, c]) => c === 'mismatch' || c === 'not-seen').map(([id]) => id)
+		);
+	});
+
+	// New snapshots, or a new impact or discovery to show, replace the features' properties.
+	$effect(() => {
+		const [m, l, i, d] = [map, live, impact, drift];
 		if (!m) return;
 		untrack(() =>
 			timed('map update', () => {
 				const update = (id: string, data: GeoJSON.FeatureCollection) =>
 					(m.getSource(id) as GeoJSONSource | undefined)?.setData(data);
 				update('sites', siteFeatures(index, l, i));
-				update('site-links', sitePairFeatures(index, pairs, l, i));
+				update('site-links', sitePairFeatures(index, pairs, l, i, d));
 				update('devices', deviceFeatures(index, positions, l, i));
-				update('device-links', linkFeatures(index.topology.links, positions, l, i));
+				update('device-links', linkFeatures(index.topology.links, positions, l, i, d));
 			})
 		);
 	});
@@ -475,7 +579,18 @@ links; a link's camera, if any, is where the map opens.
 				if (pair) trace('site-links', pair);
 			}
 		}
-		fade(m, path !== null ? onPath : impact !== null ? hasImpact : null, live !== null);
+		// Discovery, when shown, marks what disagrees with the documentation.
+		// Links carry it as a property instead, so they can be dotted.
+		if (!path && !impact && discovery) {
+			for (const device of new Set(discovery.findings.flatMap((f) => f.devices))) {
+				m.setFeatureState({ source: 'devices', id: device }, { drift: true });
+				m.setFeatureState({ source: 'sites', id: siteOf(index, device) }, { drift: true });
+			}
+		}
+		const involved: ExpressionSpecification = ['any', onDrift, drifted];
+		const shown =
+			path !== null ? onPath : impact !== null ? hasImpact : discovery ? involved : null;
+		fade(m, shown, live !== null);
 		const mark = (source: string, id: string) =>
 			m.setFeatureState({ source, id }, { selected: true });
 		if (selection?.kind === 'device') {

@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from sunstone.api import Files, create_app
+from sunstone.cabling import Cabling
 from sunstone.discovery import (
     Discovery,
     Neighbor,
@@ -223,12 +224,17 @@ class TestCompare:
         assert result.links == dict.fromkeys(sorted(theirs), "not-seen")
 
 
+def drifted(topology: Topology) -> Cabling:
+    """The topology cabled with drift, every device watched."""
+    return Cabling(topology, watched={d.name for d in topology.devices})
+
+
 class TestSimulated:
     def test_every_kind_of_disagreement_is_seeded_and_found(
         self, topology: Topology
     ) -> None:
         state = AllUp(topology)
-        found = SimulatedDiscovery(topology, state).discover(AT)
+        found = SimulatedDiscovery(topology, drifted(topology), state).discover(AT)
         result = compare(topology, found, state.snapshot(AT))
         assert Counter(f.kind for f in result.findings) == {
             "wrong-neighbor": 1,
@@ -239,19 +245,30 @@ class TestSimulated:
             "no-neighbors": 1,
         }
         assert set(result.links.values()) == {"mismatch", "not-seen"}
+        # The cables to draw: each one seen other than as documented.
+        assert sorted(s.finding.split(":")[0] for s in result.seen) == [
+            "undocumented",
+            "unknown-device",
+            "wrong-neighbor",
+            "wrong-port",
+        ]
+        lab = next(s for s in result.seen if not s.known)
+        assert (lab.b.device, lab.platform) == ("lab-sw-01", "WS-C2960X-24TS")
 
     def test_the_same_seed_gives_the_same_disagreements(
         self, topology: Topology
     ) -> None:
         state = AllUp(topology)
-        first = SimulatedDiscovery(topology, state).discover(AT)
-        again = SimulatedDiscovery(topology, state).discover(AT + timedelta(minutes=15))
+        first = SimulatedDiscovery(topology, drifted(topology), state).discover(AT)
+        again = SimulatedDiscovery(topology, drifted(topology), state).discover(
+            AT + timedelta(minutes=15)
+        )
         assert first.tables == again.tables
 
     def test_down_links_and_devices_are_not_reported(self, topology: Topology) -> None:
         link = uplink(topology, 5)
         state = AllUp(topology, frozenset({link.id}))
-        found = SimulatedDiscovery(topology, state).discover(AT)
+        found = SimulatedDiscovery(topology, drifted(topology), state).discover(AT)
         result = compare(topology, found, state.snapshot(AT))
         assert result.links.get(link.id) == "down"
         assert all(f.link != link.id for f in result.findings)

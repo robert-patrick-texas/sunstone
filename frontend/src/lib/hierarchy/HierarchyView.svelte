@@ -6,6 +6,7 @@ the details panel); expanded sites show devices in tier rows.
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { GraphCanvas } from '../graph/canvas.ts';
+	import type { Comparison } from '../api/discovery.ts';
 	import type { Impact } from '../impact.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
@@ -18,12 +19,15 @@ the details panel); expanded sites show devices in tier rows.
 		index,
 		path,
 		impact,
-		live
+		live,
+		discovery
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
 		impact: Impact | null;
 		live: LiveIndex | null;
+		/** Discovery against the documentation, to draw when there is no path or impact. */
+		discovery: Comparison | null;
 	} = $props();
 
 	const DEVICE_FOCUS_ZOOM = 1.4;
@@ -70,6 +74,10 @@ the details panel); expanded sites show devices in tier rows.
 
 	$effect(() => {
 		canvas?.setLive(live);
+	});
+
+	$effect(() => {
+		canvas?.setDiscovery(discovery);
 	});
 
 	// A newly shown path is brought into view.

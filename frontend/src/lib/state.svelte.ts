@@ -80,7 +80,9 @@ export const ui = $state({
 	/** The problem whose impact is shown, by id. */
 	problem: null as string | null,
 	/** Devices, sites, and links supposed to fail, to see what that would do. */
-	whatIf: [] as Selection[]
+	whatIf: [] as Selection[],
+	/** Show where discovery and the documentation disagree, on the map. */
+	discovery: false
 });
 
 /**
@@ -217,6 +219,20 @@ export function select(selection: Selection | null, focus = false): void {
 		ui.path = { from: ui.pathFrom, to: selection.id };
 		ui.pathFrom = null;
 	}
+}
+
+/**
+ * Show where discovery and the documentation disagree, on the map, in place
+ * of any path or impact.
+ *
+ * @param target - What to select and bring into view, if anything.
+ */
+export function showDiscovery(target: Selection | null): void {
+	clearPath();
+	ui.problem = null;
+	ui.whatIf = [];
+	ui.discovery = true;
+	if (target) select(target, true);
 }
 
 /**

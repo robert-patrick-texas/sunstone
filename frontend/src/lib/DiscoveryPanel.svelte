@@ -2,14 +2,15 @@
 @component
 Where the documentation and the network disagree, as of the latest
 discovery run: how many documented links devices confirm, then each
-finding, most misleading first. Clicking one selects the link it is about,
-or the device, and brings it into view.
+finding, most misleading first. Clicking one shows discovery on the map,
+selects the link it is about, or the device, and brings it into view;
+Show on the map turns that on and off.
 -->
 <script lang="ts">
 	import type { Comparison, Finding, LinkCheck } from './api/discovery.ts';
 	import { CHECK_LABEL, findingTarget, groupFindings } from './discovery.ts';
 	import { clock } from './history.ts';
-	import { select, ui } from './state.svelte.ts';
+	import { showDiscovery, ui } from './state.svelte.ts';
 	import type { TopologyIndex } from './topology.ts';
 
 	const {
@@ -33,8 +34,7 @@ or the device, and brings it into view.
 	});
 
 	function show(finding: Finding): void {
-		const target = findingTarget(finding);
-		if (target) select(target, true);
+		showDiscovery(findingTarget(finding));
 	}
 
 	const shown = (finding: Finding) =>
@@ -55,6 +55,13 @@ or the device, and brings it into view.
 			<b>{comparison.confirmed}</b> of {index.topology.links.length} documented links confirmed{#each counts as [check, n] (check)}<span
 					class="muted">{` · ${n} ${CHECK_LABEL[check].toLowerCase()}`}</span
 				>{/each}
+		</p>
+		<p class="actions">
+			<button
+				aria-pressed={ui.discovery}
+				onclick={() => (ui.discovery ? (ui.discovery = false) : showDiscovery(null))}
+				>Show on the map</button
+			>
 		</p>
 		{#if groups.length === 0}
 			<p class="muted">Everything discovery can see matches the documentation.</p>
@@ -95,6 +102,13 @@ or the device, and brings it into view.
 	.muted {
 		color: var(--muted);
 		font-size: 12px;
+	}
+	.actions button {
+		padding: 2px 8px;
+		font-size: 12px;
+	}
+	.actions button[aria-pressed='true'] {
+		border-color: var(--selected);
 	}
 	.finding {
 		display: block;

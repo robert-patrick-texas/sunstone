@@ -10,6 +10,8 @@
 	--path: #4dd0e1;
 	--live: #3987e5;
 	--down: #d03b3b;
+	/* Discovery against the documentation (theme.ts DRIFT_COLOR). */
+	--drift: #9085e9;
 	color-scheme: dark;
 	font-family:
 		system-ui,

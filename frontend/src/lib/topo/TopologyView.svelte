@@ -26,6 +26,7 @@ the backend and opened again later.
 	import type { NodeSingular } from 'cytoscape';
 	import { GraphCanvas } from '../graph/canvas.ts';
 	import type { LayoutIn, SavedLayout } from '../api/layouts.ts';
+	import type { Comparison } from '../api/discovery.ts';
 	import type { Impact } from '../impact.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
@@ -49,12 +50,15 @@ the backend and opened again later.
 		index,
 		path,
 		impact,
-		live
+		live,
+		discovery
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
 		impact: Impact | null;
 		live: LiveIndex | null;
+		/** Discovery against the documentation, to draw when there is no path or impact. */
+		discovery: Comparison | null;
 	} = $props();
 
 	const LIMIT = 400;
@@ -143,6 +147,10 @@ the backend and opened again later.
 		canvas?.setLive(live);
 	});
 
+	$effect(() => {
+		canvas?.setDiscovery(discovery);
+	});
+
 	// A newly shown path is brought into view (the path scope fits it when drawn).
 	$effect(() => {
 		const [c, p] = [canvas, path];
@@ -220,6 +228,7 @@ the backend and opened again later.
 				)
 			);
 			c.fitFrames();
+			c.drawGhosts();
 			busy = unplaced = false;
 			remember(k, c.positions());
 		}

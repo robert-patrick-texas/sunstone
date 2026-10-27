@@ -74,6 +74,12 @@ export const IMPACT_GLYPH: Record<DeviceImpact, string> = { failed: '×', cutoff
 // line is also labeled.
 export const SERIES_COLOR = ['#9085e9', '#199e70'] as const;
 
+// Discovery against the documentation: cables seen but not documented
+// (dashed) and documented links not seen as documented (dotted). Violet
+// stays clear of the status colors, as validated for the history charts,
+// and is never shown with a chart; line styles and the legend say which is which.
+export const DRIFT_COLOR = SERIES_COLOR[0];
+
 export const LINK_NODATA = '#8a96a8';
 export const LINK_UNMONITORED = '#3a4655';
 

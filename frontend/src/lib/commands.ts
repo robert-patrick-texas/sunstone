@@ -26,6 +26,7 @@ export type CommandId =
 	| 'maintenance'
 	| 'oncall'
 	| 'discovery'
+	| 'discovery-map'
 	| 'next-problem'
 	| 'previous-problem'
 	| 'earlier'
@@ -162,6 +163,13 @@ export const COMMANDS: Command[] = [
 		group: 'Lists',
 		keys: ['d'],
 		also: ['lldp', 'cdp', 'neighbors', 'cabling', 'drift', 'audit']
+	},
+	{
+		id: 'discovery-map',
+		label: 'Discovery on the map',
+		group: 'Views',
+		keys: [],
+		also: ['undocumented', 'cabling', 'lldp', 'drift', 'overlay']
 	},
 	{
 		id: 'next-problem',

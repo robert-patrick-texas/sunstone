@@ -11,6 +11,7 @@ import type { components } from './schema.d.ts';
 type Schemas = components['schemas'];
 export type Comparison = Schemas['Comparison'];
 export type Finding = Schemas['Finding'];
+export type SeenLink = Schemas['SeenLink'];
 export type FindingKind = Finding['kind'];
 export type LinkCheck = NonNullable<Comparison['links'][string]>;
 

@@ -13,6 +13,7 @@
  * unaffected ones carry neither.
  */
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
+import type { SeenLink } from '../api/discovery.ts';
 import type { Link } from '../api/topology.ts';
 import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
 import { bundleLive, deviceHealth, groupHealth, linkLive, type LiveIndex } from '../live.ts';
@@ -162,7 +163,8 @@ export function sitePairFeatures(
 	index: TopologyIndex,
 	pairs: SitePair[],
 	live: LiveIndex | null = null,
-	impact: Impact | null = null
+	impact: Impact | null = null,
+	drift: Set<string> | null = null
 ): FeatureCollection<LineString> {
 	const coords = (code: string): LonLat => {
 		const site = index.sites.get(code);
@@ -182,7 +184,8 @@ export function sitePairFeatures(
 							impact,
 							pair.linkIds.flatMap((id) => index.links.get(id) ?? [])
 						)
-					: {})
+					: {}),
+				...(drift && pair.linkIds.some((id) => drift.has(id)) ? { drift: true } : {})
 			}
 		}))
 	);
@@ -234,14 +237,16 @@ export function deviceFeatures(
  * @param positions - From {@link devicePositions}.
  * @param live - Live state, or null for structure only.
  * @param impact - Impact to show, or null.
+ * @param drift - Links discovery does not see as documented, while it is shown.
  * @returns One line per link; with live state, its health and load; with an
- *   impact, whether it is lost.
+ *   impact, whether it is lost; and whether discovery disagrees about it.
  */
 export function linkFeatures(
 	links: Link[],
 	positions: Map<string, LonLat>,
 	live: LiveIndex | null = null,
-	impact: Impact | null = null
+	impact: Impact | null = null,
+	drift: Set<string> | null = null
 ): FeatureCollection<LineString> {
 	return collection(
 		links.map((link) => ({
@@ -258,7 +263,8 @@ export function linkFeatures(
 				kind: link.kind,
 				speed: link.speed_mbps,
 				...(live ? liveProperties(linkLive(live, link)) : {}),
-				...(impact ? lostProperty(impact, [link]) : {})
+				...(impact ? lostProperty(impact, [link]) : {}),
+				...(drift?.has(link.id) ? { drift: true } : {})
 			}
 		}))
 	);
@@ -277,4 +283,45 @@ function lostProperty(impact: Impact, links: Link[]) {
 /** Health always; load only when measured, so "no data" never reads as 0%. */
 function liveProperties({ health, utilPct }: { health: string; utilPct: number | null }) {
 	return utilPct === null ? { health } : { health, util: utilPct };
+}
+
+/**
+ * Cables discovery sees that the documentation does not have: a line
+ * between the two devices, and for a neighbor not in the topology, a point
+ * beyond the device it hangs off, away from the middle of its site.
+ *
+ * @param index - Topology index.
+ * @param seen - The cables.
+ * @param positions - Where each device is drawn.
+ * @returns Lines and points, each naming the device it hangs off.
+ */
+export function seenFeatures(
+	index: TopologyIndex,
+	seen: SeenLink[],
+	positions: Map<string, LonLat>
+): FeatureCollection<LineString | Point> {
+	const features: Feature<LineString | Point>[] = [];
+	for (const s of seen) {
+		const from = positions.get(s.a.device);
+		if (!from) continue;
+		let to = s.known ? positions.get(s.b.device) : undefined;
+		if (!s.known) {
+			const site = index.sites.get(siteOf(index, s.a.device));
+			const [dx, dy] = site ? [from[0] - site.lon, from[1] - site.lat] : [0, 0];
+			// Beyond the device on its ring; a device in the middle gets a nudge east.
+			to = dx || dy ? [from[0] + 0.8 * dx, from[1] + 0.8 * dy] : [from[0] + 0.0005, from[1]];
+			features.push({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: to },
+				properties: { id: `${s.id}:point`, device: s.a.device, label: s.b.device }
+			});
+		}
+		if (!to) continue;
+		features.push({
+			type: 'Feature',
+			geometry: { type: 'LineString', coordinates: [from, to] },
+			properties: { id: s.id, device: s.a.device }
+		});
+	}
+	return { type: 'FeatureCollection', features };
 }

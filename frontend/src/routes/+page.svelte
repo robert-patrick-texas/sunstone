@@ -106,11 +106,12 @@ place of the controls.
 	const focused = $derived(problems.find((p) => p.id === ui.problem) ?? null);
 	// Problems someone is on, or that planned work accounts for, are handled.
 	const unhandled = $derived(problems.filter((p) => !p.ack && p.planned.length === 0).length);
-	// A path, when shown, takes the place of an impact.
+	// A path, when shown, takes the place of an impact, and either of discovery.
 	const impact = $derived.by(() => {
 		if (!index || path || ui.pathFrom) return null;
 		return ui.whatIf.length === 0 ? (focused?.impact ?? null) : whatIf;
 	});
+	const drift = $derived(ui.discovery && !path && !ui.pathFrom && !impact ? comparison : null);
 	let problem = $state<string | null>(null);
 	let showPerf = $state(false);
 	let copied = $state<string | null>(null);
@@ -163,6 +164,7 @@ place of the controls.
 			ui.problem = found.problem ?? null;
 		}
 		if (found.camera) fromLink.camera = found.camera;
+		if (found.discovery !== undefined) ui.discovery = found.discovery;
 		if (found.wall !== undefined) {
 			ui.wall.on = found.wall !== null;
 			if (found.wall) ui.wall.dwell = found.wall.dwell;
@@ -182,7 +184,8 @@ place of the controls.
 			topo: { ...$state.snapshot(topo) },
 			expanded: [...expandedSites].sort(compareNatural),
 			camera: ui.camera,
-			wall: ui.wall.on ? { dwell: ui.wall.dwell } : null
+			wall: ui.wall.on ? { dwell: ui.wall.dwell } : null,
+			discovery: ui.discovery
 		};
 	}
 
@@ -486,6 +489,7 @@ place of the controls.
 		maintenance: () => toggleTab('maintenance'),
 		oncall: () => toggleTab('oncall'),
 		discovery: () => toggleTab('discovery'),
+		'discovery-map': () => (ui.discovery = !ui.discovery),
 		'next-problem': () => stepThrough(1),
 		'previous-problem': () => stepThrough(-1),
 		earlier: () => (ui.at = stepEarlier(ui.at, historySpan())),
@@ -669,14 +673,14 @@ place of the controls.
 			<section class="view">
 				{#key ui.view}
 					{#if ui.view === 'geo'}
-						<GeoView {index} {path} {impact} {live} />
+						<GeoView {index} {path} {impact} {live} discovery={drift} />
 					{:else if ui.view === 'hierarchy'}
-						<HierarchyView {index} {path} {impact} {live} />
+						<HierarchyView {index} {path} {impact} {live} discovery={drift} />
 					{:else}
-						<TopologyView {index} {path} {impact} {live} />
+						<TopologyView {index} {path} {impact} {live} discovery={drift} />
 					{/if}
 				{/key}
-				<Legend live={live !== null} impact={impact !== null} />
+				<Legend live={live !== null} impact={impact !== null} discovery={drift !== null} />
 				{#if ui.pathFrom}
 					<p class="picking" aria-live="polite">
 						Choose the destination for a path from <strong>{ui.pathFrom}</strong>: click a device or

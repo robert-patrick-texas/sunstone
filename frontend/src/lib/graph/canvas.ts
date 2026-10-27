@@ -9,7 +9,10 @@
  * colors and glyphs and edges their load colors; path and selection still
  * draw on top. An impact (a problem's, or a "what if") is drawn like a path:
  * failed, cut-off, and exposed devices and lost links in their own styles,
- * everything else faded.
+ * everything else faded. So is discovery, when there is neither: cables seen
+ * but not documented are drawn as dashed edges (with a node of its own for a
+ * neighbor not in the topology), documented links not seen as documented are
+ * dotted, devices involved are ringed, and everything else is faded.
  *
  * Site frames are drawn as backdrops behind their devices, never as Cytoscape
  * compound parents: on the 3,000-device sample, compound nodes doubled the
@@ -26,12 +29,14 @@ import cytoscape, {
 	type Position,
 	type StylesheetJson
 } from 'cytoscape';
+import type { Comparison } from '../api/discovery.ts';
 import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
 import { bundleLive, deviceHealth, groupHealth, linkLive, type LiveIndex } from '../live.ts';
 import type { PathResult } from '../paths.ts';
 import { select, type Selection } from '../state.svelte.ts';
 import {
 	COLOR,
+	DRIFT_COLOR,
 	HEALTH_COLOR,
 	HEALTH_GLYPH,
 	IMPACT_COLOR,
@@ -43,7 +48,7 @@ import {
 } from '../theme.ts';
 import { siteOf, type TopologyIndex } from '../topology.ts';
 import { timed } from '../perf.ts';
-import { siteNodeId, type GraphEdge, type GraphNode } from './model.ts';
+import { ghostElements, siteNodeId, type GraphEdge, type GraphNode } from './model.ts';
 
 const LABEL_ZOOM = 2;
 /** Room between a fitted frame and its devices, labels included. */
@@ -215,6 +220,38 @@ const STYLE: StylesheetJson = [
 	},
 	{ selector: 'edge.impact-lost', style: { 'line-color': IMPACT_COLOR.failed } },
 	{ selector: 'edge.impact-partial', style: { 'line-color': IMPACT_COLOR.exposed } },
+	{
+		selector: 'edge.ghost',
+		style: {
+			'line-color': DRIFT_COLOR,
+			'line-style': 'dashed',
+			'line-dash-pattern': [8, 4],
+			width: 2,
+			'curve-style': 'bezier',
+			opacity: 1,
+			'z-index': 7
+		}
+	},
+	{
+		selector: 'node.ghost',
+		style: {
+			shape: 'round-rectangle',
+			width: 18,
+			height: 12,
+			'background-opacity': 0,
+			'border-width': 1.5,
+			'border-style': 'dashed',
+			'border-color': DRIFT_COLOR,
+			label: 'data(label)',
+			color: COLOR.text,
+			'font-size': 9
+		}
+	},
+	{
+		selector: 'edge.drift',
+		style: { 'line-color': DRIFT_COLOR, 'line-style': 'dotted', opacity: 1, 'z-index': 6 }
+	},
+	{ selector: 'node.drift', style: { 'border-width': 3, 'border-color': DRIFT_COLOR } },
 	{ selector: 'node.center', style: { 'border-width': 2, 'border-color': COLOR.site } },
 	{ selector: '.faded', style: { opacity: 0.15 } },
 	{ selector: 'node.path', style: { 'border-width': 3, 'border-color': COLOR.path } },
@@ -245,6 +282,7 @@ export class GraphCanvas {
 	private selection: Selection | null = null;
 	private path: PathResult | null = null;
 	private impact: Impact | null = null;
+	private discovery: Comparison | null = null;
 	private live: LiveIndex | null = null;
 
 	/**
@@ -269,11 +307,16 @@ export class GraphCanvas {
 			if (e.target === this.core) select(null);
 		});
 		this.core.on('tap', 'node', (e) => {
-			const { kind, id, site } = e.target.data();
-			select(kind === 'device' ? { kind: 'device', id } : { kind: 'site', id: site });
+			const { kind, id, site, device } = e.target.data();
+			// Something only discovery sees selects the device it hangs off.
+			if (kind === 'ghost') select({ kind: 'device', id: device });
+			else select(kind === 'device' ? { kind: 'device', id } : { kind: 'site', id: site });
 		});
-		this.core.on('tap', 'edge', (e) => select({ kind: 'links', ids: e.target.data('linkIds') }));
-		this.core.on('dbltap', 'node', (e) => options.onDoubleTap(e.target));
+		this.core.on('tap', 'edge', (e) => {
+			const { kind, linkIds, device } = e.target.data();
+			select(kind === 'ghost' ? { kind: 'device', id: device } : { kind: 'links', ids: linkIds });
+		});
+		this.core.on('dbltap', 'node[kind != "ghost"]', (e) => options.onDoubleTap(e.target));
 		// A dragged device takes its frame along; a dragged frame takes its devices.
 		this.core.on('drag', 'node[kind = "device"]', (e) => this.fitFrames([e.target.data('site')]));
 		this.core.on('grab', 'node[kind = "frame"]', (e) => {
@@ -323,9 +366,43 @@ export class GraphCanvas {
 			this.core.elements().remove();
 			this.core.add(elements);
 		});
+		this.drawGhosts();
 		this.showLabels(true);
 		this.applyLive();
 		this.applyHighlight();
+	}
+
+	/**
+	 * Show where discovery and the documentation disagree, when no path or
+	 * impact is shown; or stop.
+	 *
+	 * @param discovery - The latest comparison, or null.
+	 */
+	setDiscovery(discovery: Comparison | null): void {
+		this.discovery = discovery;
+		timed('graph discovery', () => {
+			this.drawGhosts();
+			this.showLabels(true);
+			this.applyHighlight();
+		});
+	}
+
+	/**
+	 * Draw what discovery sees but the documentation does not have, beside
+	 * the nodes as they are now placed. Call again after moving nodes.
+	 */
+	drawGhosts(): void {
+		const core = this.core;
+		core.batch(() => {
+			core.elements('.ghost').remove();
+			if (!this.discovery) return;
+			const nodeOf = (device: string) => {
+				const node = this.nodeFor(device);
+				return node.nonempty() ? node.id() : null;
+			};
+			const at = (id: string) => ({ ...core.getElementById(id).position() });
+			core.add(ghostElements(this.discovery.seen, nodeOf, at));
+		});
 	}
 
 	/**
@@ -468,7 +545,7 @@ export class GraphCanvas {
 	private applyHighlight(): void {
 		const core = this.core;
 		core.batch(() => {
-			core.elements('.selected, .path, .faded').removeClass('selected path faded');
+			core.elements('.selected, .path, .faded, .drift').removeClass('selected path faded drift');
 			core.elements('.impact').removeClass(IMPACT_CLASSES);
 			core.edges('.context').removeClass('context');
 			if (this.path) {
@@ -483,6 +560,8 @@ export class GraphCanvas {
 					.addClass('faded');
 			} else if (this.impact) {
 				this.applyImpact(this.impact);
+			} else if (this.discovery) {
+				this.applyDiscovery(this.discovery);
 			}
 			const eles = this.elementsFor(this.selection);
 			eles.addClass('selected').removeClass('faded');
@@ -524,6 +603,26 @@ export class GraphCanvas {
 			);
 			if (found) e.addClass(`impact impact-${found}`);
 			else e.addClass('faded');
+		});
+	}
+
+	private applyDiscovery(discovery: Comparison): void {
+		const drift = new Set(
+			Object.entries(discovery.links)
+				.filter(([, check]) => check === 'mismatch' || check === 'not-seen')
+				.map(([id]) => id)
+		);
+		const involved = new Set(discovery.findings.flatMap((f) => f.devices));
+		this.core.edges('[kind != "ghost"]').forEach((e) => {
+			const ids: string[] = e.data('linkIds');
+			e.addClass(ids.some((id) => drift.has(id)) ? 'drift' : 'faded');
+		});
+		this.core.nodes('[kind = "device"]').forEach((n) => {
+			n.addClass(involved.has(n.id()) ? 'drift' : 'faded');
+		});
+		this.core.nodes('[kind = "site"]').forEach((n) => {
+			const devices = this.index.devicesBySite.get(n.data('site')) ?? [];
+			n.addClass(devices.some((d) => involved.has(d.name)) ? 'drift' : 'faded');
 		});
 	}
 

@@ -40,6 +40,8 @@ export interface Shared {
 	camera: Camera | null;
 	/** Wall display, and how long it shows each thing; null when off. */
 	wall: { dwell: number } | null;
+	/** Discovery against the documentation, shown on the map. */
+	discovery: boolean;
 }
 
 export const DEFAULT_DWELL_S = 20;
@@ -98,6 +100,7 @@ export function toQuery(shared: Shared, index: TopologyIndex): URLSearchParams {
 		q.set('to', shared.path.to);
 	}
 	for (const item of shared.whatIf) q.append('fail', writeItem(item));
+	if (shared.discovery) q.set('discovery', '1');
 	if (shared.view === 'topology') {
 		const { scope, hops, layout, grouped, center } = shared.topo;
 		if (scope !== 'network') q.set('scope', scope);
@@ -140,6 +143,7 @@ export function fromQuery(q: URLSearchParams, index: TopologyIndex): Partial<Sha
 	if (from && to && index.devices.has(from) && index.devices.has(to)) found.path = { from, to };
 	const whatIf = q.getAll('fail').flatMap((t) => readItem(t, index) ?? []);
 	if (whatIf.length) found.whatIf = whatIf;
+	if (q.get('discovery') === '1') found.discovery = true;
 	const scope = q.get('scope');
 	const hops = Number(q.get('hops'));
 	const layout = q.get('layout');
@@ -207,13 +211,14 @@ export const OPENING = {
 	path: null,
 	whatIf: [],
 	problem: null,
-	wall: null
+	wall: null,
+	discovery: false
 } satisfies Partial<Shared>;
 
 /**
  * Whether going from one screen to another goes somewhere new, so that Back
  * should return from it: another view, neighborhood, selection, path,
- * problem, or "what if". Moving the map, Live, the time, and expanded sites
+ * problem, "what if", or discovery on the map. Moving the map, Live, the time, and expanded sites
  * change how the same place looks, and clearing something stays in place.
  *
  * @param before - What was on screen.
@@ -232,6 +237,7 @@ export function movesOn(before: Shared, after: Shared): boolean {
 		(after.selection !== null && differs(before.selection, after.selection)) ||
 		(after.path !== null && differs(before.path, after.path)) ||
 		(after.problem !== null && before.problem !== after.problem) ||
-		(after.whatIf.length > 0 && differs(before.whatIf, after.whatIf))
+		(after.whatIf.length > 0 && differs(before.whatIf, after.whatIf)) ||
+		(after.discovery && !before.discovery)
 	);
 }
