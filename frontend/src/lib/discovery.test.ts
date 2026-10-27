@@ -6,6 +6,7 @@ import {
 	changeLine,
 	changeOf,
 	deviceCheck,
+	expectationOf,
 	findingTarget,
 	groupFindings,
 	linkCheck,
@@ -43,6 +44,7 @@ const COMPARISON: Comparison = {
 	confirmed: 7,
 	seen: [],
 	gone: [],
+	expected: [],
 	findings: [
 		finding('wrong', { kind: 'wrong-port', link: second, devices: ['a-core-01', 'a-acc-01'] }),
 		finding('missing', { link: first, devices: ['a-wan-01', 'a-core-01'] }),
@@ -130,6 +132,7 @@ function review(kind: 'move' | 'retire', extra: Partial<Review> = {}): Review {
 		cut_off: [],
 		cleared: [],
 		raised: [],
+		involved: [],
 		...extra
 	};
 }
@@ -187,7 +190,38 @@ describe('reviews', () => {
 		expect(changeOf(changes, 'other')).toBeUndefined();
 		expect(changeLine(changes[1]!)).toBe(`Moved to ${linkEnds(moved)}`);
 		expect(changeLine(changes[0]!)).toBe(`Retired ${linkEnds(moved)}`);
+		expect(changeLine({ ...change('x', null), fix: { kind: 'expect', summary: '' } })).toBe(
+			'Expected: f'
+		);
 		expect(changedTarget(null, moved)).toEqual({ kind: 'device', id: moved.a.device });
 		expect(changedTarget(moved, null)).toEqual({ kind: 'links', ids: [moved.id] });
+	});
+});
+
+describe('expectationOf', () => {
+	it('finds the expected finding that explains a link, with its change', () => {
+		const link = index.topology.links[0]!;
+		const silent = link.a.device;
+		const away = index.topology.links.find((l) => ![l.a.device, l.b.device].includes(silent))!;
+		const expected = finding('silent', { kind: 'no-neighbors', devices: [silent] });
+		const comparison = { ...COMPARISON, expected: [expected] };
+		const change: Change = {
+			id: 'c',
+			finding: 'silent',
+			title: 'silent',
+			fix: { kind: 'expect', summary: '' },
+			note: 'LLDP off by policy',
+			by: 'Pat',
+			at: '2026-10-27T15:00:00Z'
+		};
+		expect(expectationOf(comparison, [change], link)).toEqual({ finding: expected, change });
+		// While the switch does not answer, its links are findings of their own, covered by it.
+		const covered = finding('link', { link: link.id, covered_by: 'silent' });
+		expect(expectationOf({ ...COMPARISON, expected: [covered] }, [change], link)).toEqual({
+			finding: covered,
+			change
+		});
+		expect(expectationOf(comparison, [change], away)).toBeNull();
+		expect(expectationOf(COMPARISON, [change], link)).toBeNull();
 	});
 });

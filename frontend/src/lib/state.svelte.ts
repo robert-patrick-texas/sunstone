@@ -83,8 +83,8 @@ export const ui = $state({
 	whatIf: [] as Selection[],
 	/** Show where discovery and the documentation disagree, on the map. */
 	discovery: false,
-	/** The discovery finding whose fix is being reviewed, by id. */
-	fixing: null as string | null
+	/** The discovery finding whose fix is being reviewed, by id, or that is being marked expected. */
+	fixing: null as { finding: string; expect: boolean } | null
 });
 
 /**
@@ -249,14 +249,15 @@ export function showTeam(team: string): void {
 }
 
 /**
- * Review the fix a discovery finding offers, in the side panel, with the
- * finding shown on the map.
+ * Review the fix a discovery finding offers, or marking it expected, in the
+ * side panel, with the finding shown on the map.
  *
  * @param finding - The finding's id.
  * @param target - What to select for it.
+ * @param expect - Review marking it expected rather than fixing it.
  */
-export function reviewFix(finding: string, target: Selection | null): void {
-	ui.fixing = finding;
+export function reviewFix(finding: string, target: Selection | null, expect = false): void {
+	ui.fixing = { finding, expect };
 	ui.sideTab = 'discovery';
 	ui.problemsOpen = true;
 	showDiscovery(target);

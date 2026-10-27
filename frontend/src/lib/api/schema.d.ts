@@ -121,7 +121,8 @@ export interface paths {
         /**
          * Get Discovery
          * @description Return the discovery run in effect now, or at an earlier moment,
-         *     compared with the documented links, with when each finding was seen.
+         *     compared with the documented links, with when each finding was seen,
+         *     and the findings marked expected set aside.
          *
          *     Runs come every 15 minutes, and each is compared once for every viewer.
          */
@@ -349,7 +350,8 @@ export interface paths {
         /**
          * Accept Fix
          * @description Accept the fix a finding of the latest discovery run offers into
-         *     the documentation, which everything then follows.
+         *     the documentation, which everything then follows; or mark the
+         *     finding expected, which changes no link.
          */
         post: operations["accept_fix_api_changes_post"];
         delete?: never;
@@ -369,7 +371,8 @@ export interface paths {
          * Get Review
          * @description Return what accepting the fix a finding of the latest discovery run
          *     offers would do now: to the ports involved, to redundancy, and to the
-         *     problems there are.
+         *     problems there are. Or, to mark it expected, what Live reads now on
+         *     the ports it is about.
          */
         get: operations["get_review_api_review_get"];
         put?: never;
@@ -392,7 +395,7 @@ export interface paths {
         post?: never;
         /**
          * Revert Change
-         * @description Take a fix back out of the documentation.
+         * @description Take a fix back out of the documentation, or withdraw an expectation.
          */
         delete: operations["revert_change_api_changes__change_id__delete"];
         options?: never;
@@ -537,6 +540,11 @@ export interface components {
             note: string;
             /** By */
             by: string;
+            /**
+             * Expect
+             * @default false
+             */
+            expect: boolean;
         };
         /**
          * ChangeSet
@@ -572,7 +580,7 @@ export interface components {
             polled: string[];
             /** Links */
             links: {
-                [key: string]: "confirmed" | "mismatch" | "not-seen" | "down" | "unchecked";
+                [key: string]: "confirmed" | "mismatch" | "not-seen" | "expected" | "down" | "unchecked";
             };
             /** Confirmed */
             confirmed: number;
@@ -585,6 +593,11 @@ export interface components {
              * @default []
              */
             gone: components["schemas"]["Finding"][];
+            /**
+             * Expected
+             * @default []
+             */
+            expected: components["schemas"]["Finding"][];
             /** History From */
             history_from?: string | null;
         };
@@ -808,17 +821,20 @@ export interface components {
             /** Last Seen */
             last_seen?: string | null;
             fix?: components["schemas"]["Fix"] | null;
+            /** Covered By */
+            covered_by?: string | null;
         };
         /**
          * Fix
-         * @description A change to the documentation that makes it say what discovery sees.
+         * @description A change to the documentation that makes it say what discovery sees,
+         *     or for ``expect``, that records a finding as expected.
          */
         Fix: {
             /**
              * Kind
              * @enum {string}
              */
-            kind: "move" | "add" | "retire";
+            kind: "move" | "add" | "retire" | "expect";
             /** Summary */
             summary: string;
             before?: components["schemas"]["Link"] | null;
@@ -1212,6 +1228,11 @@ export interface components {
             cleared: string[];
             /** Raised */
             raised: string[];
+            /**
+             * Involved
+             * @default []
+             */
+            involved: components["schemas"]["PortNow"][];
         };
         /**
          * RoutedProblem
@@ -2139,6 +2160,7 @@ export interface operations {
         parameters: {
             query: {
                 finding: string;
+                expect?: boolean;
             };
             header?: never;
             path?: never;

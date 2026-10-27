@@ -181,7 +181,7 @@
   "/api/discovery": {
    "get": {
     "summary": "Get Discovery",
-    "description": "Return the discovery run in effect now, or at an earlier moment,\ncompared with the documented links, with when each finding was seen.\n\nRuns come every 15 minutes, and each is compared once for every viewer.",
+    "description": "Return the discovery run in effect now, or at an earlier moment,\ncompared with the documented links, with when each finding was seen,\nand the findings marked expected set aside.\n\nRuns come every 15 minutes, and each is compared once for every viewer.",
     "operationId": "get_discovery_api_discovery_get",
     "parameters": [
      {
@@ -706,7 +706,7 @@
    },
    "post": {
     "summary": "Accept Fix",
-    "description": "Accept the fix a finding of the latest discovery run offers into\nthe documentation, which everything then follows.",
+    "description": "Accept the fix a finding of the latest discovery run offers into\nthe documentation, which everything then follows; or mark the\nfinding expected, which changes no link.",
     "operationId": "accept_fix_api_changes_post",
     "requestBody": {
      "content": {
@@ -745,7 +745,7 @@
   "/api/review": {
    "get": {
     "summary": "Get Review",
-    "description": "Return what accepting the fix a finding of the latest discovery run\noffers would do now: to the ports involved, to redundancy, and to the\nproblems there are.",
+    "description": "Return what accepting the fix a finding of the latest discovery run\noffers would do now: to the ports involved, to redundancy, and to the\nproblems there are. Or, to mark it expected, what Live reads now on\nthe ports it is about.",
     "operationId": "get_review_api_review_get",
     "parameters": [
      {
@@ -755,6 +755,16 @@
       "schema": {
        "type": "string",
        "title": "Finding"
+      }
+     },
+     {
+      "name": "expect",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Expect"
       }
      }
     ],
@@ -785,7 +795,7 @@
   "/api/changes/{change_id}": {
    "delete": {
     "summary": "Revert Change",
-    "description": "Take a fix back out of the documentation.",
+    "description": "Take a fix back out of the documentation, or withdraw an expectation.",
     "operationId": "revert_change_api_changes__change_id__delete",
     "parameters": [
      {
@@ -1142,6 +1152,11 @@
       "maxLength": 64,
       "minLength": 1,
       "title": "By"
+     },
+     "expect": {
+      "type": "boolean",
+      "title": "Expect",
+      "default": false
      }
     },
     "additionalProperties": false,
@@ -1216,6 +1231,7 @@
         "confirmed",
         "mismatch",
         "not-seen",
+        "expected",
         "down",
         "unchecked"
        ]
@@ -1247,6 +1263,14 @@
       },
       "type": "array",
       "title": "Gone",
+      "default": []
+     },
+     "expected": {
+      "items": {
+       "$ref": "#/components/schemas/Finding"
+      },
+      "type": "array",
+      "title": "Expected",
       "default": []
      },
      "history_from": {
@@ -1761,6 +1785,17 @@
         "type": "null"
        }
       ]
+     },
+     "covered_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Covered By"
      }
     },
     "additionalProperties": false,
@@ -1782,7 +1817,8 @@
       "enum": [
        "move",
        "add",
-       "retire"
+       "retire",
+       "expect"
       ],
       "title": "Kind"
      },
@@ -1818,7 +1854,7 @@
      "summary"
     ],
     "title": "Fix",
-    "description": "A change to the documentation that makes it say what discovery sees."
+    "description": "A change to the documentation that makes it say what discovery sees,\nor for ``expect``, that records a finding as expected."
    },
    "HTTPValidationError": {
     "properties": {
@@ -2780,6 +2816,14 @@
       },
       "type": "array",
       "title": "Raised"
+     },
+     "involved": {
+      "items": {
+       "$ref": "#/components/schemas/PortNow"
+      },
+      "type": "array",
+      "title": "Involved",
+      "default": []
      }
     },
     "additionalProperties": false,

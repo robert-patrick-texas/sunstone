@@ -402,15 +402,22 @@ place of the controls.
 	async function loadChanges(target: Selection | null = null): Promise<void> {
 		try {
 			const found = await fetchChanges();
-			const same = found.map((c) => c.id).join() === changes.map((c) => c.id).join();
-			if (!same) {
+			const ids = (list: Change[], links: boolean) =>
+				list
+					.filter((c) => !links || c.fix.kind !== 'expect')
+					.map((c) => c.id)
+					.join();
+			// Marking a finding expected changes no link, so only discovery follows it.
+			if (ids(found, true) !== ids(changes, true)) {
 				const built = indexTopology(await fetchTopology());
 				// Drawn afresh, the map opens on the target, or else stays where it is.
 				if (ui.view === 'geo' && !target) fromLink.camera = ui.camera;
-				changes = found;
 				index = built;
-				refresh++;
 				void loadOwnership();
+			}
+			if (ids(found, false) !== ids(changes, false)) {
+				changes = found;
+				refresh++;
 			}
 			if (target) select(target, true);
 		} catch (e) {

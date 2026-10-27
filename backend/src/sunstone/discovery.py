@@ -14,6 +14,11 @@ one documented added, a link no one sees retired. A neighbor not in the
 topology and a device that sees nothing are left to people: the first needs
 the device documented, or unplugged; the second, LLDP or CDP turned on.
 
+What discovery cannot see, or is not meant to be documented, can instead
+be marked expected: a link across a media converter that hides LLDP, a
+lab port, a switch with LLDP off on purpose. ``expecting`` sets those
+findings aside, so they are no longer listed, drawn, or offered a fix.
+
 Only what discovery can check counts. A device that does not answer (not
 polled, down, or unreachable) reports nothing, though its neighbors still
 see it; and a link that is down is not seen, whatever is documented, so
@@ -23,6 +28,7 @@ simulated, reporting the simulated network as really cabled (``cabling.py``).
 """
 
 import functools
+from collections.abc import Set
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal, Protocol, runtime_checkable
@@ -34,7 +40,9 @@ from sunstone.live import NetworkState, StateSource
 from sunstone.model import Device, Endpoint, Link, Topology
 from sunstone.problems import ABBREVIATIONS, natural, short_interface
 
-LinkCheck = Literal["confirmed", "mismatch", "not-seen", "down", "unchecked"]
+LinkCheck = Literal[
+    "confirmed", "mismatch", "not-seen", "expected", "down", "unchecked"
+]
 FindingKind = Literal[
     "wrong-neighbor",
     "wrong-port",
@@ -43,7 +51,9 @@ FindingKind = Literal[
     "unknown-device",
     "no-neighbors",
 ]
-FixKind = Literal["move", "add", "retire"]
+FixKind = Literal["move", "add", "retire", "expect"]
+# A device that reports no neighbors: its finding's id, before its name.
+SILENT = "no-neighbors:"
 KINDS: list[FindingKind] = [
     "wrong-neighbor",
     "wrong-port",
@@ -52,6 +62,11 @@ KINDS: list[FindingKind] = [
     "unknown-device",
     "no-neighbors",
 ]
+# Kinds that may be what discovery cannot see, or what is not meant to be
+# documented; a link on another port or device is fixed instead.
+EXPECTABLE: frozenset[FindingKind] = frozenset(
+    {"not-seen", "unknown-device", "no-neighbors"}
+)
 
 
 class _Record(BaseModel):
@@ -184,7 +199,8 @@ class Port(_Record):
 
 
 class Fix(_Record):
-    """A change to the documentation that makes it say what discovery sees."""
+    """A change to the documentation that makes it say what discovery sees,
+    or for ``expect``, that records a finding as expected."""
 
     kind: FixKind
     summary: str
@@ -215,6 +231,10 @@ class Finding(_Record):
     """The last run of that stretch; None if it is the latest run."""
     fix: Fix | None = None
     """How to make the documentation match, where it can be made to."""
+    covered_by: str | None = None
+    """For a finding set aside because another is expected: that one's id.
+    A switch expected to report no neighbors covers its links not seen
+    while it does not answer."""
 
 
 class SeenLink(_Record):
@@ -250,6 +270,8 @@ class Comparison(_Record):
     """Every cable seen that is not documented as it is, for drawing."""
     gone: list[Finding] = []
     """Findings of earlier runs not in this one, most recently seen first."""
+    expected: list[Finding] = []
+    """Findings of this run marked expected, left out of ``findings``."""
     history_from: datetime | None = None
     """The earliest run history has, unbroken back from this one."""
 
@@ -539,7 +561,7 @@ def compare(
     for device in sorted(silent, key=natural):
         count = sum(device in (ln.a.device, ln.b.device) for ln in topology.links)
         findings[f"silent:{device}"] = Finding(
-            id=f"no-neighbors:{device}",
+            id=SILENT + device,
             kind="no-neighbors",
             title=f"{device} reports no neighbors",
             detail=f"None of its {count} documented links is seen from either end: "
@@ -557,6 +579,58 @@ def compare(
         confirmed=sum(v == "confirmed" for v in checks.values()),
         findings=ordered,
         seen=seen_links,
+    )
+
+
+def expecting(
+    comparison: Comparison, expected: Set[str], topology: Topology
+) -> Comparison:
+    """Set aside the findings people have marked expected.
+
+    Args:
+        comparison: A run's comparison.
+        expected: Ids of the findings marked expected.
+        topology: What is documented, for the links of a device expected
+            to report no neighbors.
+
+    Returns:
+        The comparison with those findings moved from ``findings`` to
+        ``expected``, their cables not drawn, those gone left out, and the
+        links not seen that they explain checked ``expected``. A device
+        expected to report no neighbors explains its links even while it
+        does not answer, when each is a finding of its own.
+
+    Raises:
+        None
+    """
+    silent = {e.removeprefix(SILENT) for e in expected if e.startswith(SILENT)}
+
+    def cover(f: Finding) -> str | None:
+        """The expected finding that sets this one aside, if any."""
+        if f.id in expected:
+            return f.id
+        quiet = sorted(set(f.devices) & silent) if f.kind == "not-seen" else []
+        return SILENT + quiet[0] if quiet else None
+
+    kept = [
+        f if cover(f) == f.id else f.model_copy(update={"covered_by": cover(f)})
+        for f in comparison.findings
+        if cover(f)
+    ]
+    explained = {f.link for f in kept if f.link}
+    explained |= {ln.id for ln in topology.links if {ln.a.device, ln.b.device} & silent}
+    links: dict[str, LinkCheck] = {
+        k: "expected" if k in explained and v == "not-seen" else v
+        for k, v in comparison.links.items()
+    }
+    return comparison.model_copy(
+        update={
+            "findings": [f for f in comparison.findings if not cover(f)],
+            "expected": kept,
+            "seen": [s for s in comparison.seen if s.finding not in expected],
+            "gone": [f for f in comparison.gone if not cover(f)],
+            "links": links,
+        }
     )
 
 

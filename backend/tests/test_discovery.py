@@ -18,6 +18,7 @@ from sunstone.discovery import (
     SimulatedDiscovery,
     Visibility,
     compare,
+    expecting,
 )
 from sunstone.discovery_log import DiscoveryLog
 from sunstone.live import DeviceHistory, DeviceState, InterfaceState, NetworkState
@@ -491,6 +492,57 @@ def changes_client(
 
 
 class TestChangesApi:
+    def test_a_finding_is_marked_expected_with_a_note_and_withdrawn(
+        self, topology: Topology, tmp_path: Path
+    ) -> None:
+        client = changes_client(topology, tmp_path)
+        finding = next(
+            f
+            for f in client.get("/api/discovery").json()["findings"]
+            if f["kind"] == "not-seen"
+        )
+        review = client.get(
+            "/api/review", params={"finding": finding["id"], "expect": True}
+        ).json()
+        assert [p["reading"]["oper"] for p in review["involved"]] == ["up", "up"]
+        assert (review["removes"], review["adds"]) == ([], [])
+        mark = {"finding": finding["id"], "by": "Pat", "expect": True}
+        assert client.post("/api/changes", json=mark).status_code == 422
+        marked = client.post(
+            "/api/changes", json={**mark, "note": "Media converter, rack 4"}
+        )
+        assert marked.status_code == 201
+        assert marked.json()["fix"]["kind"] == "expect"
+        assert len(client.get("/api/topology").json()["links"]) == len(topology.links)
+        comparison = client.get("/api/discovery").json()
+        assert finding["id"] not in {f["id"] for f in comparison["findings"]}
+        assert [f["id"] for f in comparison["expected"]] == [finding["id"]]
+        assert comparison["links"][finding["link"]] == "expected"
+        # No longer offered for retiring.
+        offered = client.get("/api/review", params={"finding": finding["id"]})
+        assert offered.status_code == 404
+        change = marked.json()["id"]
+        assert client.delete(f"/api/changes/{change}").status_code == 204
+        comparison = client.get("/api/discovery").json()
+        assert finding["id"] in {f["id"] for f in comparison["findings"]}
+        assert comparison["expected"] == []
+
+    def test_a_link_on_the_wrong_port_is_fixed_not_expected(
+        self, topology: Topology, tmp_path: Path
+    ) -> None:
+        client = changes_client(topology, tmp_path)
+        wrong = next(
+            f
+            for f in client.get("/api/discovery").json()["findings"]
+            if f["kind"] == "wrong-port"
+        )
+        refused = client.post(
+            "/api/changes",
+            json={"finding": wrong["id"], "by": "Pat", "note": "x", "expect": True},
+        )
+        assert refused.status_code == 409
+        assert "so fix it" in refused.json()["detail"]
+
     def test_a_fix_is_reviewed_accepted_kept_and_reverted(
         self, topology: Topology, tmp_path: Path
     ) -> None:
@@ -616,3 +668,48 @@ class TestChangesApi:
         ChangeStore(tmp_path / "changes.json").save([change])
         with pytest.raises(ChangesError, match="no longer applies"):
             changes_client(topology, tmp_path)
+
+
+class TestExpected:
+    def test_findings_marked_expected_are_set_aside(self, topology: Topology) -> None:
+        state = AllUp(topology)
+        cabling = drifted(topology)
+        at = lab_in(cabling)
+        found = SimulatedDiscovery(topology, cabling, state).discover(at)
+        result = compare(topology, found, Visibility.of(state.snapshot(at)))
+        aside = {
+            f.id
+            for f in result.findings
+            if f.kind in ("not-seen", "unknown-device", "no-neighbors")
+        }
+        shown = expecting(result, aside, topology)
+        assert [f.kind for f in shown.findings] == [
+            "wrong-neighbor",
+            "wrong-port",
+            "undocumented",
+        ]
+        assert {f.id for f in shown.expected} == aside
+        # The link across the media converter, and the silent switch's links.
+        assert Counter(shown.links.values())["expected"] == 3
+        assert "not-seen" not in shown.links.values()
+        assert all(s.known for s in shown.seen)
+        assert shown.confirmed == result.confirmed
+        assert expecting(result, set(), topology).findings == result.findings
+
+    def test_a_switch_expected_silent_covers_its_links_while_it_does_not_answer(
+        self, topology: Topology
+    ) -> None:
+        device = "hou-acc-01"
+        found = tables(topology)
+        # LLDP off: it does not advertise, and now it does not answer either.
+        del found[device]
+        for name, rows in found.items():
+            found[name] = [n for n in rows if not n.remote.lower().startswith(device)]
+        result = compare(
+            topology, run(found), Visibility.of(AllUp(topology).snapshot(AT))
+        )
+        assert {f.kind for f in result.findings} == {"not-seen"}
+        shown = expecting(result, {f"no-neighbors:{device}"}, topology)
+        assert shown.findings == []
+        assert {f.covered_by for f in shown.expected} == {f"no-neighbors:{device}"}
+        assert set(shown.links.values()) == {"expected"}
