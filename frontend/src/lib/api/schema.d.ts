@@ -33,9 +33,49 @@ export interface paths {
         };
         /**
          * Get State
-         * @description Return the live state of everything monitored, as of now.
+         * @description Return the state of everything monitored, as of now or an earlier moment.
          */
         get: operations["get_state_api_state_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Events
+         * @description Return the changes the source saw over its whole history.
+         */
+        get: operations["get_events_api_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/history/{device}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get History
+         * @description Return one device's readings over the source's whole history.
+         */
+        get: operations["get_history_api_history__device__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -139,6 +179,36 @@ export interface components {
             id: string;
         };
         /**
+         * DeviceHistory
+         * @description One device's readings at regular steps, oldest first.
+         *
+         *     Step ``i`` is at ``start + i * step_s``. Values are None where there was
+         *     no fresh reading: the device was down, cut off, or not reporting.
+         */
+        DeviceHistory: {
+            /** Device */
+            device: string;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /** Step S */
+            step_s: number;
+            /** Status */
+            status: ("up" | "down" | "nodata")[];
+            /** Rtt Ms */
+            rtt_ms: {
+                [key: string]: (number | null)[];
+            };
+            /** Loss Pct */
+            loss_pct: {
+                [key: string]: (number | null)[];
+            };
+            /** Interfaces */
+            interfaces: components["schemas"]["InterfaceHistory"][];
+        };
+        /**
          * DeviceState
          * @description Whether a monitored device answers, and how quickly.
          */
@@ -172,10 +242,42 @@ export interface components {
             /** Lag */
             lag?: string | null;
         };
+        /**
+         * EventLog
+         * @description The changes seen between two moments, oldest first.
+         */
+        EventLog: {
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /**
+             * Until
+             * Format: date-time
+             */
+            until: string;
+            /** Events */
+            events: components["schemas"]["StateEvent"][];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InterfaceHistory
+         * @description One interface's readings at each step of a device history.
+         */
+        InterfaceHistory: {
+            /** Interface */
+            interface: string;
+            /** Oper */
+            oper: (("up" | "down") | null)[];
+            /** In Pct */
+            in_pct: (number | null)[];
+            /** Out Pct */
+            out_pct: (number | null)[];
         };
         /**
          * InterfaceState
@@ -403,6 +505,30 @@ export interface components {
             id: string;
         };
         /**
+         * StateEvent
+         * @description A change a source saw: a device or link going down or coming back,
+         *     readings stopping or resuming, packet loss starting or clearing, or a
+         *     link's load crossing 80% or 95% (``pct`` is the load after the change).
+         */
+        StateEvent: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "down" | "up" | "nodata" | "reporting" | "loss" | "loss-cleared" | "link-down" | "link-up" | "busy" | "congested" | "load-normal";
+            /** Device */
+            device?: string | null;
+            /** Link */
+            link?: string | null;
+            /** Pct */
+            pct?: number | null;
+        };
+        /**
          * Topology
          * @description A whole network: every site, device, and link.
          */
@@ -458,7 +584,9 @@ export interface operations {
     };
     get_state_api_state_get: {
         parameters: {
-            query?: never;
+            query?: {
+                at?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -472,6 +600,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NetworkState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_events_api_events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventLog"];
+                };
+            };
+        };
+    };
+    get_history_api_history__device__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceHistory"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

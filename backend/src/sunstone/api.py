@@ -18,7 +18,7 @@ from sunstone.layouts import (
     LayoutSummary,
     SavedLayout,
 )
-from sunstone.live import NetworkState, StateSource
+from sunstone.live import DeviceHistory, EventLog, NetworkState, StateSource
 from sunstone.loader import load_topology
 from sunstone.model import Topology
 from sunstone.simulate import SimulatedState
@@ -76,10 +76,40 @@ def create_app(
         """Return the whole topology."""
         return topology
 
+    def in_history(at: datetime, now: datetime) -> datetime:
+        """Check that a requested moment is one the source keeps."""
+        if at.tzinfo is None:
+            raise HTTPException(
+                422, "Give the time with a zone, as in 2026-10-27T15:00Z"
+            )
+        if not now - state.retention <= at <= now:
+            hours = state.retention.total_seconds() / 3600
+            raise HTTPException(
+                422, f"The time must be within the last {hours:g} hours"
+            )
+        return at
+
     @app.get("/api/state")
-    def get_state() -> NetworkState:
-        """Return the live state of everything monitored, as of now."""
-        return state.snapshot(datetime.now(UTC))
+    def get_state(at: datetime | None = None) -> NetworkState:
+        """Return the state of everything monitored, as of now or an earlier moment."""
+        now = datetime.now(UTC)
+        return state.snapshot(now if at is None else in_history(at, now))
+
+    @app.get("/api/events")
+    def get_events() -> EventLog:
+        """Return the changes the source saw over its whole history."""
+        now = datetime.now(UTC)
+        since = now - state.retention
+        return EventLog(since=since, until=now, events=state.events(since, now))
+
+    @app.get("/api/history/{device}")
+    def get_history(device: str) -> DeviceHistory:
+        """Return one device's readings over the source's whole history."""
+        now = datetime.now(UTC)
+        history = state.history(device, now - state.retention, now)
+        if history is None:
+            raise HTTPException(404, f"{device!r} is not monitored")
+        return history
 
     @app.get("/api/layouts")
     def list_layouts() -> list[LayoutSummary]:

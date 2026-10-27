@@ -5,11 +5,15 @@ its WAN links, or a set of links. With live state, also health, round-trip
 times from each monitoring position, and load on each link, and what
 failing it would do. Above it, the shortest paths between two devices when
 a path is shown, hop by hop with interfaces; or the impact being shown, of
-a problem or of "what if" failures. Names in the panel are links that select
-and bring that item into view.
+a problem or of "what if" failures. With live state, charts of the last
+day: round trip to a device, load on each of its links, and load on a
+selected link; clicking a chart replays that moment. Names in the panel are
+links that select and bring that item into view.
 -->
 <script lang="ts">
+	import { fetchHistory, type DeviceHistory, type InterfaceHistory } from './api/state.ts';
 	import type { Endpoint, Link } from './api/topology.ts';
+	import { linkHistory } from './history.ts';
 	import { failuresOf, impactOf, reach, type Impact } from './impact.ts';
 	import {
 		deviceHealth,
@@ -32,7 +36,9 @@ and bring that item into view.
 		ui,
 		type Selection
 	} from './state.svelte.ts';
-	import { HEALTH_COLOR, HEALTH_GLYPH, ROLE_COLOR, utilColor } from './theme.ts';
+	import Spark from './Spark.svelte';
+	import { HEALTH_COLOR, HEALTH_GLYPH, ROLE_COLOR, SERIES_COLOR, utilColor } from './theme.ts';
+	import TimeChart from './TimeChart.svelte';
 	import {
 		compareNatural,
 		formatSpeed,
@@ -85,6 +91,74 @@ and bring that item into view.
 	}
 
 	const selection = $derived(ui.selection);
+	const replayed = $derived(ui.at ? Date.parse(ui.at) : null);
+
+	/** History is fetched again this often while the same device stays selected. */
+	const HISTORY_REFRESH_MS = 5 * 60_000;
+	const DOWN = { label: 'Down', color: HEALTH_COLOR.down };
+	const NODATA = { label: 'No data', color: HEALTH_COLOR.nodata };
+	const LOSS = { label: 'Packet loss', color: HEALTH_COLOR.degraded };
+
+	// The device whose last day to chart: the selected device, or the end of
+	// the selected link that the source monitors.
+	const historyDevice = $derived.by(() => {
+		if (!live || !selection) return null;
+		if (selection.kind === 'device') return live.devices.has(selection.id) ? selection.id : null;
+		if (selection.kind !== 'links' || selection.ids.length !== 1) return null;
+		const link = index.links.get(selection.ids[0] ?? '');
+		return link ? ([link.a.device, link.b.device].find((d) => live.devices.has(d)) ?? null) : null;
+	});
+	let history = $state.raw<DeviceHistory | null>(null);
+	let historyProblem = $state<string | null>(null);
+
+	$effect(() => {
+		const device = historyDevice;
+		history = null;
+		historyProblem = null;
+		if (!device) return;
+		let stopped = false;
+		const load = async () => {
+			try {
+				const found = await fetchHistory(device);
+				if (!stopped) history = found;
+			} catch (e) {
+				if (!stopped) historyProblem = e instanceof Error ? e.message : String(e);
+			}
+		};
+		void load();
+		const timer = setInterval(load, HISTORY_REFRESH_MS);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
+	});
+
+	function replay(time: number): void {
+		ui.at = new Date(time).toISOString();
+	}
+
+	/** Down, no data, or packet loss at each step of a device's history. */
+	function deviceStrip(h: DeviceHistory) {
+		return h.status.map((status, i) => {
+			if (status === 'down') return DOWN;
+			if (status === 'nodata') return NODATA;
+			const lossy = Object.values(h.loss_pct).some((l) => (l[i] ?? 0) > 0);
+			return lossy ? LOSS : null;
+		});
+	}
+
+	/** Load in an interface's busier direction at each step. */
+	function busier(h: InterfaceHistory): (number | null)[] {
+		return h.in_pct.map((inbound, i) => {
+			const outbound = h.out_pct[i] ?? null;
+			return inbound === null && outbound === null ? null : Math.max(inbound ?? 0, outbound ?? 0);
+		});
+	}
+
+	function positionLabel(name: string): string {
+		const at = live?.state.positions.find((p) => p.name === name);
+		return at ? `${name} (${at.site})` : name;
+	}
 	// What failing the selection alone would do, on top of what live state shows down now.
 	const ifFails = $derived.by(() => {
 		if (!selection) return null;
@@ -371,6 +445,25 @@ and bring that item into view.
 							{:else}
 								<p class="muted">The {live.state.source} source does not watch this device.</p>
 							{/if}
+							{#if history?.device === device.name}
+								<h3>Last 24 hours</h3>
+								<TimeChart
+									label="Round trip to {device.name} over the last 24 hours"
+									start={Date.parse(history.start)}
+									step={history.step_s * 1000}
+									series={Object.entries(history.rtt_ms).map(([position, values], i) => ({
+										label: positionLabel(position),
+										color: SERIES_COLOR[i % SERIES_COLOR.length] ?? '',
+										values
+									}))}
+									unit=" ms"
+									strip={deviceStrip(history)}
+									at={replayed}
+									onpick={replay}
+								/>
+							{:else if historyProblem}
+								<p class="muted">History unavailable: {historyProblem}</p>
+							{/if}
 						{/if}
 						<dl>
 							{#if device.platform}<dt>Platform</dt>
@@ -394,6 +487,10 @@ and bring that item into view.
 									{#if live}<th title="Percent of capacity, out of and into this device"
 											>Out / in</th
 										>{/if}
+									{#if history?.device === device.name}<th
+											title="Load in the busier direction over the last 24 hours: amber from 80%, red from 95%; red ticks where the link was down"
+											>24 h</th
+										>{/if}
 								</tr>
 							</thead>
 							<tbody>
@@ -412,6 +509,18 @@ and bring that item into view.
 										{#if live}
 											{@const at = loadAt(live, n.link, n.local)}
 											<td class="nowrap">{@render load(at.health, at.out, at.in)}</td>
+										{/if}
+										{#if history?.device === device.name}
+											{@const h = history.interfaces.find((i) => i.interface === n.local.interface)}
+											<td>
+												{#if h}<Spark
+														values={busier(h)}
+														down={h.oper.map((o) => o === 'down')}
+														start={Date.parse(history.start)}
+														step={history.step_s * 1000}
+														at={replayed}
+													/>{/if}
+											</td>
 										{/if}
 									</tr>
 								{/each}
@@ -545,6 +654,29 @@ and bring that item into view.
 							{/each}
 						</tbody>
 					</table>
+					{#if links.length === 1 && links[0] && history}
+						{@const series = linkHistory(history, links[0])}
+						{#if series}
+							<h3>Last 24 hours</h3>
+							<TimeChart
+								label="Load on the link over the last 24 hours, as seen from {history.device}"
+								start={Date.parse(history.start)}
+								step={history.step_s * 1000}
+								series={[
+									{ label: 'A→B', color: SERIES_COLOR[0], values: series.aToB },
+									{ label: 'B→A', color: SERIES_COLOR[1], values: series.bToA }
+								]}
+								unit="%"
+								max={100}
+								levels={[80, 95]}
+								strip={series.down.map((d) => (d ? DOWN : null))}
+								at={replayed}
+								onpick={replay}
+							/>
+						{/if}
+					{:else if historyProblem}
+						<p class="muted">History unavailable: {historyProblem}</p>
+					{/if}
 				{/if}
 			</section>
 		{/if}

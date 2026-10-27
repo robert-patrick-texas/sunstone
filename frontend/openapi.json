@@ -27,8 +27,27 @@
   "/api/state": {
    "get": {
     "summary": "Get State",
-    "description": "Return the live state of everything monitored, as of now.",
+    "description": "Return the state of everything monitored, as of now or an earlier moment.",
     "operationId": "get_state_api_state_get",
+    "parameters": [
+     {
+      "name": "at",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "At"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
@@ -36,6 +55,75 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/NetworkState"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/events": {
+   "get": {
+    "summary": "Get Events",
+    "description": "Return the changes the source saw over its whole history.",
+    "operationId": "get_events_api_events_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EventLog"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/history/{device}": {
+   "get": {
+    "summary": "Get History",
+    "description": "Return one device's readings over the source's whole history.",
+    "operationId": "get_history_api_history__device__get",
+    "parameters": [
+     {
+      "name": "device",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Device"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DeviceHistory"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
         }
        }
       }
@@ -288,6 +376,89 @@
     "title": "DeviceCenter",
     "description": "A neighborhood built around one device."
    },
+   "DeviceHistory": {
+    "properties": {
+     "device": {
+      "type": "string",
+      "title": "Device"
+     },
+     "start": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start"
+     },
+     "step_s": {
+      "type": "integer",
+      "title": "Step S"
+     },
+     "status": {
+      "items": {
+       "type": "string",
+       "enum": [
+        "up",
+        "down",
+        "nodata"
+       ]
+      },
+      "type": "array",
+      "title": "Status"
+     },
+     "rtt_ms": {
+      "additionalProperties": {
+       "items": {
+        "anyOf": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "type": "array"
+      },
+      "type": "object",
+      "title": "Rtt Ms"
+     },
+     "loss_pct": {
+      "additionalProperties": {
+       "items": {
+        "anyOf": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "type": "array"
+      },
+      "type": "object",
+      "title": "Loss Pct"
+     },
+     "interfaces": {
+      "items": {
+       "$ref": "#/components/schemas/InterfaceHistory"
+      },
+      "type": "array",
+      "title": "Interfaces"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "device",
+     "start",
+     "step_s",
+     "status",
+     "rtt_ms",
+     "loss_pct",
+     "interfaces"
+    ],
+    "title": "DeviceHistory",
+    "description": "One device's readings at regular steps, oldest first.\n\nStep ``i`` is at ``start + i * step_s``. Values are None where there was\nno fresh reading: the device was down, cut off, or not reporting."
+   },
    "DeviceState": {
     "properties": {
      "device": {
@@ -362,6 +533,36 @@
     "title": "Endpoint",
     "description": "One end of a link: a device's interface, optionally a LAG member."
    },
+   "EventLog": {
+    "properties": {
+     "since": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Since"
+     },
+     "until": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Until"
+     },
+     "events": {
+      "items": {
+       "$ref": "#/components/schemas/StateEvent"
+      },
+      "type": "array",
+      "title": "Events"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "since",
+     "until",
+     "events"
+    ],
+    "title": "EventLog",
+    "description": "The changes seen between two moments, oldest first."
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -374,6 +575,70 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "InterfaceHistory": {
+    "properties": {
+     "interface": {
+      "type": "string",
+      "title": "Interface"
+     },
+     "oper": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string",
+         "enum": [
+          "up",
+          "down"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Oper"
+     },
+     "in_pct": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "In Pct"
+     },
+     "out_pct": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Out Pct"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "interface",
+     "oper",
+     "in_pct",
+     "out_pct"
+    ],
+    "title": "InterfaceHistory",
+    "description": "One interface's readings at each step of a device history."
    },
    "InterfaceState": {
     "properties": {
@@ -901,6 +1166,73 @@
     ],
     "title": "SiteCenter",
     "description": "A neighborhood built around every device of a site."
+   },
+   "StateEvent": {
+    "properties": {
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "down",
+       "up",
+       "nodata",
+       "reporting",
+       "loss",
+       "loss-cleared",
+       "link-down",
+       "link-up",
+       "busy",
+       "congested",
+       "load-normal"
+      ],
+      "title": "Kind"
+     },
+     "device": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Device"
+     },
+     "link": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Link"
+     },
+     "pct": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pct"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "at",
+     "kind"
+    ],
+    "title": "StateEvent",
+    "description": "A change a source saw: a device or link going down or coming back,\nreadings stopping or resuming, packet loss starting or clearing, or a\nlink's load crossing 80% or 95% (``pct`` is the load after the change)."
    },
    "Topology": {
     "properties": {

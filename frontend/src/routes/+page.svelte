@@ -1,15 +1,16 @@
 <!--
 @component
 The app: header with view switch and search, the current view, the legend,
-the details panel for whatever is selected, and with live state, the
-problems it shows.
+the details panel for whatever is selected, and with live state, a time
+slider over the last day and a side panel of problems and events.
 -->
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { fetchState } from '#lib/api/state.ts';
+	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
 	import DetailsPanel from '#lib/DetailsPanel.svelte';
+	import EventsPanel from '#lib/EventsPanel.svelte';
 	import GeoView from '#lib/geo/GeoView.svelte';
 	import HierarchyView from '#lib/hierarchy/HierarchyView.svelte';
 	import { failuresOf, impactOf } from '#lib/impact.ts';
@@ -21,6 +22,7 @@ problems it shows.
 	import ProblemsPanel from '#lib/ProblemsPanel.svelte';
 	import SearchBox from '#lib/SearchBox.svelte';
 	import { expandedSites, select, ui, type View } from '#lib/state.svelte.ts';
+	import Timeline from '#lib/Timeline.svelte';
 	import { indexTopology, type TopologyIndex } from '#lib/topology.ts';
 
 	// Small networks open fully expanded in the hierarchy; larger ones start as one box per site.
@@ -32,10 +34,16 @@ problems it shows.
 	];
 
 	const POLL_MS = 10_000;
+	// Sources report history in 5-minute steps, so the event log changes no faster.
+	const EVENTS_POLL_MS = 60_000;
+	// While the time slider is dragged, wait for it to settle before fetching.
+	const REPLAY_WAIT_MS = 200;
 
 	let index = $state.raw<TopologyIndex | null>(null);
 	let live = $state.raw<LiveIndex | null>(null);
 	let liveProblem = $state<string | null>(null);
+	let events = $state.raw<EventLog | null>(null);
+	let eventsProblem = $state<string | null>(null);
 	const path = $derived(index && ui.path ? shortestPaths(index, ui.path.from, ui.path.to) : null);
 	const problems = $derived(index && live ? findProblems(index, live) : []);
 	const focused = $derived(problems.find((p) => p.id === ui.problem) ?? null);
@@ -60,18 +68,21 @@ problems it shows.
 		}
 	});
 
-	// While live state is on, fetch it now and every POLL_MS.
+	// While live state is on, fetch it now and every POLL_MS; or, while
+	// replaying an earlier moment, fetch that moment once.
 	$effect(() => {
 		if (!ui.live) {
 			live = null;
 			liveProblem = null;
 			ui.problem = null;
+			ui.at = null;
 			return;
 		}
+		const at = ui.at;
 		let stopped = false;
-		const poll = async () => {
+		const load = async () => {
 			try {
-				const state = await fetchState();
+				const state = await fetchState(at ?? undefined);
 				if (stopped) return;
 				live = indexState(state);
 				liveProblem = null;
@@ -79,8 +90,41 @@ problems it shows.
 				if (!stopped) liveProblem = e instanceof Error ? e.message : String(e);
 			}
 		};
-		void poll();
-		const timer = setInterval(poll, POLL_MS);
+		if (at) {
+			const wait = setTimeout(load, REPLAY_WAIT_MS);
+			return () => {
+				stopped = true;
+				clearTimeout(wait);
+			};
+		}
+		void load();
+		const timer = setInterval(load, POLL_MS);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
+	});
+
+	// The last day's events, for the time slider and the events list.
+	$effect(() => {
+		if (!ui.live) {
+			events = null;
+			eventsProblem = null;
+			return;
+		}
+		let stopped = false;
+		const load = async () => {
+			try {
+				const log = await fetchEvents();
+				if (stopped) return;
+				events = log;
+				eventsProblem = null;
+			} catch (e) {
+				if (!stopped) eventsProblem = e instanceof Error ? e.message : String(e);
+			}
+		};
+		void load();
+		const timer = setInterval(load, EVENTS_POLL_MS);
 		return () => {
 			stopped = true;
 			clearInterval(timer);
@@ -118,16 +162,17 @@ problems it shows.
 		{#if ui.live}
 			<button
 				aria-pressed={ui.problemsOpen}
-				title="Show or hide the list of problems"
+				title="Show or hide the list of problems and events"
 				onclick={() => (ui.problemsOpen = !ui.problemsOpen)}
 			>
 				Problems{live ? ` ${problems.length}` : ''}
 			</button>
-			<span class="live-status" aria-live="polite">
+			<span class="live-status" class:past={ui.at !== null} aria-live="polite">
 				{#if liveProblem}
 					Live state unavailable: {liveProblem}
 				{:else if live}
-					{live.state.source} · as of {new Date(live.state.generated_at).toLocaleTimeString()}
+					{live.state.source} · {ui.at ? 'replaying' : 'as of'}
+					{new Date(live.state.generated_at).toLocaleTimeString()}
 				{:else}
 					Loading live state…
 				{/if}
@@ -141,6 +186,9 @@ problems it shows.
 			</span>
 		{/if}
 	</header>
+	{#if ui.live && events}
+		<Timeline log={events} />
+	{/if}
 	<main>
 		{#if problem}
 			<p class="message">Could not load the topology: {problem}</p>
@@ -148,7 +196,26 @@ problems it shows.
 			<p class="message">Loading topology…</p>
 		{:else}
 			{#if live && ui.problemsOpen}
-				<ProblemsPanel {problems} />
+				<aside class="side" aria-label="Problems and events">
+					<div class="segmented tabs" role="tablist" aria-label="List">
+						<button
+							role="tab"
+							aria-selected={ui.sideTab === 'problems'}
+							onclick={() => (ui.sideTab = 'problems')}>Problems {problems.length}</button
+						>
+						<button
+							role="tab"
+							aria-selected={ui.sideTab === 'events'}
+							onclick={() => (ui.sideTab = 'events')}
+							>Events{events ? ` ${events.events.length}` : ''}</button
+						>
+					</div>
+					{#if ui.sideTab === 'problems'}
+						<ProblemsPanel {problems} />
+					{:else}
+						<EventsPanel {index} log={events} problem={eventsProblem} />
+					{/if}
+				</aside>
 			{/if}
 			<section class="view">
 				{#key ui.view}
@@ -228,6 +295,28 @@ problems it shows.
 		color: var(--muted);
 		font-size: 12px;
 		white-space: nowrap;
+	}
+	.live-status.past {
+		color: var(--selected);
+	}
+	.side {
+		flex: none;
+		width: min(300px, 30vw);
+		overflow-y: auto;
+		background: var(--panel);
+		border-right: 1px solid var(--border);
+		padding: 10px;
+		font-size: 13px;
+	}
+	.tabs {
+		margin-bottom: 10px;
+	}
+	.tabs button {
+		flex: 1;
+	}
+	.tabs button[aria-selected='true'] {
+		background: var(--panel-2);
+		border-color: var(--live);
 	}
 	.stats {
 		margin-left: auto;

@@ -42,8 +42,9 @@ test('live problems are listed, and one shows what it affects', async ({ page })
 	await page.goto('/');
 	await expect(page.getByText('5 sites · 52 devices · 106 links')).toBeVisible();
 	await page.getByRole('button', { name: 'Live' }).click();
-	const problems = page.getByRole('complementary', { name: 'Problems' });
-	await expect(problems.getByRole('heading', { name: /^Problems \d+$/ })).toBeVisible();
+	const side = page.getByRole('complementary', { name: 'Problems and events' });
+	const problems = side.getByRole('region', { name: 'Problems' });
+	await expect(side.getByRole('tab', { name: /^Problems \d+$/ })).toBeVisible();
 
 	// A few devices are always down, so an unreachable device heads the list.
 	await expect(problems.getByRole('heading', { name: /^Unreachable/ })).toBeVisible();
@@ -58,5 +59,5 @@ test('live problems are listed, and one shows what it affects', async ({ page })
 	await expect(impact(page)).toHaveCount(0);
 
 	await page.getByRole('button', { name: /^Problems \d+$/ }).click();
-	await expect(problems).toHaveCount(0);
+	await expect(side).toHaveCount(0);
 });

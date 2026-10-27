@@ -21,6 +21,10 @@ export const ui = $state({
 	live: false,
 	/** Show the list of problems in live state. */
 	problemsOpen: true,
+	/** Which list the side panel shows. */
+	sideTab: 'problems' as 'problems' | 'events',
+	/** The earlier moment whose live state is shown (ISO time), or null for now. */
+	at: null as string | null,
 	/** The problem whose impact is shown, by id. */
 	problem: null as string | null,
 	/** Devices, sites, and links supposed to fail, to see what that would do. */
