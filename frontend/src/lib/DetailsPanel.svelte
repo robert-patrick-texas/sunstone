@@ -11,10 +11,11 @@ selected link; clicking a chart replays that moment. Names in the panel are
 links that select and bring that item into view.
 -->
 <script lang="ts">
+	import { fetchWhatIf, type Problem, type WhatIf } from './api/analysis.ts';
 	import { fetchHistory, type DeviceHistory, type InterfaceHistory } from './api/state.ts';
 	import type { Endpoint, Link } from './api/topology.ts';
 	import { linkHistory } from './history.ts';
-	import { failuresOf, impactOf, reach, type Impact } from './impact.ts';
+	import type { Impact } from './impact.ts';
 	import {
 		deviceHealth,
 		groupHealth,
@@ -24,7 +25,6 @@ links that select and bring that item into view.
 		type LiveIndex
 	} from './live.ts';
 	import { linksBetween, type PathResult } from './paths.ts';
-	import { currentFailures, type Problem } from './problems.ts';
 	import {
 		addFailure,
 		clearPath,
@@ -56,12 +56,15 @@ links that select and bring that item into view.
 		path,
 		impact,
 		problem,
+		whatIfProblem,
 		live
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
 		impact: Impact | null;
 		problem: Problem | null;
+		/** Why the "what if" impact could not be worked out, if it could not. */
+		whatIfProblem: string | null;
 		live: LiveIndex | null;
 	} = $props();
 
@@ -159,30 +162,37 @@ links that select and bring that item into view.
 		const at = live?.state.positions.find((p) => p.name === name);
 		return at ? `${name} (${at.site})` : name;
 	}
-	// What failing the selection alone would do, on top of what live state shows down now.
-	const ifFails = $derived.by(() => {
-		if (!selection) return null;
-		const failures = failuresOf(index, [selection]);
-		if (!live) return impactOf(index, failures);
-		const before = currentFailures(index, live);
-		// Already down or cut off, it can lose nothing more.
-		const { reached } = reach(index, before);
-		const gone = (d: string) => !reached.has(d);
-		const already =
-			[...failures.devices].every(gone) &&
-			[...failures.links].every((id) => {
-				const link = index.links.get(id);
-				return before.links.has(id) || !link || gone(link.a.device) || gone(link.b.device);
-			});
-		return already ? 'down' : impactOf(index, failures, before);
+	// What failing the selection alone would do, on top of what live state
+	// shows down now, asked of the server. Each answer is kept with the
+	// selection it is for, so an old one never shows beside a new selection.
+	let answered = $state.raw<{ key: string; answer: WhatIf } | null>(null);
+	const selectionKey = $derived(JSON.stringify(selection));
+	const ifFails = $derived(answered?.key === selectionKey ? answered.answer : null);
+
+	$effect(() => {
+		const target = selection ? $state.snapshot(selection) : null;
+		const key = JSON.stringify(target);
+		const at = live?.state.generated_at ?? null;
+		if (!target) return;
+		let stopped = false;
+		fetchWhatIf([target], at).then(
+			(answer) => {
+				if (!stopped) answered = { key, answer };
+			},
+			// Without an answer the line is left out; the details are still there.
+			(e: unknown) => console.warn('Could not ask what failing the selection would do', e)
+		);
+		return () => {
+			stopped = true;
+		};
 	});
 
 	function plural(n: number, noun: string): string {
 		return `${n} ${noun}${n === 1 ? '' : 's'}`;
 	}
 
-	function consequence(i: Impact | 'down', subject: string): string {
-		if (i === 'down') return `Live state already shows ${subject} down or cut off.`;
+	function consequence({ impact: i, already }: WhatIf, subject: string): string {
+		if (already) return `Live state already shows ${subject} down or cut off.`;
 		const parts: string[] = [];
 		if (i.cutOff.size) parts.push(`cut off ${plural(i.cutOff.size, 'device')}`);
 		if (i.exposed.size) parts.push(`leave ${plural(i.exposed.size, 'device')} without redundancy`);
@@ -323,7 +333,7 @@ links that select and bring that item into view.
 	{#if end.lag}<span class="tag">{shortInterface(end.lag)}</span>{/if}
 {/snippet}
 
-{#if selection || path || ui.pathFrom || impact}
+{#if selection || path || ui.pathFrom || impact || (ui.whatIf.length && whatIfProblem)}
 	<aside class="details" aria-label="Details">
 		{#if ui.pathFrom}
 			<section class="path" aria-label="Path">
@@ -369,6 +379,12 @@ links that select and bring that item into view.
 						<p class="muted">and {path.count - path.listed.length} more</p>
 					{/if}
 				{/if}
+			</section>
+		{:else if ui.whatIf.length && whatIfProblem}
+			<section class="impact" aria-label="Impact">
+				<button class="close" onclick={() => (ui.whatIf = [])} aria-label="Clear what if">×</button>
+				<h2>What if</h2>
+				<p class="muted">Could not work out what these failures would do: {whatIfProblem}</p>
 			</section>
 		{:else if impact}
 			<section class="impact" aria-label="Impact">

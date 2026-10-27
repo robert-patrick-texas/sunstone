@@ -6,19 +6,22 @@
  * its fast draft pass leaves sites piled on top of each other. Large graphs
  * are therefore laid out site by site: each expanded site's devices on their
  * own, then the sites, sized to fit their devices, among each other.
+ *
+ * Layouts work on plain graph data in a headless Cytoscape, so they can run
+ * in a Web Worker (`layout.worker.ts`) and leave the page responsive.
+ * Without a renderer, label sizes are unknown, so device nodes are given a
+ * box that leaves room for their label.
  */
 import cytoscape, {
 	type BreadthFirstLayoutOptions,
-	type Core,
 	type EdgeSingular,
 	type LayoutOptions,
 	type NodeSingular,
 	type Position
 } from 'cytoscape';
 import fcose from 'cytoscape-fcose';
-import { SITE_H, SITE_W, type GraphNode } from '../graph/model.ts';
-import type { TopologyIndex } from '../topology.ts';
-import { radialRoots, type TopoGraph } from './graph.ts';
+import { SITE_H, SITE_W, type GraphEdge, type GraphNode } from '../graph/model.ts';
+import type { TopoGraph } from './graph.ts';
 
 cytoscape.use(fcose);
 
@@ -51,7 +54,6 @@ const FORCE = {
 	name: 'fcose',
 	animate: false,
 	fit: false,
-	nodeDimensionsIncludeLabels: true,
 	// Collapsed site boxes get site spacing (on the 3,000-device sample this
 	// took overlapping boxes from 102 pairs to 2).
 	idealEdgeLength: (e: EdgeSingular) => (touchesSiteBox(e) ? SITE_SPACING.idealEdgeLength : 90),
@@ -61,47 +63,75 @@ const FORCE = {
 	packComponents: true
 };
 
+/** What to lay out, and how: everything a layout needs, as plain data. */
+export interface LayoutRequest {
+	nodes: GraphNode[];
+	edges: GraphEdge[];
+	/**
+	 * Force-directed; radial from the roots; or layered, top down from the
+	 * roots (for paths).
+	 */
+	kind: 'force' | 'radial' | 'layered';
+	/** Where radial and layered layouts start. */
+	roots: string[];
+	/** Current positions to adjust instead of starting over (force-directed only). */
+	start?: Map<string, Position>;
+}
+
 /**
- * Lay out a graph that is already drawn.
+ * Lay out a graph.
  *
- * @param core - Cytoscape instance drawing `graph`.
- * @param index - Topology index.
- * @param graph - The drawn graph.
- * @param kind - Force-directed; radial from the center (or top sites); or layered, top
- *   down by hops from the center (for paths).
- * @param refine - Adjust the current positions instead of starting over (force-directed only).
+ * @param request - The graph and how to lay it out.
+ * @returns Positions of devices and site boxes; frames follow their devices.
  */
-export function runLayout(
-	core: Core,
-	index: TopologyIndex,
-	graph: TopoGraph,
-	kind: 'force' | 'radial' | 'layered',
-	refine: boolean
-): void {
+export function layoutPositions(request: LayoutRequest): Map<string, Position> {
+	const { nodes, edges, kind, roots, start } = request;
+	if (kind === 'force' && nodes.length > SITEWISE_ABOVE) return sitewisePositions(request);
+	const cy = cytoscape({
+		headless: true,
+		styleEnabled: true,
+		style: [
+			{ selector: 'node', style: { width: DEVICE_W, height: DEVICE_H } },
+			{ selector: 'node[w]', style: { width: 'data(w)', height: 'data(h)' } },
+			{ selector: ':parent', style: { padding: '20px' } }
+		],
+		elements: [
+			...nodes.map((n) => ({ group: 'nodes' as const, data: { ...n } })),
+			...edges.map((e) => ({
+				group: 'edges' as const,
+				data: { id: e.id, source: e.source, target: e.target }
+			}))
+		]
+	});
+	// A headless instance ignores positions given with the elements, so set them after.
+	if (start) {
+		cy.nodes().forEach((n) => {
+			const at = start.get(n.id());
+			if (at && !n.isParent()) n.position({ ...at });
+		});
+	}
 	if (kind !== 'force') {
 		const byHops: BreadthFirstLayoutOptions = {
 			name: 'breadthfirst',
-			roots: radialRoots(index, graph.nodes),
+			roots,
 			circle: kind === 'radial',
 			spacingFactor: 1.3,
 			avoidOverlap: true,
 			animate: false,
 			fit: false
 		};
-		core.layout(byHops).run();
-	} else if (graph.nodes.length > SITEWISE_ABOVE) {
-		const positions = sitewisePositions(graph);
-		core.batch(() =>
-			core.nodes().forEach((n) => {
-				const at = positions.get(n.id());
-				if (at) n.position(at);
-			})
-		);
+		cy.layout(byHops).run();
 	} else {
 		// fcose only refines existing positions at its slowest quality.
-		const quality = refine ? 'proof' : 'default';
-		core.layout({ ...FORCE, quality, randomize: !refine } as LayoutOptions).run();
+		const quality = start ? 'proof' : 'default';
+		cy.layout({ ...FORCE, quality, randomize: !start } as LayoutOptions).run();
 	}
+	const positions = new Map<string, Position>();
+	cy.nodes().forEach((n) => {
+		if (!n.isParent()) positions.set(n.id(), { ...n.position() });
+	});
+	cy.destroy();
+	return positions;
 }
 
 /**

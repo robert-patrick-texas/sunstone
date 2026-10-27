@@ -51,7 +51,10 @@ test('live problems are listed, and one shows what it affects', async ({ page })
 	const first = problems.getByRole('button').first();
 	await first.click();
 	await expect(first).toHaveAttribute('aria-pressed', 'true');
-	await expect(impact(page).getByRole('heading', { name: / down$| cut off$/ })).toBeVisible();
+	// Outages read "x down", "SITE cut off", or "N devices unreachable at SITE".
+	await expect(
+		impact(page).getByRole('heading', { name: / down$|cut off$|unreachable/ })
+	).toBeVisible();
 	await expect(legend(page).getByText('Failed')).toBeVisible();
 
 	await first.click();

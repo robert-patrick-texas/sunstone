@@ -2,7 +2,7 @@
 
 TOPOLOGY ?= data/sample/small.yaml
 
-.PHONY: help setup dev-api dev-web build serve test e2e data api-types
+.PHONY: help setup dev-api dev-web build serve test e2e bench data api-types
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -29,6 +29,9 @@ test: ## Unit tests, linters, formatters, and type checks
 
 e2e: build ## Browser tests; set PW_WS_ENDPOINT to use the Playwright container
 	cd frontend && npx playwright test
+
+bench: build ## Time the large sample in a browser and print a table (see README)
+	cd frontend && npx playwright test --config playwright.bench.config.ts
 
 data: ## Regenerate the mock topologies in data/sample
 	cd backend && uv run python -m sunstone.mockgen --preset small -o ../data/sample/small.yaml

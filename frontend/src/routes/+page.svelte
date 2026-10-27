@@ -7,18 +7,20 @@ slider over the last day and a side panel of problems and events.
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
+	import { fetchProblems, fetchWhatIf, type Problem } from '#lib/api/analysis.ts';
 	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
 	import DetailsPanel from '#lib/DetailsPanel.svelte';
+	import { startPerf, timed, timedAsync } from '#lib/perf.ts';
+	import PerfPanel from '#lib/PerfPanel.svelte';
 	import EventsPanel from '#lib/EventsPanel.svelte';
 	import GeoView from '#lib/geo/GeoView.svelte';
 	import HierarchyView from '#lib/hierarchy/HierarchyView.svelte';
-	import { failuresOf, impactOf } from '#lib/impact.ts';
+	import type { Impact } from '#lib/impact.ts';
 	import TopologyView from '#lib/topo/TopologyView.svelte';
 	import Legend from '#lib/Legend.svelte';
 	import { indexState, type LiveIndex } from '#lib/live.ts';
 	import { shortestPaths } from '#lib/paths.ts';
-	import { currentFailures, findProblems } from '#lib/problems.ts';
 	import ProblemsPanel from '#lib/ProblemsPanel.svelte';
 	import SearchBox from '#lib/SearchBox.svelte';
 	import { expandedSites, select, ui, type View } from '#lib/state.svelte.ts';
@@ -45,18 +47,24 @@ slider over the last day and a side panel of problems and events.
 	let events = $state.raw<EventLog | null>(null);
 	let eventsProblem = $state<string | null>(null);
 	const path = $derived(index && ui.path ? shortestPaths(index, ui.path.from, ui.path.to) : null);
-	const problems = $derived(index && live ? findProblems(index, live) : []);
+	// Problems come with each snapshot, found once on the server for every viewer.
+	let problems = $state.raw<Problem[]>([]);
+	let whatIf = $state.raw<Impact | null>(null);
+	let whatIfProblem = $state<string | null>(null);
 	const focused = $derived(problems.find((p) => p.id === ui.problem) ?? null);
 	// A path, when shown, takes the place of an impact.
 	const impact = $derived.by(() => {
 		if (!index || path || ui.pathFrom) return null;
-		if (ui.whatIf.length === 0) return focused?.impact ?? null;
-		const before = live ? currentFailures(index, live) : undefined;
-		return impactOf(index, failuresOf(index, ui.whatIf), before);
+		return ui.whatIf.length === 0 ? (focused?.impact ?? null) : whatIf;
 	});
 	let problem = $state<string | null>(null);
+	let showPerf = $state(false);
 
 	onMount(async () => {
+		if (new URLSearchParams(location.search).has('perf')) {
+			startPerf();
+			showPerf = true;
+		}
 		try {
 			const topology = await fetchTopology();
 			if (topology.devices.length <= EXPAND_ALL_UP_TO) {
@@ -73,6 +81,7 @@ slider over the last day and a side panel of problems and events.
 	$effect(() => {
 		if (!ui.live) {
 			live = null;
+			problems = [];
 			liveProblem = null;
 			ui.problem = null;
 			ui.at = null;
@@ -82,9 +91,11 @@ slider over the last day and a side panel of problems and events.
 		let stopped = false;
 		const load = async () => {
 			try {
-				const state = await fetchState(at ?? undefined);
+				const state = await timedAsync('live fetch', () => fetchState(at ?? undefined));
+				const found = await timedAsync('problems fetch', () => fetchProblems(state.generated_at));
 				if (stopped) return;
-				live = indexState(state);
+				live = timed('live index', () => indexState(state));
+				problems = found;
 				liveProblem = null;
 			} catch (e) {
 				if (!stopped) liveProblem = e instanceof Error ? e.message : String(e);
@@ -105,6 +116,31 @@ slider over the last day and a side panel of problems and events.
 		};
 	});
 
+	// What the "what if" failures would do, asked again when they or the live state change.
+	$effect(() => {
+		const failures = $state.snapshot(ui.whatIf);
+		const at = live?.state.generated_at ?? null;
+		if (failures.length === 0) {
+			whatIf = null;
+			whatIfProblem = null;
+			return;
+		}
+		let stopped = false;
+		timedAsync('what if', () => fetchWhatIf(failures, at)).then(
+			(answer) => {
+				if (stopped) return;
+				whatIf = answer.impact;
+				whatIfProblem = null;
+			},
+			(e: unknown) => {
+				if (!stopped) whatIfProblem = e instanceof Error ? e.message : String(e);
+			}
+		);
+		return () => {
+			stopped = true;
+		};
+	});
+
 	// The last day's events, for the time slider and the events list.
 	$effect(() => {
 		if (!ui.live) {
@@ -115,7 +151,7 @@ slider over the last day and a side panel of problems and events.
 		let stopped = false;
 		const load = async () => {
 			try {
-				const log = await fetchEvents();
+				const log = await timedAsync('events fetch', fetchEvents);
 				if (stopped) return;
 				events = log;
 				eventsProblem = null;
@@ -140,6 +176,7 @@ slider over the last day and a side panel of problems and events.
 </script>
 
 <svelte:window onkeydown={onKeydown} />
+{#if showPerf}<PerfPanel />{/if}
 
 <div class="app">
 	<header>
@@ -235,7 +272,7 @@ slider over the last day and a side panel of problems and events.
 					</p>
 				{/if}
 			</section>
-			<DetailsPanel {index} {path} {impact} problem={focused} {live} />
+			<DetailsPanel {index} {path} {impact} problem={focused} {whatIfProblem} {live} />
 		{/if}
 	</main>
 </div>

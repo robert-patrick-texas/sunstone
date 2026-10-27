@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureIndex } from '../test-fixture.ts';
 import type { NetworkState } from '../api/state.ts';
-import { failuresOf, impactOf } from '../impact.ts';
+import type { Impact } from '../impact.ts';
 import { indexState } from '../live.ts';
 import {
 	deviceFeatures,
@@ -97,7 +97,12 @@ describe('live properties', () => {
 	it('give way to an impact, which marks only what it touches', () => {
 		const index = fixtureIndex();
 		const live = indexState(state);
-		const impact = impactOf(index, failuresOf(index, [{ kind: 'device', id: 'c-wan-01' }]));
+		// c-wan-01 fails, cutting off branch C's switches.
+		const impact: Impact = {
+			failed: { devices: new Set(['c-wan-01']), links: new Set() },
+			cutOff: new Set(['c-acc-01', 'c-acc-02']),
+			exposed: new Map()
+		};
 		const devices = deviceFeatures(index, devicePositions(index), live, impact).features;
 		const byName = Object.fromEntries(devices.map((f) => [f.properties?.['name'], f.properties]));
 		expect(byName['c-wan-01']).toMatchObject({ impact: 'failed', glyph: '×' });

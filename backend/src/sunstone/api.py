@@ -1,17 +1,21 @@
 """HTTP API, plus the built web UI served from the same origin."""
 
 import os
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi import Path as PathParam
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict
 
+from sunstone.impact import Network, WhatIf
 from sunstone.layouts import (
     MAX_NAME,
+    Center,
     LayoutIn,
     LayoutStore,
     LayoutStoreFull,
@@ -21,9 +25,21 @@ from sunstone.layouts import (
 from sunstone.live import DeviceHistory, EventLog, NetworkState, StateSource
 from sunstone.loader import load_topology
 from sunstone.model import Topology
+from sunstone.monitor import Monitor
+from sunstone.problems import ProblemList
 from sunstone.simulate import SimulatedState
 
 NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
+
+
+class WhatIfQuestion(BaseModel):
+    """Devices, sites, and links to suppose failed, and the moment whose live
+    state to start from (none for the healthy network)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    failures: list[Center]
+    at: datetime | None = None
 
 
 def default_layouts_path(topology_path: Path) -> Path:
@@ -46,6 +62,7 @@ def create_app(
     web_dir: Path | None = None,
     layouts_path: Path | None = None,
     state_source: StateSource | None = None,
+    warm: bool = True,
 ) -> FastAPI:
     """Build the app around one topology file, loaded once at startup.
 
@@ -57,6 +74,9 @@ def create_app(
             topology file.
         state_source: Where live state comes from, or None for simulated
             state (there are no real sources yet).
+        warm: Work out the day's events and the present moment in the
+            background at startup, and each new moment as it begins while
+            anyone is watching, so viewers do not wait.
 
     Returns:
         The FastAPI application.
@@ -67,6 +87,14 @@ def create_app(
     topology = load_topology(topology_path)
     store = LayoutStore(layouts_path or default_layouts_path(topology_path))
     state = state_source or SimulatedState(topology)
+    network = Network(topology)
+    monitor = Monitor(network, state)
+    if warm:
+        threading.Thread(target=monitor.warm, name="warm", daemon=True).start()
+        never = threading.Event()
+        threading.Thread(
+            target=monitor.keep_ahead, args=(never,), name="ahead", daemon=True
+        ).start()
     app = FastAPI(title="Sunstone")
     # Topology and state run to megabytes for large networks and compress well.
     app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -89,11 +117,40 @@ def create_app(
             )
         return at
 
-    @app.get("/api/state")
-    def get_state(at: datetime | None = None) -> NetworkState:
-        """Return the state of everything monitored, as of now or an earlier moment."""
-        now = datetime.now(UTC)
-        return state.snapshot(now if at is None else in_history(at, now))
+    def moment_at(at: datetime | None) -> datetime:
+        """The moment asked for, or the present one."""
+        return monitor.now() if at is None else in_history(at, datetime.now(UTC))
+
+    @app.get("/api/state", response_model=NetworkState)
+    def get_state(request: Request, at: datetime | None = None) -> Response:
+        """Return the state of everything monitored, as of now or an earlier moment.
+
+        The present is rounded down to the polling interval, and each moment
+        is served from one cached, already compressed copy.
+        """
+        moment = monitor.moment(moment_at(at))
+        if "gzip" in request.headers.get("accept-encoding", ""):
+            return Response(
+                moment.gzipped,
+                media_type="application/json",
+                headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
+            )
+        return Response(moment.body, media_type="application/json")
+
+    @app.get("/api/problems")
+    def get_problems(at: datetime | None = None) -> ProblemList:
+        """Return the problems in the state as of now or an earlier moment.
+
+        Pass the ``generated_at`` of the state being shown, so the two match.
+        """
+        return monitor.moment(moment_at(at)).problems
+
+    @app.post("/api/impact")
+    def post_impact(question: WhatIfQuestion) -> WhatIf:
+        """Return what failing some devices, sites, and links would do."""
+        before = None if question.at is None else monitor.moment(moment_at(question.at))
+        failures = network.failures_of(question.failures)
+        return network.what_if(failures, before.failures if before else None)
 
     @app.get("/api/events")
     def get_events() -> EventLog:

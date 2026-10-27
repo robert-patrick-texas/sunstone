@@ -292,3 +292,32 @@ def test_api_replays_any_moment_of_the_last_day(
     state = SimulatedState(topology)
     unwatched = next(d.name for d in topology.devices if d.name not in state.watched)
     assert client.get(f"/api/history/{unwatched}").status_code == 404
+
+
+def test_api_serves_problems_and_what_if_for_the_moment_shown(
+    tmp_path: Path, topology: Topology
+) -> None:
+    path = tmp_path / "small.yaml"
+    path.write_text(to_yaml(topology, "test"), encoding="utf-8")
+    client = TestClient(create_app(path, warm=False))
+    first = client.get("/api/state")
+    state = first.json()
+    at = state["generated_at"]
+    # The present is rounded to the polling interval, and served from one copy.
+    assert datetime.fromisoformat(at).timestamp() % 10 == 0
+    if client.get("/api/state").json()["generated_at"] == at:
+        assert client.get("/api/state").content == first.content
+
+    problems = client.get("/api/problems", params={"at": at}).json()
+    assert problems["problems"][0]["kind"] == "outage"
+
+    healthy = client.post(
+        "/api/impact", json={"failures": [{"kind": "device", "id": "dal-dist-01"}]}
+    ).json()
+    assert len(healthy["impact"]["exposed"]) == 6
+    assert not healthy["already"]
+    down = next(d["device"] for d in state["devices"] if d["status"] == "down")
+    again = client.post(
+        "/api/impact", json={"failures": [{"kind": "device", "id": down}], "at": at}
+    ).json()
+    assert again["already"]

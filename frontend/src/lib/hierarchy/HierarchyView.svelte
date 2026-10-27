@@ -9,6 +9,7 @@ the details panel); expanded sites show devices in tier rows.
 	import type { Impact } from '../impact.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
+	import { timed } from '../perf.ts';
 	import { expandedSites, ui, type Selection } from '../state.svelte.ts';
 	import { siteOf, type TopologyIndex } from '../topology.ts';
 	import { buildHierarchy } from './layout.ts';
@@ -49,7 +50,7 @@ the details panel); expanded sites show devices in tier rows.
 	$effect(() => {
 		const c = canvas;
 		if (!c) return;
-		const graph = buildHierarchy(index, expandedSites);
+		const graph = timed('hierarchy layout', () => buildHierarchy(index, expandedSites));
 		untrack(() => {
 			c.setGraph(graph.nodes, graph.edges);
 			if (placed) return;

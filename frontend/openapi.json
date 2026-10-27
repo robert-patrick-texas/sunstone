@@ -27,7 +27,7 @@
   "/api/state": {
    "get": {
     "summary": "Get State",
-    "description": "Return the state of everything monitored, as of now or an earlier moment.",
+    "description": "Return the state of everything monitored, as of now or an earlier moment.\n\nThe present is rounded down to the polling interval, and each moment\nis served from one cached, already compressed copy.",
     "operationId": "get_state_api_state_get",
     "parameters": [
      {
@@ -55,6 +55,93 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/NetworkState"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/problems": {
+   "get": {
+    "summary": "Get Problems",
+    "description": "Return the problems in the state as of now or an earlier moment.\n\nPass the ``generated_at`` of the state being shown, so the two match.",
+    "operationId": "get_problems_api_problems_get",
+    "parameters": [
+     {
+      "name": "at",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "At"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ProblemList"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/impact": {
+   "post": {
+    "summary": "Post Impact",
+    "description": "Return what failing some devices, sites, and links would do.",
+    "operationId": "post_impact_api_impact_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WhatIfQuestion"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WhatIf"
         }
        }
       }
@@ -563,6 +650,32 @@
     "title": "EventLog",
     "description": "The changes seen between two moments, oldest first."
    },
+   "FailedSet": {
+    "properties": {
+     "devices": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Devices"
+     },
+     "links": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Links"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "devices",
+     "links"
+    ],
+    "title": "FailedSet",
+    "description": "Devices and links that fail."
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -575,6 +688,39 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "Impact": {
+    "properties": {
+     "failed": {
+      "$ref": "#/components/schemas/FailedSet"
+     },
+     "cut_off": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Cut Off"
+     },
+     "exposed": {
+      "additionalProperties": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "type": "object",
+      "title": "Exposed"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "failed",
+     "cut_off",
+     "exposed"
+    ],
+    "title": "Impact",
+    "description": "What some failures do to the network."
    },
    "InterfaceHistory": {
     "properties": {
@@ -1025,6 +1171,112 @@
     "title": "Position",
     "description": "Where a node was drawn."
    },
+   "Problem": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "outage",
+       "link-down",
+       "congested",
+       "loss",
+       "busy",
+       "nodata"
+      ],
+      "title": "Kind"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "detail": {
+      "type": "string",
+      "title": "Detail"
+     },
+     "target": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/DeviceCenter"
+       },
+       {
+        "$ref": "#/components/schemas/SiteCenter"
+       },
+       {
+        "$ref": "#/components/schemas/LinksCenter"
+       }
+      ],
+      "title": "Target",
+      "discriminator": {
+       "propertyName": "kind",
+       "mapping": {
+        "device": "#/components/schemas/DeviceCenter",
+        "links": "#/components/schemas/LinksCenter",
+        "site": "#/components/schemas/SiteCenter"
+       }
+      }
+     },
+     "impact": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Impact"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "lost": {
+      "type": "integer",
+      "title": "Lost"
+     },
+     "exposed": {
+      "type": "integer",
+      "title": "Exposed"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "title",
+     "detail",
+     "target",
+     "impact",
+     "lost",
+     "exposed"
+    ],
+    "title": "Problem",
+    "description": "One thing wrong, with what it does to the network."
+   },
+   "ProblemList": {
+    "properties": {
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "problems": {
+      "items": {
+       "$ref": "#/components/schemas/Problem"
+      },
+      "type": "array",
+      "title": "Problems"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "at",
+     "problems"
+    ],
+    "title": "ProblemList",
+    "description": "The problems in one snapshot, most urgent first."
+   },
    "Reachability": {
     "properties": {
      "position": {
@@ -1307,6 +1559,73 @@
      "type"
     ],
     "title": "ValidationError"
+   },
+   "WhatIf": {
+    "properties": {
+     "impact": {
+      "$ref": "#/components/schemas/Impact"
+     },
+     "already": {
+      "type": "boolean",
+      "title": "Already"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "impact",
+     "already"
+    ],
+    "title": "WhatIf",
+    "description": "What failing some items would do, on top of what is already down."
+   },
+   "WhatIfQuestion": {
+    "properties": {
+     "failures": {
+      "items": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/DeviceCenter"
+        },
+        {
+         "$ref": "#/components/schemas/SiteCenter"
+        },
+        {
+         "$ref": "#/components/schemas/LinksCenter"
+        }
+       ],
+       "discriminator": {
+        "propertyName": "kind",
+        "mapping": {
+         "device": "#/components/schemas/DeviceCenter",
+         "links": "#/components/schemas/LinksCenter",
+         "site": "#/components/schemas/SiteCenter"
+        }
+       }
+      },
+      "type": "array",
+      "title": "Failures"
+     },
+     "at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "failures"
+    ],
+    "title": "WhatIfQuestion",
+    "description": "Devices, sites, and links to suppose failed, and the moment whose live\nstate to start from (none for the healthy network)."
    }
   }
  }
