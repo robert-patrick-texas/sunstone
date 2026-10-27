@@ -42,7 +42,7 @@ test('an event replays its moment and selects what changed', async ({ page }) =>
 
 test('a monitored device charts its last day, and the chart replays a moment', async ({ page }) => {
 	await goLive(page);
-	await page.getByRole('searchbox', { name: 'Search sites and devices' }).fill('dal-core-01');
+	await page.getByRole('combobox', { name: 'Search' }).fill('dal-core-01');
 	await page.keyboard.press('Enter');
 	const panel = details(page);
 	await expect(panel.getByRole('heading', { name: 'Last 24 hours' })).toBeVisible();

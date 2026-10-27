@@ -10,24 +10,23 @@ view; clicking it again stops showing the impact.
 <script lang="ts">
 	import type { Problem } from './api/analysis.ts';
 	import type { Window } from './api/operations.ts';
-	import { KINDS, MARK } from './problem-kinds.ts';
+	import { grouped, handling, MARK } from './problem-kinds.ts';
 	import { showProblem, ui } from './state.svelte.ts';
 
 	const { problems, windows }: { problems: Problem[]; windows: Window[] } = $props();
 
-	/** 0 for a problem no one is on, 1 acknowledged, 2 accounted for by planned work. */
-	const handling = (p: Problem) => (p.planned.length ? 2 : p.ack ? 1 : 0);
-	const groups = $derived(
-		KINDS.map((k) => ({
-			...k,
-			// Sorting is stable, so the server's order holds within each.
-			items: problems.filter((p) => p.kind === k.kind).sort((x, y) => handling(x) - handling(y))
-		})).filter((g) => g.items.length > 0)
-	);
+	const groups = $derived(grouped(problems));
 	const titles = $derived(new Map(windows.map((w) => [w.id, w.title])));
+	let list: HTMLElement;
+
+	// Stepping through problems from the keyboard keeps the one shown in sight.
+	$effect(() => {
+		if (!ui.problem) return;
+		list.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
+	});
 </script>
 
-<section aria-label="Problems">
+<section aria-label="Problems" bind:this={list}>
 	{#if problems.length === 0}
 		<p class="muted">Nothing wrong {ui.at ? 'at this moment' : 'in the latest snapshot'}.</p>
 	{:else}

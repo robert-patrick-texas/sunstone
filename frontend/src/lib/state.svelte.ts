@@ -67,6 +67,8 @@ export const ui = $state({
 	planning: null as WindowDraft | null,
 	/** Where the map is, kept so a link can carry it. */
 	camera: null as Camera | null,
+	/** Incremented to ask the map to go where `fromLink.camera` says (Back and Forward). */
+	cameraRequest: 0,
 	/** Incremented to ask the current view to show everything. */
 	fitRequest: 0,
 	/** The NOC wall display: on, how long it shows each thing, and paused. */
@@ -80,8 +82,8 @@ export const ui = $state({
 });
 
 /**
- * Where a link put the map, for the map to go to when it opens, once. Not
- * reactive: the map reads it when it starts.
+ * Where a link put the map, for the map to go to once: when it opens, or
+ * when asked to with `ui.cameraRequest`. Not reactive.
  */
 export const fromLink: { camera: Camera | null } = { camera: null };
 

@@ -193,3 +193,45 @@ export function fromQuery(q: URLSearchParams, index: TopologyIndex): Partial<Sha
 export function readable(q: URLSearchParams): string {
 	return q.toString().replace(/%3A/gi, ':').replace(/%2C/gi, ',').replace(/%2F/gi, '/');
 }
+
+/**
+ * How Sunstone opens, for what a link leaves out when Back or Forward goes to
+ * it. The topology view's settings, expanded sites, and the map's position
+ * are only in links that show them, so they stay as they are.
+ */
+export const OPENING = {
+	view: 'geo',
+	selection: null,
+	live: false,
+	at: null,
+	path: null,
+	whatIf: [],
+	problem: null,
+	wall: null
+} satisfies Partial<Shared>;
+
+/**
+ * Whether going from one screen to another goes somewhere new, so that Back
+ * should return from it: another view, neighborhood, selection, path,
+ * problem, or "what if". Moving the map, Live, the time, and expanded sites
+ * change how the same place looks, and clearing something stays in place.
+ *
+ * @param before - What was on screen.
+ * @param after - What is on screen now.
+ * @returns True to add a step to the browser's history, false to update the current one.
+ */
+export function movesOn(before: Shared, after: Shared): boolean {
+	const differs = (x: unknown, y: unknown) => JSON.stringify(x) !== JSON.stringify(y);
+	const scope = (s: Shared) =>
+		s.view === 'topology'
+			? { scope: s.topo.scope, center: s.topo.scope === 'neighborhood' ? s.topo.center : null }
+			: null;
+	return (
+		before.view !== after.view ||
+		differs(scope(before), scope(after)) ||
+		(after.selection !== null && differs(before.selection, after.selection)) ||
+		(after.path !== null && differs(before.path, after.path)) ||
+		(after.problem !== null && before.problem !== after.problem) ||
+		(after.whatIf.length > 0 && differs(before.whatIf, after.whatIf))
+	);
+}

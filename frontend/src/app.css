@@ -75,3 +75,21 @@ button:disabled {
 	border-color: var(--accent);
 	color: #1a1300;
 }
+
+/* A key to press, in search and the shortcuts help. */
+kbd {
+	display: inline-block;
+	min-width: 1.4em;
+	padding: 0 4px;
+	margin: 0 1px;
+	border: 1px solid var(--border);
+	border-bottom-width: 2px;
+	border-radius: 4px;
+	background: var(--bg);
+	color: var(--text);
+	font:
+		11px/1.5 ui-monospace,
+		monospace;
+	text-align: center;
+	box-sizing: border-box;
+}

@@ -8,6 +8,7 @@ describe('shortInterface', () => {
 		['HundredGigE1/0/3', 'Hu1/0/3'],
 		['GigabitEthernet0/0/0', 'Gi0/0/0'],
 		['Port-channel10', 'Po10'],
+		['tengigabitethernet1/0/1', 'Te1/0/1'],
 		['mgmt0', 'mgmt0']
 	])('%s → %s', (name, short) => expect(shortInterface(name)).toBe(short));
 });

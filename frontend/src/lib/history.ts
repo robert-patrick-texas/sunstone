@@ -231,3 +231,37 @@ export function clock(iso: string): string {
 	if (at.toDateString() === new Date().toDateString()) return time;
 	return `${at.toLocaleDateString([], { weekday: 'short' })} ${time}`;
 }
+
+/** The stretch of time history covers. */
+export interface Span {
+	since: string;
+	until: string;
+}
+
+/**
+ * The step before a moment, for stepping back through history the way the
+ * time slider does.
+ *
+ * @param at - The moment shown (ISO time), or null for now.
+ * @param span - The stretch history covers.
+ * @returns The step before, never before history starts.
+ */
+export function stepEarlier(at: string | null, span: Span): string {
+	const first = Math.ceil(Date.parse(span.since) / STEP_MS) * STEP_MS;
+	const latest = Math.floor(Date.parse(span.until) / STEP_MS) * STEP_MS;
+	const from = at ? Math.round(Date.parse(at) / STEP_MS) * STEP_MS - STEP_MS : latest;
+	return new Date(Math.max(first, from)).toISOString();
+}
+
+/**
+ * The step after a moment, or now once there is none.
+ *
+ * @param at - The moment shown (ISO time).
+ * @param span - The stretch history covers.
+ * @returns The step after, or null for now.
+ */
+export function stepLater(at: string, span: Span): string | null {
+	const latest = Math.floor(Date.parse(span.until) / STEP_MS) * STEP_MS;
+	const next = Math.round(Date.parse(at) / STEP_MS) * STEP_MS + STEP_MS;
+	return next > latest ? null : new Date(next).toISOString();
+}

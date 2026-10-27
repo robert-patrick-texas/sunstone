@@ -4,17 +4,21 @@ The app: header with view switch and search, the current view, the legend,
 the details panel for whatever is selected, a side panel of maintenance
 windows, and with live state, a time slider over the last day and problems
 and events in the side panel too. The address bar always holds a link to
-what is on screen, and opening such a link shows it again. In wall display
-mode, the wall's bar and captions take the place of the controls.
+what is on screen, and opening such a link shows it again; going somewhere
+new (another view, selection, path, or problem) adds a step that Back
+returns from. Every command has a place in search and most have a key;
+`?` lists them. In wall display mode, the wall's bar and captions take the
+place of the controls.
 -->
 <script lang="ts">
 	import '../app.css';
-	import { onMount } from 'svelte';
-	import { replaceState } from '$app/navigation';
+	import { onMount, untrack } from 'svelte';
+	import { pushState, replaceState } from '$app/navigation';
 	import { fetchProblems, fetchWhatIf, type Problem } from '#lib/api/analysis.ts';
 	import { fetchWindows, type Window } from '#lib/api/operations.ts';
 	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
+	import { available, COMMANDS, commandFor, type CommandId } from '#lib/commands.ts';
 	import DetailsPanel from '#lib/DetailsPanel.svelte';
 	import { startPerf, timed, timedAsync } from '#lib/perf.ts';
 	import PerfPanel from '#lib/PerfPanel.svelte';
@@ -28,20 +32,29 @@ mode, the wall's bar and captions take the place of the controls.
 	import MaintenancePanel from '#lib/MaintenancePanel.svelte';
 	import { indexState, type LiveIndex } from '#lib/live.ts';
 	import { shortestPaths } from '#lib/paths.ts';
+	import { stepEarlier, stepLater, type Span } from '#lib/history.ts';
+	import { stepProblem } from '#lib/problem-kinds.ts';
 	import ProblemsPanel from '#lib/ProblemsPanel.svelte';
+	import { loadRecent, saveRecent, withRecent } from '#lib/recent.ts';
 	import SearchBox from '#lib/SearchBox.svelte';
+	import ShortcutsHelp from '#lib/ShortcutsHelp.svelte';
 	import {
+		addFailure,
 		clearPath,
 		expandedSites,
 		fromLink,
 		select,
+		showNeighborhood,
+		showProblem,
+		startPath,
 		topo,
 		ui,
+		type Selection,
 		type View
 	} from '#lib/state.svelte.ts';
 	import Timeline from '#lib/Timeline.svelte';
 	import { compareNatural, indexTopology, type TopologyIndex } from '#lib/topology.ts';
-	import { fromQuery, readable, toQuery, type Shared } from '#lib/url.ts';
+	import { fromQuery, movesOn, OPENING, readable, toQuery, type Shared } from '#lib/url.ts';
 	import WallDisplay from '#lib/WallDisplay.svelte';
 
 	// Small networks open fully expanded in the hierarchy; larger ones start as one box per site.
@@ -59,6 +72,8 @@ mode, the wall's bar and captions take the place of the controls.
 	const WINDOWS_POLL_MS = 60_000;
 	// While the time slider is dragged, wait for it to settle before fetching.
 	const REPLAY_WAIT_MS = 200;
+	// How far back sources keep history, for stepping back before the events arrive.
+	const DAY_MS = 24 * 60 * 60_000;
 
 	let index = $state.raw<TopologyIndex | null>(null);
 	let live = $state.raw<LiveIndex | null>(null);
@@ -86,6 +101,18 @@ mode, the wall's bar and captions take the place of the controls.
 	let problem = $state<string | null>(null);
 	let showPerf = $state(false);
 	let copied = $state<string | null>(null);
+	let helpOpen = $state(false);
+	let searchBox = $state<ReturnType<typeof SearchBox>>();
+	/** What this browser looked at recently, newest first. */
+	let recent = $state(loadRecent());
+	const context = $derived({
+		selection: ui.selection,
+		live: ui.live,
+		replaying: ui.at !== null,
+		problems: problems.length
+	});
+	// Search offers every command that can run now, except going to search itself.
+	const ready = $derived(COMMANDS.filter((c) => c.id !== 'search' && available(c, context)));
 
 	onMount(async () => {
 		if (new URLSearchParams(location.search).has('perf')) {
@@ -106,7 +133,7 @@ mode, the wall's bar and captions take the place of the controls.
 		}
 	});
 
-	/** Show what a link asks for. */
+	/** Show what a link asks for; anything it leaves out stays as it is. */
 	function openLink(found: Partial<Shared>): void {
 		if (found.topo) Object.assign(topo, found.topo);
 		if (found.expanded) {
@@ -114,25 +141,24 @@ mode, the wall's bar and captions take the place of the controls.
 			for (const code of found.expanded) expandedSites.add(code);
 		}
 		if (found.view) ui.view = found.view;
-		if (found.selection) ui.selection = found.selection;
-		if (found.path) ui.path = found.path;
+		if (found.selection !== undefined) ui.selection = found.selection;
+		if (found.path !== undefined) ui.path = found.path;
 		if (found.whatIf) ui.whatIf = found.whatIf;
-		if (found.live) {
-			ui.live = true;
+		if (found.live !== undefined) {
+			ui.live = found.live;
 			ui.at = found.at ?? null;
 			ui.problem = found.problem ?? null;
 		}
 		if (found.camera) fromLink.camera = found.camera;
-		if (found.wall) {
-			ui.wall.on = true;
-			ui.wall.dwell = found.wall.dwell;
+		if (found.wall !== undefined) {
+			ui.wall.on = found.wall !== null;
+			if (found.wall) ui.wall.dwell = found.wall.dwell;
 		}
 	}
 
-	// Keep the address bar a link to what is on screen.
-	$effect(() => {
-		if (!index) return;
-		const shared: Shared = {
+	/** What is on screen, as a link carries it. */
+	function onScreen(): Shared {
+		return {
 			view: ui.view,
 			selection: ui.selection ? $state.snapshot(ui.selection) : null,
 			live: ui.live,
@@ -145,11 +171,55 @@ mode, the wall's bar and captions take the place of the controls.
 			camera: ui.camera,
 			wall: ui.wall.on ? { dwell: ui.wall.dwell } : null
 		};
+	}
+
+	// What the address bar last showed; not reactive.
+	let shown: Shared | null = null;
+
+	// Keep the address bar a link to what is on screen. Going somewhere new
+	// adds a step to the browser's history, so Back returns from it; anything
+	// else updates the current step. The wall moves on by itself, so it never adds steps.
+	$effect(() => {
+		if (!index) return;
+		const shared = onScreen();
+		const step = shown !== null && !ui.wall.on && movesOn(shown, shared);
+		shown = shared;
 		// ?perf is for measuring, not for sharing, but keep it while measuring.
 		const parts = [readable(toQuery(shared, index)), showPerf ? 'perf' : ''].filter(Boolean);
 		const search = parts.length ? `?${parts.join('&')}` : '';
-		if (search !== location.search) replaceState(`${location.pathname}${search}`, {});
+		if (search === location.search) return;
+		if (step) pushState(`${location.pathname}${search}`, {});
+		else replaceState(`${location.pathname}${search}`, {});
 	});
+
+	/** Back or Forward: show the step gone to, as a link would. */
+	function onPopState(): void {
+		if (!index) return;
+		const found = fromQuery(new URLSearchParams(location.search), index);
+		ui.pathFrom = null;
+		openLink({ ...OPENING, ...found });
+		// Go back to where the map was, or else to what was selected.
+		if (found.camera) {
+			fromLink.camera = found.camera;
+			ui.cameraRequest++;
+		} else if (found.selection) ui.focusRequest++;
+		shown = onScreen();
+	}
+
+	// Remember what was looked at, for search to offer again.
+	$effect(() => {
+		const selection = ui.selection;
+		if (!selection || ui.wall.on) return;
+		untrack(() => {
+			recent = withRecent(recent, $state.snapshot(selection));
+			saveRecent(recent);
+		});
+	});
+
+	function forgetRecent(): void {
+		recent = [];
+		saveRecent(recent);
+	}
 
 	// The wall shows live state as it is now, and nothing else.
 	$effect(() => {
@@ -296,23 +366,85 @@ mode, the wall's bar and captions take the place of the controls.
 		refresh++;
 	}
 
-	function toggleMaintenance(): void {
-		const showing = ui.problemsOpen && ui.sideTab === 'maintenance';
-		ui.sideTab = 'maintenance';
+	/** Show a list in the side panel, or hide it if it is showing. */
+	function toggleTab(tab: typeof ui.sideTab): void {
+		const showing = ui.problemsOpen && ui.sideTab === tab;
+		ui.sideTab = tab;
 		ui.problemsOpen = !showing;
 	}
 
-	function onKeydown(e: KeyboardEvent): void {
-		// The wall display has keys of its own.
-		if (ui.wall.on || e.key !== 'Escape' || e.target instanceof HTMLInputElement) return;
+	/** Show the next or previous problem, in the order the list has them. */
+	function stepThrough(step: 1 | -1): void {
+		const next = stepProblem(problems, ui.problem, step);
+		if (!next) return;
+		ui.sideTab = 'problems';
+		ui.problemsOpen = true;
+		if (ui.problem !== next.id) showProblem(next);
+	}
+
+	/** The stretch of time history covers, from the events once they are in. */
+	function historySpan(): Span {
+		const now = Date.now();
+		return (
+			events ?? {
+				since: new Date(now - DAY_MS).toISOString(),
+				until: new Date(now).toISOString()
+			}
+		);
+	}
+
+	/** What each command does. */
+	const ACTIONS: Record<CommandId, (selection: Selection | null) => void> = {
+		search: () => searchBox?.focus(),
+		help: () => (helpOpen = true),
+		focus: () => ui.focusRequest++,
+		fit: () => ui.fitRequest++,
+		back: () => window.history.back(),
+		forward: () => window.history.forward(),
 		// Escape first cancels choosing a path's destination, then clears the selection.
-		if (ui.pathFrom) ui.pathFrom = null;
-		else select(null);
+		clear: () => (ui.pathFrom ? (ui.pathFrom = null) : select(null)),
+		'view-geo': () => (ui.view = 'geo'),
+		'view-hierarchy': () => (ui.view = 'hierarchy'),
+		'view-topology': () => (ui.view = 'topology'),
+		neighborhood: (s) => s && showNeighborhood(s),
+		'path-from': (s) => s?.kind === 'device' && startPath(s.id),
+		'what-if': (s) => s && addFailure(s),
+		live: () => (ui.live = !ui.live),
+		problems: () => toggleTab('problems'),
+		events: () => toggleTab('events'),
+		maintenance: () => toggleTab('maintenance'),
+		'next-problem': () => stepThrough(1),
+		'previous-problem': () => stepThrough(-1),
+		earlier: () => (ui.at = stepEarlier(ui.at, historySpan())),
+		later: () => ui.at && (ui.at = stepLater(ui.at, historySpan())),
+		now: () => (ui.at = null),
+		'copy-link': () => void copyLink(),
+		wall: enterWall
+	};
+
+	function run(id: CommandId): void {
+		ACTIONS[id](ui.selection ? $state.snapshot(ui.selection) : null);
+	}
+
+	function onKeydown(e: KeyboardEvent): void {
+		// The wall display has keys of its own, and the help is modal.
+		if (ui.wall.on || helpOpen || e.defaultPrevented) return;
+		// Keys are for typing while in a box, except Ctrl+K and the like.
+		const target = e.target;
+		const typing =
+			target instanceof HTMLElement &&
+			(target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+		if (typing && !e.ctrlKey && !e.metaKey) return;
+		const command = COMMANDS.find((c) => c.id === commandFor(e));
+		if (!command || !available(command, context)) return;
+		e.preventDefault();
+		run(command.id);
 	}
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onpopstate={onPopState} />
 {#if showPerf}<PerfPanel />{/if}
+<ShortcutsHelp bind:open={helpOpen} />
 
 <div class="app" class:wall={ui.wall.on}>
 	{#if ui.wall.on}
@@ -362,12 +494,22 @@ mode, the wall's bar and captions take the place of the controls.
 			<button
 				aria-pressed={ui.problemsOpen && ui.sideTab === 'maintenance'}
 				title="Show or hide maintenance windows"
-				onclick={toggleMaintenance}
+				onclick={() => toggleTab('maintenance')}
 			>
 				Maintenance{coming ? ` ${coming}` : ''}
 			</button>
 			{#if index}
-				<SearchBox {index} />
+				<SearchBox
+					bind:this={searchBox}
+					{index}
+					{live}
+					{problems}
+					{windows}
+					{recent}
+					commands={ready}
+					oncommand={run}
+					onforget={forgetRecent}
+				/>
 				<span class="stats">
 					{index.topology.sites.length} sites · {index.topology.devices.length} devices ·
 					{index.topology.links.length} links
@@ -377,6 +519,12 @@ mode, the wall's bar and captions take the place of the controls.
 				{copied ?? 'Copy link'}
 			</button>
 			<button title="Full-screen display for a NOC wall" onclick={enterWall}>Wall display</button>
+			<button
+				class="help"
+				aria-label="Keyboard shortcuts"
+				title="Keyboard shortcuts (?)"
+				onclick={() => (helpOpen = true)}>?</button
+			>
 		</header>
 	{/if}
 	{#if ui.live && events && !ui.wall.on}
@@ -463,8 +611,9 @@ mode, the wall's bar and captions take the place of the controls.
 	}
 	header {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: 16px;
+		gap: 8px 16px;
 		padding: 8px 14px;
 		background: var(--panel);
 		border-bottom: 1px solid var(--border);
@@ -535,8 +684,21 @@ mode, the wall's bar and captions take the place of the controls.
 		background: var(--panel-2);
 		border-color: var(--live);
 	}
+	.help {
+		width: 28px;
+		padding: 4px 0;
+		border-radius: 50%;
+	}
+	header button {
+		white-space: nowrap;
+	}
+	/* Takes the room left over, and gives it up first. */
 	.stats {
-		margin-left: auto;
+		flex: 1 1 0;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		text-align: right;
 		color: var(--muted);
 		font-size: 12px;
 		white-space: nowrap;
