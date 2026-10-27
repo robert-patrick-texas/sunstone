@@ -21,6 +21,12 @@ def main() -> None:
         type=Path,
         help="saved layouts file (default: beside the topology, NAME.layouts.json)",
     )
+    parser.add_argument(
+        "--operations",
+        type=Path,
+        help="maintenance windows and acknowledgements file "
+        "(default: beside the topology, NAME.operations.json)",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(
@@ -33,6 +39,8 @@ def main() -> None:
         os.environ["SUNSTONE_WEB_DIR"] = str(args.web_dir.resolve())
     if args.layouts:
         os.environ["SUNSTONE_LAYOUTS"] = str(args.layouts.resolve())
+    if args.operations:
+        os.environ["SUNSTONE_OPERATIONS"] = str(args.operations.resolve())
     uvicorn.run(
         "sunstone.api:app_from_env",
         factory=True,

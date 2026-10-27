@@ -56,7 +56,8 @@ export interface paths {
         };
         /**
          * Get Problems
-         * @description Return the problems in the state as of now or an earlier moment.
+         * @description Return the problems in the state as of now or an earlier moment,
+         *     with the maintenance that accounts for each and who is on it.
          *
          *     Pass the ``generated_at`` of the state being shown, so the two match.
          */
@@ -129,6 +130,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/maintenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Windows
+         * @description List maintenance windows, earliest first.
+         */
+        get: operations["list_windows_api_maintenance_get"];
+        put?: never;
+        /**
+         * Add Window
+         * @description Plan a maintenance window.
+         */
+        post: operations["add_window_api_maintenance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/maintenance/{window_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change Window
+         * @description Change a maintenance window.
+         */
+        put: operations["change_window_api_maintenance__window_id__put"];
+        post?: never;
+        /**
+         * Delete Window
+         * @description Delete a maintenance window.
+         */
+        delete: operations["delete_window_api_maintenance__window_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/acks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Acknowledge
+         * @description Acknowledge a problem there is now, with a note.
+         */
+        post: operations["acknowledge_api_acks_post"];
+        /**
+         * Unacknowledge
+         * @description Withdraw a problem's acknowledgement.
+         */
+        delete: operations["unacknowledge_api_acks_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/layouts": {
         parameters: {
             query?: never;
@@ -181,6 +254,43 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Ack
+         * @description An acknowledged problem.
+         */
+        Ack: {
+            /** Problem */
+            problem: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Cleared At */
+            cleared_at?: string | null;
+        };
+        /**
+         * AckIn
+         * @description Someone taking on a problem.
+         */
+        AckIn: {
+            /** Problem */
+            problem: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+        };
         /**
          * Circuit
          * @description A carrier circuit carrying a WAN link.
@@ -536,6 +646,12 @@ export interface components {
             lost: number;
             /** Exposed */
             exposed: number;
+            /**
+             * Planned
+             * @default []
+             */
+            planned: string[];
+            ack?: components["schemas"]["Ack"] | null;
         };
         /**
          * ProblemList
@@ -632,6 +748,11 @@ export interface components {
             link?: string | null;
             /** Pct */
             pct?: number | null;
+            /**
+             * Planned
+             * @default false
+             */
+            planned: boolean;
         };
         /**
          * Topology
@@ -677,6 +798,67 @@ export interface components {
             failures: (components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"])[];
             /** At */
             at?: string | null;
+        };
+        /**
+         * Window
+         * @description A planned maintenance window.
+         */
+        Window: {
+            /** Title */
+            title: string;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Targets */
+            targets: (components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"])[];
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /** Id */
+            id: string;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+        };
+        /**
+         * WindowIn
+         * @description A maintenance window as someone plans it.
+         */
+        WindowIn: {
+            /** Title */
+            title: string;
+            /**
+             * Start
+             * Format: date-time
+             */
+            start: string;
+            /**
+             * End
+             * Format: date-time
+             */
+            end: string;
+            /** Targets */
+            targets: (components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"])[];
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
         };
     };
     responses: never;
@@ -841,6 +1023,185 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeviceHistory"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_windows_api_maintenance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Window"][];
+                };
+            };
+        };
+    };
+    add_window_api_maintenance_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WindowIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Window"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_window_api_maintenance__window_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                window_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WindowIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Window"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_window_api_maintenance__window_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                window_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    acknowledge_api_acks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AckIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ack"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unacknowledge_api_acks_delete: {
+        parameters: {
+            query: {
+                problem: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -75,7 +75,7 @@
   "/api/problems": {
    "get": {
     "summary": "Get Problems",
-    "description": "Return the problems in the state as of now or an earlier moment.\n\nPass the ``generated_at`` of the state being shown, so the two match.",
+    "description": "Return the problems in the state as of now or an earlier moment,\nwith the maintenance that accounts for each and who is on it.\n\nPass the ``generated_at`` of the state being shown, so the two match.",
     "operationId": "get_problems_api_problems_get",
     "parameters": [
      {
@@ -204,6 +204,217 @@
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/maintenance": {
+   "get": {
+    "summary": "List Windows",
+    "description": "List maintenance windows, earliest first.",
+    "operationId": "list_windows_api_maintenance_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/Window"
+         },
+         "type": "array",
+         "title": "Response List Windows Api Maintenance Get"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Add Window",
+    "description": "Plan a maintenance window.",
+    "operationId": "add_window_api_maintenance_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WindowIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Window"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/maintenance/{window_id}": {
+   "put": {
+    "summary": "Change Window",
+    "description": "Change a maintenance window.",
+    "operationId": "change_window_api_maintenance__window_id__put",
+    "parameters": [
+     {
+      "name": "window_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Window Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WindowIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Window"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Delete Window",
+    "description": "Delete a maintenance window.",
+    "operationId": "delete_window_api_maintenance__window_id__delete",
+    "parameters": [
+     {
+      "name": "window_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Window Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/acks": {
+   "post": {
+    "summary": "Acknowledge",
+    "description": "Acknowledge a problem there is now, with a note.",
+    "operationId": "acknowledge_api_acks_post",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AckIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Ack"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Unacknowledge",
+    "description": "Withdraw a problem's acknowledgement.",
+    "operationId": "unacknowledge_api_acks_delete",
+    "parameters": [
+     {
+      "name": "problem",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Problem"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
      },
      "422": {
       "description": "Validation Error",
@@ -369,6 +580,84 @@
  },
  "components": {
   "schemas": {
+   "Ack": {
+    "properties": {
+     "problem": {
+      "type": "string",
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Problem"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "cleared_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleared At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "problem",
+     "by",
+     "at"
+    ],
+    "title": "Ack",
+    "description": "An acknowledged problem."
+   },
+   "AckIn": {
+    "properties": {
+     "problem": {
+      "type": "string",
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Problem"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "problem",
+     "by"
+    ],
+    "title": "AckIn",
+    "description": "Someone taking on a problem."
+   },
    "Circuit": {
     "properties": {
      "provider": {
@@ -1236,6 +1525,24 @@
      "exposed": {
       "type": "integer",
       "title": "Exposed"
+     },
+     "planned": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Planned",
+      "default": []
+     },
+     "ack": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Ack"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "additionalProperties": false,
@@ -1475,6 +1782,11 @@
        }
       ],
       "title": "Pct"
+     },
+     "planned": {
+      "type": "boolean",
+      "title": "Planned",
+      "default": false
      }
     },
     "additionalProperties": false,
@@ -1626,6 +1938,157 @@
     ],
     "title": "WhatIfQuestion",
     "description": "Devices, sites, and links to suppose failed, and the moment whose live\nstate to start from (none for the healthy network)."
+   },
+   "Window": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Title"
+     },
+     "start": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start"
+     },
+     "end": {
+      "type": "string",
+      "format": "date-time",
+      "title": "End"
+     },
+     "targets": {
+      "items": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/DeviceCenter"
+        },
+        {
+         "$ref": "#/components/schemas/SiteCenter"
+        },
+        {
+         "$ref": "#/components/schemas/LinksCenter"
+        }
+       ],
+       "discriminator": {
+        "propertyName": "kind",
+        "mapping": {
+         "device": "#/components/schemas/DeviceCenter",
+         "links": "#/components/schemas/LinksCenter",
+         "site": "#/components/schemas/SiteCenter"
+        }
+       }
+      },
+      "type": "array",
+      "maxItems": 50,
+      "minItems": 1,
+      "title": "Targets"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "saved_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Saved At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "title",
+     "start",
+     "end",
+     "targets",
+     "by",
+     "id",
+     "saved_at"
+    ],
+    "title": "Window",
+    "description": "A planned maintenance window."
+   },
+   "WindowIn": {
+    "properties": {
+     "title": {
+      "type": "string",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Title"
+     },
+     "start": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Start"
+     },
+     "end": {
+      "type": "string",
+      "format": "date-time",
+      "title": "End"
+     },
+     "targets": {
+      "items": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/DeviceCenter"
+        },
+        {
+         "$ref": "#/components/schemas/SiteCenter"
+        },
+        {
+         "$ref": "#/components/schemas/LinksCenter"
+        }
+       ],
+       "discriminator": {
+        "propertyName": "kind",
+        "mapping": {
+         "device": "#/components/schemas/DeviceCenter",
+         "links": "#/components/schemas/LinksCenter",
+         "site": "#/components/schemas/SiteCenter"
+        }
+       }
+      },
+      "type": "array",
+      "maxItems": 50,
+      "minItems": 1,
+      "title": "Targets"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "title",
+     "start",
+     "end",
+     "targets",
+     "by"
+    ],
+    "title": "WindowIn",
+    "description": "A maintenance window as someone plans it."
    }
   }
  }

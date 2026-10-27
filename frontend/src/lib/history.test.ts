@@ -8,15 +8,17 @@ const T1 = '2026-10-27T15:05:00Z';
 const ALL = new Set(EVENT_CATEGORIES.map((c) => c.category));
 const CIRCUIT = 'a-wan-01:Gi1/0/1--c-wan-01:Gi1/0/1';
 
-const events: StateEvent[] = [
-	{ at: T0, kind: 'link-down', link: CIRCUIT },
-	{ at: T0, kind: 'down', device: 'c-wan-01' },
-	{ at: T0, kind: 'down', device: 'c-acc-01' },
-	{ at: T0, kind: 'down', device: 'c-acc-02' },
-	{ at: T0, kind: 'nodata', device: 'a-acc-01' },
-	{ at: T1, kind: 'up', device: 'c-acc-01' },
-	{ at: T1, kind: 'congested', link: CIRCUIT, pct: 97.4 }
-];
+const events: StateEvent[] = (
+	[
+		{ at: T0, kind: 'link-down', link: CIRCUIT },
+		{ at: T0, kind: 'down', device: 'c-wan-01' },
+		{ at: T0, kind: 'down', device: 'c-acc-01' },
+		{ at: T0, kind: 'down', device: 'c-acc-02' },
+		{ at: T0, kind: 'nodata', device: 'a-acc-01' },
+		{ at: T1, kind: 'up', device: 'c-acc-01' },
+		{ at: T1, kind: 'congested', link: CIRCUIT, pct: 97.4 }
+	] as Omit<StateEvent, 'planned'>[]
+).map((e) => ({ ...e, planned: false }));
 
 describe('eventRows', () => {
 	it('lists newest first, groups a site that goes down at once, and names links', () => {

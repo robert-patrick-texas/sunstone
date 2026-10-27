@@ -2,17 +2,19 @@
 @component
 Problems in the live state shown (now, or a replayed moment), most urgent
 first, grouped by kind. The server finds them, once per moment for every
-viewer. Clicking
-one selects it, brings it into view, and shows its impact in every view;
-clicking it again stops showing the impact.
+viewer. Within each kind, problems someone has acknowledged, then ones that
+planned maintenance accounts for, come after the rest, dimmed and marked.
+Clicking one selects it, brings it into view, and shows its impact in every
+view; clicking it again stops showing the impact.
 -->
 <script lang="ts">
 	import type { Problem, ProblemKind } from './api/analysis.ts';
+	import type { Window } from './api/operations.ts';
 	import { CRITICAL_PCT, HIGH_PCT } from './live.ts';
 	import { showProblem, ui } from './state.svelte.ts';
 	import { HEALTH_COLOR } from './theme.ts';
 
-	const { problems }: { problems: Problem[] } = $props();
+	const { problems, windows }: { problems: Problem[]; windows: Window[] } = $props();
 
 	/** Kinds in the order the server ranks them, with a heading for each. */
 	const KINDS: { kind: ProblemKind; label: string }[] = [
@@ -34,11 +36,16 @@ clicking it again stops showing the impact.
 		nodata: { color: HEALTH_COLOR.nodata, glyph: '?' }
 	};
 
+	/** 0 for a problem no one is on, 1 acknowledged, 2 accounted for by planned work. */
+	const handling = (p: Problem) => (p.planned.length ? 2 : p.ack ? 1 : 0);
 	const groups = $derived(
-		KINDS.map((k) => ({ ...k, items: problems.filter((p) => p.kind === k.kind) })).filter(
-			(g) => g.items.length > 0
-		)
+		KINDS.map((k) => ({
+			...k,
+			// Sorting is stable, so the server's order holds within each.
+			items: problems.filter((p) => p.kind === k.kind).sort((x, y) => handling(x) - handling(y))
+		})).filter((g) => g.items.length > 0)
 	);
+	const titles = $derived(new Map(windows.map((w) => [w.id, w.title])));
 </script>
 
 <section aria-label="Problems">
@@ -54,6 +61,7 @@ clicking it again stops showing the impact.
 				<li>
 					<button
 						class="problem"
+						class:handled={handling(problem) > 0}
 						aria-pressed={ui.problem === problem.id}
 						onclick={() => showProblem(problem)}
 					>
@@ -62,6 +70,18 @@ clicking it again stops showing the impact.
 						<span>
 							<span class="title">{problem.title}</span>
 							{#if problem.detail}<span class="detail">{problem.detail}</span>{/if}
+							{#if problem.planned.length}
+								<span class="tag planned"
+									>Planned: {problem.planned
+										.map((id) => titles.get(id) ?? 'maintenance')
+										.join(', ')}</span
+								>
+							{/if}
+							{#if problem.ack}
+								<span class="tag ack"
+									>On it: {problem.ack.by}{problem.ack.note ? ` · ${problem.ack.note}` : ''}</span
+								>
+							{/if}
 						</span>
 					</button>
 				</li>
@@ -122,6 +142,27 @@ clicking it again stops showing the impact.
 	.title {
 		display: block;
 		word-break: break-word;
+	}
+	.handled {
+		opacity: 0.65;
+	}
+	.tag {
+		display: block;
+		margin-top: 2px;
+		font-size: 11px;
+		color: var(--text);
+	}
+	.tag::before {
+		content: '';
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		margin-right: 5px;
+		border-radius: 50%;
+		background: var(--live);
+	}
+	.tag.ack::before {
+		background: var(--selected);
 	}
 	.detail {
 		display: block;

@@ -64,6 +64,8 @@ export interface EventRow {
 	/** What to select to look at it. */
 	target: Selection;
 	count: number;
+	/** Maintenance open at the time accounts for it. */
+	planned: boolean;
 }
 
 /**
@@ -83,14 +85,20 @@ export function eventRows(
 	const rows: EventRow[] = [];
 	const groups = new Map<
 		string,
-		{ at: string; kind: EventKind; site: string; devices: string[] }
+		{ at: string; kind: EventKind; site: string; planned: boolean; devices: string[] }
 	>();
 	for (const e of events) {
 		if (!shown.has(CATEGORY[e.kind])) continue;
 		if (e.device) {
 			const site = siteOf(index, e.device);
-			const key = [e.at, e.kind, site].join(' ');
-			const group = groups.get(key) ?? { at: e.at, kind: e.kind, site, devices: [] };
+			const key = [e.at, e.kind, site, e.planned].join(' ');
+			const group = groups.get(key) ?? {
+				at: e.at,
+				kind: e.kind,
+				site,
+				planned: e.planned,
+				devices: []
+			};
 			group.devices.push(e.device);
 			groups.set(key, group);
 			continue;
@@ -102,17 +110,19 @@ export function eventRows(
 			kind: e.kind,
 			title: linkTitle(link, e),
 			target: { kind: 'links', ids: [link.id] },
-			count: 1
+			count: 1,
+			planned: e.planned
 		});
 	}
-	for (const { at, kind, site, devices } of groups.values()) {
+	for (const { at, kind, site, planned, devices } of groups.values()) {
 		if (devices.length >= GROUP_FROM) {
 			rows.push({
 				at,
 				kind,
 				title: `${site}: ${devices.length} ${GROUP_TEXT[kind]}`,
 				target: { kind: 'site', id: site },
-				count: devices.length
+				count: devices.length,
+				planned
 			});
 		} else {
 			for (const device of devices) {
@@ -121,7 +131,8 @@ export function eventRows(
 					kind,
 					title: `${device} ${DEVICE_TEXT[kind]}`,
 					target: { kind: 'device', id: device },
-					count: 1
+					count: 1,
+					planned
 				});
 			}
 		}

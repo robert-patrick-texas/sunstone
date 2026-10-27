@@ -17,6 +17,8 @@ and tests can fix the clock:
   branch loses all of its circuits. A down device cannot be polled, so its
   interfaces are absent; the far end of each of its links reports the link
   down.
+- Planned work: devices and links in an open maintenance window are down
+  for all of it, as the work would take them down.
 - Cut off: a device the monitoring positions cannot reach, over devices and
   links that are up, looks down to them, and its interfaces go unpolled.
 - Reachability: round-trip time from each monitoring position grows with
@@ -30,8 +32,9 @@ import math
 from collections.abc import Mapping, Set
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, Protocol
 
+from sunstone.impact import Failures
 from sunstone.live import (
     DeviceHistory,
     DeviceState,
@@ -120,6 +123,17 @@ _Columns = tuple[
 ]
 
 
+class Plans(Protocol):
+    """Maintenance planned on the network."""
+
+    version: int
+    """Goes up whenever the plans change."""
+
+    def planned_at(self, at: datetime) -> Failures:
+        """Devices and links being worked on at a moment."""
+        ...
+
+
 @dataclass(frozen=True)
 class _Faults:
     """What is wrong during one fault window."""
@@ -143,16 +157,18 @@ class SimulatedState:
     source = "simulated"
     retention = RETENTION
 
-    def __init__(self, topology: Topology) -> None:
+    def __init__(self, topology: Topology, plans: Plans | None = None) -> None:
         """Prepare to simulate one topology.
 
         Args:
             topology: The network to simulate.
+            plans: Maintenance to act out, if any.
 
         Raises:
             None
         """
         self.topology = topology
+        self.plans = plans
         self.sites = {s.code: s for s in topology.sites}
         self.devices = {d.name: d for d in topology.devices}
         self.monitored = [
@@ -186,8 +202,9 @@ class SimulatedState:
             for link in topology.links
             if link.kind == "wan" or self._peak(link) >= HIGH_PCT
         ]
-        self._faults_by_window: dict[int, _Faults] = {}
-        self._loads_by_window: dict[int, dict[str, float]] = {}
+        # Kept with the version of the plans they were worked out under.
+        self._faults_by_window: dict[int, tuple[int, _Faults]] = {}
+        self._loads_by_window: dict[int, tuple[int, dict[str, float]]] = {}
 
     def _positions(self) -> list[MonitoringPosition]:
         """Collectors at up to two core sites, named by which is further east."""
@@ -329,13 +346,18 @@ class SimulatedState:
 
     def _faults(self, window: int) -> _Faults:
         """What is wrong in a fault window, worked out once and kept."""
+        version = self.plans.version if self.plans else 0
         cached = self._faults_by_window.get(window)
-        if cached is not None:
-            return cached
+        if cached is not None and cached[0] == version:
+            return cached[1]
         count = len(self.monitored)
         down = set(_incidents(self.monitored, max(1, count // 250), "down", window))
         cut = set(_incidents(self.wan, max(1, len(self.wan) // 60), "cut", window))
         cut |= self._isolated(window)
+        if self.plans:
+            planned = self.plans.planned_at(_at(window))
+            down |= planned.devices
+            cut |= planned.links
         unreachable = self._unreachable(down, cut)
         silent = down | unreachable
         stale = {
@@ -359,16 +381,17 @@ class SimulatedState:
         )
         if len(self._faults_by_window) >= MAX_CACHED_WINDOWS:
             self._faults_by_window.clear()
-        self._faults_by_window[window] = faults
+        self._faults_by_window[window] = (version, faults)
         return faults
 
     def _loads(self, window: int) -> dict[str, float]:
         """Load, in the busier direction, of each link that can run high and is
         observed at the start of a fault window; worked out once and kept.
         """
+        version = self.plans.version if self.plans else 0
         cached = self._loads_by_window.get(window)
-        if cached is not None:
-            return cached
+        if cached is not None and cached[0] == version:
+            return cached[1]
         at, faults = _at(window), self._faults(window)
         hot = self._hot(at)
         loads: dict[str, float] = {}
@@ -379,7 +402,7 @@ class SimulatedState:
             loads[link.id] = _pct(max(self._load(link, at, link.id in hot)))
         if len(self._loads_by_window) >= MAX_CACHED_WINDOWS:
             self._loads_by_window.clear()
-        self._loads_by_window[window] = loads
+        self._loads_by_window[window] = (version, loads)
         return loads
 
     def _isolated(self, window: int) -> set[str]:
