@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import pytest
+import yaml
 
 
 @pytest.fixture
@@ -18,3 +21,11 @@ def topology_data() -> dict:
             }
         ],
     }
+
+
+@pytest.fixture
+def topology_file(tmp_path: Path, topology_data: dict) -> Path:
+    """The minimal topology written to a YAML file."""
+    path = tmp_path / "topology.yaml"
+    path.write_text(yaml.safe_dump(topology_data), encoding="utf-8")
+    return path

@@ -12,6 +12,7 @@ and the details panel for whatever is selected.
 	import HierarchyView from '#lib/hierarchy/HierarchyView.svelte';
 	import TopologyView from '#lib/topo/TopologyView.svelte';
 	import Legend from '#lib/Legend.svelte';
+	import { shortestPaths } from '#lib/paths.ts';
 	import SearchBox from '#lib/SearchBox.svelte';
 	import { expandedSites, select, ui, type View } from '#lib/state.svelte.ts';
 	import { indexTopology, type TopologyIndex } from '#lib/topology.ts';
@@ -25,6 +26,7 @@ and the details panel for whatever is selected.
 	];
 
 	let index = $state.raw<TopologyIndex | null>(null);
+	const path = $derived(index && ui.path ? shortestPaths(index, ui.path.from, ui.path.to) : null);
 	let problem = $state<string | null>(null);
 
 	onMount(async () => {
@@ -40,7 +42,10 @@ and the details panel for whatever is selected.
 	});
 
 	function onKeydown(e: KeyboardEvent): void {
-		if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement)) select(null);
+		if (e.key !== 'Escape' || e.target instanceof HTMLInputElement) return;
+		// Escape first cancels choosing a path's destination, then clears the selection.
+		if (ui.pathFrom) ui.pathFrom = null;
+		else select(null);
 	}
 </script>
 
@@ -73,16 +78,22 @@ and the details panel for whatever is selected.
 			<section class="view">
 				{#key ui.view}
 					{#if ui.view === 'geo'}
-						<GeoView {index} />
+						<GeoView {index} {path} />
 					{:else if ui.view === 'hierarchy'}
-						<HierarchyView {index} />
+						<HierarchyView {index} {path} />
 					{:else}
-						<TopologyView {index} />
+						<TopologyView {index} {path} />
 					{/if}
 				{/key}
 				<Legend />
+				{#if ui.pathFrom}
+					<p class="picking" aria-live="polite">
+						Choose the destination for a path from <strong>{ui.pathFrom}</strong>: click a device or
+						search. Esc cancels.
+					</p>
+				{/if}
 			</section>
-			<DetailsPanel {index} />
+			<DetailsPanel {index} {path} />
 		{/if}
 	</main>
 </div>
@@ -125,7 +136,21 @@ and the details panel for whatever is selected.
 		position: relative;
 		flex: 1;
 		min-width: 0;
-		overflow: hidden;
+		/* clip, not hidden: a hidden overflow can still be scrolled, for example
+		   by focusing a field in a popover that pokes past the edge. */
+		overflow: clip;
+	}
+	.picking {
+		position: absolute;
+		bottom: 56px;
+		left: 50%;
+		transform: translateX(-50%);
+		margin: 0;
+		padding: 8px 14px;
+		background: var(--panel);
+		border: 1px solid var(--path);
+		border-radius: 6px;
+		box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
 	}
 	.message {
 		padding: 24px;

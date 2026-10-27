@@ -18,11 +18,14 @@ $ make serve TOPOLOGY=data/sample/large.yaml    # about 3,000 devices
 
 For development, run `make dev-api` and `make dev-web` in two terminals and open http://127.0.0.1:5173. `make help` lists the other tasks.
 
+Sunstone has no sign-in, and anyone who can reach it can save and delete layouts. It listens on 127.0.0.1 by default; give it `--host` only on a network you trust.
+
 ## Using it
 
 - **Geographic:** sites and the links between them; line width is total capacity. Click a site, or zoom in, to see its devices on rings around it (upper tiers inside). The rings are a drawing aid: sources give coordinates per site, not per device.
 - **Hierarchy:** sites with a core tier on top, other sites below by WAN hops. Double-click a site, or use the details panel, to expand it into tier rows (WAN edge, core, distribution, access). Interface names label the selected device's links, and every link once zoomed in. Networks over 400 devices open with sites collapsed.
-- **Topology:** automatic layouts, either of the whole network (collapsible sites, as in the hierarchy) or of a **neighborhood**: the devices within 1–4 hops of a device, site, or link. Choose a force-directed layout, optionally grouped into a frame per site, or a radial one with the center in the middle and a ring per hop. Open a neighborhood with **Show neighborhood** in the details panel or by double-clicking a device; double-click another device to walk on from there. Neighborhoods stop at 400 devices, adding whole hops only, and say what the next hop would have added. Nodes can be dragged, and finished layouts are kept while the page is open, so switching views and back shows the same picture.
+- **Topology:** automatic layouts, either of the whole network (collapsible sites, as in the hierarchy) or of a **neighborhood**: the devices within 1–4 hops of a device, site, or link. Choose a force-directed layout, optionally grouped into a frame per site, or a radial one with the center in the middle and a ring per hop. Open a neighborhood with **Show neighborhood** in the details panel or by double-clicking a device; double-click another device to walk on from there. Neighborhoods stop at 400 devices, adding whole hops only, and say what the next hop would have added. Nodes can be dragged, and finished layouts are kept while the page is open, so switching views and back shows the same picture. **Saved layouts** stores the current picture, settings included, under a name on the server, to open again later.
+- **Paths:** choose **Path from here** on a device, then click or search for the destination. Every shortest path is found (by number of links; there are no routing costs in the data), drawn in all three views with everything else faded, and listed hop by hop with the interfaces at each end in the details panel. The topology view's **Path** scope draws only the devices on those paths, force-directed or layered by hop.
 - **Selection** is shared: whatever is selected stays selected when switching views. The details panel shows a device's neighbors interface by interface, a site's links to other sites, or a link's ends and circuit. Names in it are clickable.
 - **Search** with `/`, by device name, site code or name, or management address. `Esc` clears the selection.
 
@@ -49,6 +52,8 @@ links:
 Roles are `wan-edge`, `core`, `distribution`, and `access`. Each link end is a device name plus an interface name, which is the shape NetBox cables, LLDP/CDP neighbor tables, and NMS exports all reduce to. The loader rejects unknown keys, duplicate names, references to missing sites or devices, and an interface used by two links, and it reports every problem at once.
 
 `data/sample/` holds two generated topologies (`make data` regenerates them): `small.yaml` (5 sites, 52 devices) and `large.yaml` (63 sites, 2,960 devices, 5,930 links). Both are fictional.
+
+Saved layouts go in a JSON file beside the topology (`small.yaml` → `small.layouts.json`), or wherever `--layouts` says. They are listed, fetched, saved, and deleted at `GET /api/layouts` and `GET`/`PUT`/`DELETE /api/layouts/{name}`. The file is rewritten whole on each change, by writing a new file and moving it into place, and holds at most 200 layouts. Layout files are ignored by git, since they are each user's own arrangements.
 
 ## Layout
 
@@ -81,7 +86,6 @@ $ PW_WS_ENDPOINT=ws://127.0.0.1:3124/ make e2e
 
 ## Next
 
-- Topology: paths between two devices, and saving hand-arranged layouts beyond the browser session.
 - Sources: NetBox/Nautobot import, then NMS import and LLDP/CDP discovery.
 - Live state: up/down status, then utilization and latency overlays (vakr among the sources).
 

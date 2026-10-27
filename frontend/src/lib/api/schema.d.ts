@@ -24,6 +24,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/layouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Layouts
+         * @description List saved layouts, most recently saved first.
+         */
+        get: operations["list_layouts_api_layouts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/layouts/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Layout
+         * @description Return one saved layout.
+         */
+        get: operations["get_layout_api_layouts__name__get"];
+        /**
+         * Put Layout
+         * @description Save a layout, replacing any with the same name.
+         */
+        put: operations["put_layout_api_layouts__name__put"];
+        post?: never;
+        /**
+         * Delete Layout
+         * @description Delete a saved layout.
+         */
+        delete: operations["delete_layout_api_layouts__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -58,6 +106,19 @@ export interface components {
             mgmt_ip?: string | null;
         };
         /**
+         * DeviceCenter
+         * @description A neighborhood built around one device.
+         */
+        DeviceCenter: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "device";
+            /** Id */
+            id: string;
+        };
+        /**
          * Endpoint
          * @description One end of a link: a device's interface, optionally a LAG member.
          */
@@ -68,6 +129,64 @@ export interface components {
             interface: string;
             /** Lag */
             lag?: string | null;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * LayoutIn
+         * @description A layout as the browser sends it.
+         */
+        LayoutIn: {
+            settings: components["schemas"]["LayoutSettings"];
+            /** Positions */
+            positions: {
+                [key: string]: components["schemas"]["Position"];
+            };
+        };
+        /**
+         * LayoutSettings
+         * @description The topology view's settings when the layout was saved.
+         */
+        LayoutSettings: {
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "network" | "neighborhood" | "path";
+            /**
+             * Layout
+             * @enum {string}
+             */
+            layout: "force" | "radial";
+            /** Grouped */
+            grouped: boolean;
+            /** Hops */
+            hops: number;
+            /** Center */
+            center?: (components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"]) | null;
+            path?: components["schemas"]["PathEnds"] | null;
+            /** Expanded */
+            expanded?: string[];
+        };
+        /**
+         * LayoutSummary
+         * @description A stored layout without its positions, for listing.
+         */
+        LayoutSummary: {
+            /** Name */
+            name: string;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+            /** Scope */
+            scope: string;
+            /** Nodes */
+            nodes: number;
         };
         /**
          * Link
@@ -95,6 +214,57 @@ export interface components {
             readonly id: string;
         };
         /**
+         * LinksCenter
+         * @description A neighborhood built around the ends of some links.
+         */
+        LinksCenter: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "links";
+            /** Ids */
+            ids: string[];
+        };
+        /**
+         * PathEnds
+         * @description The two devices whose shortest paths are shown.
+         */
+        PathEnds: {
+            /** From */
+            from: string;
+            /** To */
+            to: string;
+        };
+        /**
+         * Position
+         * @description Where a node was drawn.
+         */
+        Position: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
+         * SavedLayout
+         * @description A stored layout.
+         */
+        SavedLayout: {
+            settings: components["schemas"]["LayoutSettings"];
+            /** Positions */
+            positions: {
+                [key: string]: components["schemas"]["Position"];
+            };
+            /** Name */
+            name: string;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+        };
+        /**
          * Site
          * @description A physical location with map coordinates.
          */
@@ -111,6 +281,19 @@ export interface components {
             lon: number;
         };
         /**
+         * SiteCenter
+         * @description A neighborhood built around every device of a site.
+         */
+        SiteCenter: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "site";
+            /** Id */
+            id: string;
+        };
+        /**
          * Topology
          * @description A whole network: every site, device, and link.
          */
@@ -121,6 +304,19 @@ export interface components {
             devices: components["schemas"]["Device"][];
             /** Links */
             links: components["schemas"]["Link"][];
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -147,6 +343,121 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Topology"];
+                };
+            };
+        };
+    };
+    list_layouts_api_layouts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutSummary"][];
+                };
+            };
+        };
+    };
+    get_layout_api_layouts__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedLayout"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_layout_api_layouts__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LayoutIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedLayout"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_layout_api_layouts__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

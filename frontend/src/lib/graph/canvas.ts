@@ -3,7 +3,9 @@
  * interface labels, and highlighting the shared selection.
  *
  * Interface labels at each link end show for the selected device's links
- * (or the selected links), and for every link once zoomed in close.
+ * (or the selected links), and for every link once zoomed in close. A path,
+ * when one is shown, is highlighted and labeled the same way, and everything
+ * off it is faded.
  */
 import cytoscape, {
 	type CollectionReturnValue,
@@ -13,6 +15,7 @@ import cytoscape, {
 	type Position,
 	type StylesheetJson
 } from 'cytoscape';
+import type { PathResult } from '../paths.ts';
 import { select, type Selection } from '../state.svelte.ts';
 import { COLOR, ROLE_COLOR } from '../theme.ts';
 import { siteOf, type TopologyIndex } from '../topology.ts';
@@ -115,6 +118,12 @@ const STYLE: StylesheetJson = [
 		style: { opacity: 1, 'z-index': 5, 'font-size': 8, color: COLOR.text }
 	},
 	{ selector: 'node.center', style: { 'border-width': 2, 'border-color': COLOR.site } },
+	{ selector: '.faded', style: { opacity: 0.15 } },
+	{ selector: 'node.path', style: { 'border-width': 3, 'border-color': COLOR.path } },
+	{
+		selector: 'edge.path',
+		style: { 'line-color': COLOR.path, opacity: 1, 'z-index': 8 }
+	},
 	{ selector: 'node.selected', style: { 'border-width': 3, 'border-color': COLOR.selected } },
 	{
 		selector: 'edge.selected',
@@ -135,6 +144,8 @@ export class GraphCanvas {
 	private readonly resize: ResizeObserver;
 	private edgeOfLink = new Map<string, string>();
 	private labelsShown = false;
+	private selection: Selection | null = null;
+	private path: PathResult | null = null;
 
 	/**
 	 * @param container - Element to draw in; the canvas follows its size.
@@ -193,6 +204,7 @@ export class GraphCanvas {
 			this.core.add(elements);
 		});
 		this.showLabels(true);
+		this.applyHighlight();
 	}
 
 	/**
@@ -204,11 +216,7 @@ export class GraphCanvas {
 	 */
 	elementsFor(selection: Selection | null): CollectionReturnValue {
 		const core = this.core;
-		if (selection?.kind === 'device') {
-			const node = core.getElementById(selection.id);
-			if (node.nonempty()) return node;
-			return core.getElementById(siteNodeId(siteOf(this.index, selection.id)));
-		}
+		if (selection?.kind === 'device') return this.nodeFor(selection.id);
 		if (selection?.kind === 'site') {
 			const node = core.getElementById(siteNodeId(selection.id));
 			if (node.nonempty()) return node;
@@ -219,16 +227,31 @@ export class GraphCanvas {
 	}
 
 	/**
-	 * Highlight the selection, and label the selected device's links.
+	 * Highlight the selection and a path, and label their links. Both stay
+	 * highlighted when the graph is redrawn.
 	 *
 	 * @param selection - The selection, or null for none.
+	 * @param path - Shortest paths to show, or null for none.
 	 */
-	mark(selection: Selection | null): void {
-		this.core.elements('.selected').removeClass('selected');
-		this.core.edges('.context').removeClass('context');
-		const eles = this.elementsFor(selection);
-		eles.addClass('selected');
-		(selection?.kind === 'device' ? eles.connectedEdges() : eles.edges()).addClass('context');
+	highlight(selection: Selection | null, path: PathResult | null): void {
+		this.selection = selection;
+		this.path = path;
+		this.applyHighlight();
+	}
+
+	/**
+	 * The drawn nodes and edges a path runs through.
+	 *
+	 * @param path - Shortest paths.
+	 * @returns Device nodes (site boxes for collapsed sites) and edges carrying path links.
+	 */
+	pathElements(path: PathResult): CollectionReturnValue {
+		const core = this.core;
+		const edgeIds = new Set([...path.links].map((id) => this.edgeOfLink.get(id)));
+		return [...path.devices.keys()].reduce(
+			(all, device) => all.union(this.nodeFor(device)),
+			core.edges().filter((e) => edgeIds.has(e.id()))
+		);
 	}
 
 	/** Positions of every node, for caching a layout. */
@@ -239,6 +262,36 @@ export class GraphCanvas {
 	destroy(): void {
 		this.resize.disconnect();
 		this.core.destroy();
+	}
+
+	/** A device's node, or its site's box when the site is collapsed. */
+	private nodeFor(device: string): CollectionReturnValue {
+		const node = this.core.getElementById(device);
+		if (node.nonempty()) return node;
+		return this.core.getElementById(siteNodeId(siteOf(this.index, device)));
+	}
+
+	private applyHighlight(): void {
+		const core = this.core;
+		core.batch(() => {
+			core.elements('.selected, .path, .faded').removeClass('selected path faded');
+			core.edges('.context').removeClass('context');
+			if (this.path) {
+				const onPath = this.pathElements(this.path);
+				onPath.addClass('path');
+				onPath.edges().addClass('context');
+				// Site frames stay as they are, so the sites around the path stay readable.
+				core
+					.elements()
+					.difference(onPath)
+					.filter((e) => e.data('kind') !== 'frame')
+					.addClass('faded');
+			}
+			const eles = this.elementsFor(this.selection);
+			eles.addClass('selected').removeClass('faded');
+			const links = this.selection?.kind === 'device' ? eles.connectedEdges() : eles.edges();
+			links.addClass('context');
+		});
 	}
 
 	private showLabels(force = false): void {

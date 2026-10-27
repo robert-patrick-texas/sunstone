@@ -23,6 +23,154 @@
      }
     }
    }
+  },
+  "/api/layouts": {
+   "get": {
+    "summary": "List Layouts",
+    "description": "List saved layouts, most recently saved first.",
+    "operationId": "list_layouts_api_layouts_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/LayoutSummary"
+         },
+         "type": "array",
+         "title": "Response List Layouts Api Layouts Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/layouts/{name}": {
+   "get": {
+    "summary": "Get Layout",
+    "description": "Return one saved layout.",
+    "operationId": "get_layout_api_layouts__name__get",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 64,
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SavedLayout"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "summary": "Put Layout",
+    "description": "Save a layout, replacing any with the same name.",
+    "operationId": "put_layout_api_layouts__name__put",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 64,
+       "title": "Name"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LayoutIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SavedLayout"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Delete Layout",
+    "description": "Delete a saved layout.",
+    "operationId": "delete_layout_api_layouts__name__delete",
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 64,
+       "title": "Name"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -100,6 +248,27 @@
     "title": "Device",
     "description": "A network device at one site."
    },
+   "DeviceCenter": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "const": "device",
+      "title": "Kind"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "kind",
+     "id"
+    ],
+    "title": "DeviceCenter",
+    "description": "A neighborhood built around one device."
+   },
    "Endpoint": {
     "properties": {
      "device": {
@@ -130,6 +299,161 @@
     ],
     "title": "Endpoint",
     "description": "One end of a link: a device's interface, optionally a LAG member."
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "LayoutIn": {
+    "properties": {
+     "settings": {
+      "$ref": "#/components/schemas/LayoutSettings"
+     },
+     "positions": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/Position"
+      },
+      "type": "object",
+      "maxProperties": 20000,
+      "title": "Positions"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "settings",
+     "positions"
+    ],
+    "title": "LayoutIn",
+    "description": "A layout as the browser sends it."
+   },
+   "LayoutSettings": {
+    "properties": {
+     "scope": {
+      "type": "string",
+      "enum": [
+       "network",
+       "neighborhood",
+       "path"
+      ],
+      "title": "Scope"
+     },
+     "layout": {
+      "type": "string",
+      "enum": [
+       "force",
+       "radial"
+      ],
+      "title": "Layout"
+     },
+     "grouped": {
+      "type": "boolean",
+      "title": "Grouped"
+     },
+     "hops": {
+      "type": "integer",
+      "maximum": 4.0,
+      "minimum": 1.0,
+      "title": "Hops"
+     },
+     "center": {
+      "anyOf": [
+       {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/DeviceCenter"
+         },
+         {
+          "$ref": "#/components/schemas/SiteCenter"
+         },
+         {
+          "$ref": "#/components/schemas/LinksCenter"
+         }
+        ],
+        "discriminator": {
+         "propertyName": "kind",
+         "mapping": {
+          "device": "#/components/schemas/DeviceCenter",
+          "links": "#/components/schemas/LinksCenter",
+          "site": "#/components/schemas/SiteCenter"
+         }
+        }
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Center"
+     },
+     "path": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PathEnds"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "expanded": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 10000,
+      "title": "Expanded"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "scope",
+     "layout",
+     "grouped",
+     "hops"
+    ],
+    "title": "LayoutSettings",
+    "description": "The topology view's settings when the layout was saved."
+   },
+   "LayoutSummary": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "saved_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Saved At"
+     },
+     "scope": {
+      "type": "string",
+      "title": "Scope"
+     },
+     "nodes": {
+      "type": "integer",
+      "title": "Nodes"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "saved_at",
+     "scope",
+     "nodes"
+    ],
+    "title": "LayoutSummary",
+    "description": "A stored layout without its positions, for listing."
    },
    "Link": {
     "properties": {
@@ -181,6 +505,107 @@
     "title": "Link",
     "description": "A physical connection between two device interfaces."
    },
+   "LinksCenter": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "const": "links",
+      "title": "Kind"
+     },
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Ids"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "kind",
+     "ids"
+    ],
+    "title": "LinksCenter",
+    "description": "A neighborhood built around the ends of some links."
+   },
+   "PathEnds": {
+    "properties": {
+     "from": {
+      "type": "string",
+      "title": "From"
+     },
+     "to": {
+      "type": "string",
+      "title": "To"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "from",
+     "to"
+    ],
+    "title": "PathEnds",
+    "description": "The two devices whose shortest paths are shown."
+   },
+   "Position": {
+    "properties": {
+     "x": {
+      "type": "number",
+      "title": "X"
+     },
+     "y": {
+      "type": "number",
+      "title": "Y"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "x",
+     "y"
+    ],
+    "title": "Position",
+    "description": "Where a node was drawn."
+   },
+   "SavedLayout": {
+    "properties": {
+     "settings": {
+      "$ref": "#/components/schemas/LayoutSettings"
+     },
+     "positions": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/Position"
+      },
+      "type": "object",
+      "maxProperties": 20000,
+      "title": "Positions"
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^\\S(.*\\S)?$",
+      "title": "Name"
+     },
+     "saved_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Saved At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "settings",
+     "positions",
+     "name",
+     "saved_at"
+    ],
+    "title": "SavedLayout",
+    "description": "A stored layout."
+   },
    "Site": {
     "properties": {
      "code": {
@@ -226,6 +651,27 @@
     "title": "Site",
     "description": "A physical location with map coordinates."
    },
+   "SiteCenter": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "const": "site",
+      "title": "Kind"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "kind",
+     "id"
+    ],
+    "title": "SiteCenter",
+    "description": "A neighborhood built around every device of a site."
+   },
    "Topology": {
     "properties": {
      "sites": {
@@ -259,6 +705,46 @@
     ],
     "title": "Topology",
     "description": "A whole network: every site, device, and link."
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
    }
   }
  }

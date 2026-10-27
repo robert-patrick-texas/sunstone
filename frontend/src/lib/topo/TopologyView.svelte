@@ -4,7 +4,8 @@ Automatic layouts of the whole network, or of the neighborhood around a
 device or site: force-directed (optionally grouped by site) or radial by
 hops. Double-click a device to re-center the neighborhood on it, or a site
 box to expand it. Nodes can be dragged; finished layouts are kept, so
-returning to the view shows the same picture.
+returning to the view shows the same picture, and can be saved by name to
+the backend and opened again later.
 -->
 <script module lang="ts">
 	import type { Position } from 'cytoscape';
@@ -24,14 +25,17 @@ returning to the view shows the same picture.
 	import { onMount, untrack } from 'svelte';
 	import type { NodeSingular } from 'cytoscape';
 	import { GraphCanvas } from '../graph/canvas.ts';
+	import type { LayoutIn, SavedLayout } from '../api/layouts.ts';
+	import type { PathResult } from '../paths.ts';
 	import { siteNodeId } from '../graph/model.ts';
 	import { expandedSites, select, topo, ui, type Selection } from '../state.svelte.ts';
 	import { siteOf, type TopologyIndex } from '../topology.ts';
-	import { neighborhoodGraph, networkGraph, type TopoGraph } from './graph.ts';
+	import { neighborhoodGraph, networkGraph, pathGraph, type TopoGraph } from './graph.ts';
+	import LayoutMenu from './LayoutMenu.svelte';
 	import { REFINE_UP_TO, runLayout, SITEWISE_ABOVE } from './layouts.ts';
 	import { neighborhood, seedsOf } from './neighborhood.ts';
 
-	const { index }: { index: TopologyIndex } = $props();
+	const { index, path }: { index: TopologyIndex; path: PathResult | null } = $props();
 
 	const LIMIT = 400;
 	const HOPS = [1, 2, 3, 4];
@@ -42,6 +46,7 @@ returning to the view shows the same picture.
 	let busy = $state(false);
 	let sitewise = $state(false);
 	let lastFocus = ui.focusRequest;
+	let lastPath = untrack(() => path);
 	let pendingFocus = false;
 	let placed = false;
 	let draws = 0;
@@ -55,6 +60,7 @@ returning to the view shows the same picture.
 			: null
 	);
 	const graph: TopoGraph | null = $derived.by(() => {
+		if (topo.scope === 'path') return path?.hops != null ? pathGraph(index, path, framed) : null;
 		if (!hood) return networkGraph(index, expandedSites, framed);
 		return hood.hops.size > 0 ? neighborhoodGraph(index, hood, framed) : null;
 	});
@@ -65,13 +71,20 @@ returning to the view shows the same picture.
 			topo.scope,
 			topo.layout,
 			framed,
-			topo.scope === 'neighborhood' ? [topo.center, topo.hops] : null
+			topo.scope === 'neighborhood' ? [topo.center, topo.hops] : null,
+			topo.scope === 'path' ? [path?.from, path?.to] : null
 		])
 	);
 	const key = $derived(
 		topo.scope === 'network' ? `${family}|${[...expandedSites].sort().join(',')}` : family
 	);
 	const status = $derived.by(() => {
+		if (topo.scope === 'path') {
+			if (!path) return '';
+			if (path.hops === null) return `${path.from} and ${path.to} are not connected`;
+			const paths = path.count === 1 ? '1 path' : `${path.count} equal-length paths`;
+			return `${path.from} → ${path.to} · ${path.hops} hops · ${paths} · ${path.devices.size} devices`;
+		}
 		if (!hood) {
 			const text = `${index.topology.sites.length} sites, ${expandedSites.size} expanded`;
 			return sitewise ? `${text} · laid out site by site above ${SITEWISE_ABOVE} nodes` : text;
@@ -99,8 +112,17 @@ returning to the view shows the same picture.
 	});
 
 	$effect(() => {
-		const selection = ui.selection;
-		canvas?.mark(selection);
+		canvas?.highlight(ui.selection, path);
+	});
+
+	// A newly shown path is brought into view (the path scope fits it when drawn).
+	$effect(() => {
+		const [c, p] = [canvas, path];
+		if (!c || p === lastPath) return;
+		lastPath = p;
+		if (!p || topo.scope === 'path') return;
+		const eles = untrack(() => c.pathElements(p));
+		if (eles.nonempty()) c.core.animate({ fit: { eles, padding: 80 } });
 	});
 
 	$effect(() => {
@@ -122,19 +144,21 @@ returning to the view shows the same picture.
 		const cached = layoutCache.get(k);
 		const incremental = !cached && f === lastFamily && g.nodes.length <= REFINE_UP_TO;
 		lastFamily = f;
-		c.setGraph(g.nodes, g.edges, cached ?? (incremental ? seeded(g, c.positions()) : undefined));
+		// A saved layout may predate devices added since; seeded() places them by their site.
+		const start = cached ?? (incremental ? c.positions() : undefined);
+		c.setGraph(g.nodes, g.edges, start && seeded(g, start));
 		c.core
 			.nodes()
 			.filter((n) => n.data('hop') === 0)
 			.addClass('center');
-		c.mark(ui.selection);
 		busy = !cached;
 		sitewise = topo.layout === 'force' && g.nodes.length > SITEWISE_ABOVE;
 		if (!cached) {
 			// Let "Laying out…" paint before the layout blocks the page.
 			await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 			if (run !== draws) return;
-			runLayout(c.core, index, g, topo.layout, incremental);
+			const kind = topo.layout === 'force' ? 'force' : topo.scope === 'path' ? 'layered' : 'radial';
+			runLayout(c.core, index, g, kind, incremental);
 			busy = false;
 			remember(k, c.positions());
 		}
@@ -245,6 +269,41 @@ returning to the view shows the same picture.
 		topo.scope = 'neighborhood';
 	}
 
+	/** The current settings and node positions, for saving. */
+	function snapshot(): LayoutIn {
+		const positions = [...(canvas?.positions() ?? [])].filter(([id]) => !id.startsWith('ring:'));
+		return {
+			settings: {
+				scope: topo.scope,
+				layout: topo.layout,
+				grouped: topo.grouped,
+				hops: topo.hops,
+				center: topo.scope === 'neighborhood' ? topo.center : null,
+				path: topo.scope === 'path' && ui.path ? { ...ui.path } : null,
+				expanded: [...expandedSites]
+			},
+			positions: Object.fromEntries(positions)
+		};
+	}
+
+	/** Apply a saved layout's settings and draw its positions. */
+	function restore(saved: SavedLayout): void {
+		const { settings } = saved;
+		topo.scope = settings.scope;
+		topo.layout = settings.layout;
+		topo.grouped = settings.grouped;
+		topo.hops = settings.hops;
+		topo.center = settings.center ?? null;
+		if (settings.path) ui.path = { from: settings.path.from, to: settings.path.to };
+		expandedSites.clear();
+		for (const code of settings.expanded ?? []) expandedSites.add(code);
+		// key and graph now reflect the restored settings; seed the cache so the
+		// redraw uses the saved positions instead of running a layout.
+		remember(key, new Map(Object.entries(saved.positions)));
+		lastFamily = null;
+		if (canvas && key === currentKey) void draw(canvas, graph, key, family);
+	}
+
 	function relayout(): void {
 		layoutCache.delete(key);
 		lastFamily = null;
@@ -268,6 +327,9 @@ returning to the view shows the same picture.
 			<button aria-pressed={topo.scope === 'neighborhood'} onclick={toNeighborhood}>
 				Neighborhood
 			</button>
+			<button aria-pressed={topo.scope === 'path'} onclick={() => (topo.scope = 'path')}>
+				Path
+			</button>
 		</div>
 		{#if topo.scope === 'neighborhood'}
 			<label>
@@ -276,7 +338,7 @@ returning to the view shows the same picture.
 					{#each HOPS as hops (hops)}<option value={hops}>{hops}</option>{/each}
 				</select>
 			</label>
-		{:else}
+		{:else if topo.scope === 'network'}
 			<button onclick={() => setAll(true)}>Expand all</button>
 			<button onclick={() => setAll(false)}>Collapse all</button>
 		{/if}
@@ -285,7 +347,7 @@ returning to the view shows the same picture.
 				Force-directed
 			</button>
 			<button aria-pressed={topo.layout === 'radial'} onclick={() => (topo.layout = 'radial')}>
-				Radial
+				{topo.scope === 'path' ? 'Layered' : 'Radial'}
 			</button>
 		</div>
 		<label title="Applies to the force-directed layout">
@@ -293,6 +355,7 @@ returning to the view shows the same picture.
 			Group by site
 		</label>
 		<button onclick={relayout}>Re-layout</button>
+		<LayoutMenu {snapshot} onOpen={restore} />
 		<button
 			onclick={() => canvas?.core.animate({ fit: { eles: canvas.core.elements(), padding: 40 } })}
 		>
@@ -305,6 +368,11 @@ returning to the view shows the same picture.
 		<p class="empty">
 			Select a device or site, then choose Neighborhood. Double-clicking a device anywhere in this
 			view also opens its neighborhood.
+		</p>
+	{:else if topo.scope === 'path' && !path}
+		<p class="empty">
+			Choose Path from here on a device in the details panel, then click or search for the
+			destination.
 		</p>
 	{/if}
 </div>

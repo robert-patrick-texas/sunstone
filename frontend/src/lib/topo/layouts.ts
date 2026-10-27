@@ -67,27 +67,28 @@ const FORCE = {
  * @param core - Cytoscape instance drawing `graph`.
  * @param index - Topology index.
  * @param graph - The drawn graph.
- * @param kind - Force-directed, or radial from the center (or top sites).
+ * @param kind - Force-directed; radial from the center (or top sites); or layered, top
+ *   down by hops from the center (for paths).
  * @param refine - Adjust the current positions instead of starting over (force-directed only).
  */
 export function runLayout(
 	core: Core,
 	index: TopologyIndex,
 	graph: TopoGraph,
-	kind: 'force' | 'radial',
+	kind: 'force' | 'radial' | 'layered',
 	refine: boolean
 ): void {
-	if (kind === 'radial') {
-		const radial: BreadthFirstLayoutOptions = {
+	if (kind !== 'force') {
+		const byHops: BreadthFirstLayoutOptions = {
 			name: 'breadthfirst',
 			roots: radialRoots(index, graph.nodes),
-			circle: true,
+			circle: kind === 'radial',
 			spacingFactor: 1.3,
 			avoidOverlap: true,
 			animate: false,
 			fit: false
 		};
-		core.layout(radial).run();
+		core.layout(byHops).run();
 	} else if (graph.nodes.length > SITEWISE_ABOVE) {
 		const positions = sitewisePositions(graph);
 		core.batch(() =>

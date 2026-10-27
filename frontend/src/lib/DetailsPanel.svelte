@@ -1,12 +1,23 @@
 <!--
 @component
 Details of the current selection: a device and its neighbors, a site and
-its WAN links, or a set of links. Names in the panel are links that select
-and bring that item into view.
+its WAN links, or a set of links. Above it, the shortest paths between two
+devices when a path is shown, hop by hop with interfaces. Names in the panel
+are links that select and bring that item into view.
 -->
 <script lang="ts">
 	import type { Endpoint, Link } from './api/topology.ts';
-	import { expandedSites, select, showNeighborhood, ui, type Selection } from './state.svelte.ts';
+	import { linksBetween, type PathResult } from './paths.ts';
+	import {
+		clearPath,
+		expandedSites,
+		select,
+		showNeighborhood,
+		startPath,
+		topo,
+		ui,
+		type Selection
+	} from './state.svelte.ts';
 	import { ROLE_COLOR } from './theme.ts';
 	import {
 		formatSpeed,
@@ -18,7 +29,7 @@ and bring that item into view.
 		type TopologyIndex
 	} from './topology.ts';
 
-	const { index }: { index: TopologyIndex } = $props();
+	const { index, path }: { index: TopologyIndex; path: PathResult | null } = $props();
 
 	const selection = $derived(ui.selection);
 
@@ -26,6 +37,19 @@ and bring that item into view.
 	function follow(e: MouseEvent, target: Selection): void {
 		e.stopPropagation();
 		select(target, true);
+	}
+
+	/** Interfaces of `device` on the given links, with their LAG if bundled. */
+	function interfacesOf(links: Link[], device: string): string {
+		const ends = links.map((l) => (l.a.device === device ? l.a : l.b));
+		const lag = ends[0]?.lag;
+		const names = ends.map((e) => shortInterface(e.interface)).join(', ');
+		return lag ? `${names} (${shortInterface(lag)})` : names;
+	}
+
+	function showPathInTopology(): void {
+		topo.scope = 'path';
+		ui.view = 'topology';
 	}
 
 	function siteWanLinks(code: string): { local: Endpoint; remote: Endpoint; link: Link }[] {
@@ -49,140 +73,198 @@ and bring that item into view.
 	{#if end.lag}<span class="tag">{shortInterface(end.lag)}</span>{/if}
 {/snippet}
 
-{#if selection}
+{#if selection || path || ui.pathFrom}
 	<aside class="details" aria-label="Details">
-		<button class="close" onclick={() => select(null)} aria-label="Close details">×</button>
+		{#if ui.pathFrom}
+			<section class="path" aria-label="Path">
+				<h2>Path from {ui.pathFrom}</h2>
+				<p class="muted">Click a device or search for the destination.</p>
+				<p class="actions"><button onclick={clearPath}>Cancel</button></p>
+			</section>
+		{:else if path}
+			<section class="path" aria-label="Path">
+				<button class="close" onclick={clearPath} aria-label="Clear path">×</button>
+				<h2>Path</h2>
+				<p>{@render deviceLink(path.from)} → {@render deviceLink(path.to)}</p>
+				{#if path.hops === null}
+					<p class="muted">No links join these devices, so there is no path.</p>
+				{:else}
+					<p class="muted">
+						{path.hops} hops by link count ·
+						{path.count === 1 ? 'one path' : `${path.count} equal-length paths`}
+					</p>
+					<p class="actions"><button onclick={showPathInTopology}>Show in topology</button></p>
+					{#each path.listed as devices, i (devices.join(' '))}
+						<details open={i === 0}>
+							<summary>
+								Path {i + 1}{devices.length > 2 ? ` via ${devices.slice(1, -1).join(' › ')}` : ''}
+							</summary>
+							<ol class="hops">
+								{#each devices as device, j (device)}
+									{@const next = devices[j + 1]}
+									<li>
+										{@render deviceLink(device)}
+										{#if next}
+											{@const links = linksBetween(index, path, device, next)}
+											<span class="mono">
+												{interfacesOf(links, device)} → {interfacesOf(links, next)}
+											</span>
+										{/if}
+									</li>
+								{/each}
+							</ol>
+						</details>
+					{/each}
+					{#if path.count > path.listed.length}
+						<p class="muted">and {path.count - path.listed.length} more</p>
+					{/if}
+				{/if}
+			</section>
+		{/if}
 
-		{#if selection.kind === 'device'}
-			{@const device = index.devices.get(selection.id)}
-			{#if device}
-				{@const neighbors = neighborsOf(index, device.name)}
-				<h2>{device.name}</h2>
-				<p>
-					<span class="role" style:--role={ROLE_COLOR[device.role]}>{ROLE_LABEL[device.role]}</span>
-					at {@render siteLink(device.site)}
-					{index.sites.get(device.site)?.name}
-				</p>
-				<dl>
-					{#if device.platform}<dt>Platform</dt>
-						<dd>{device.platform}</dd>{/if}
-					{#if device.mgmt_ip}<dt>Management</dt>
-						<dd class="mono">{device.mgmt_ip}</dd>{/if}
-				</dl>
-				<p class="actions">
-					<button onclick={() => showNeighborhood({ kind: 'device', id: device.name })}>
-						Show neighborhood
-					</button>
-				</p>
-				<h3>Neighbors ({neighbors.length})</h3>
-				<table>
-					<thead><tr><th>Local</th><th>Neighbor</th><th>Remote</th><th>Speed</th></tr></thead>
-					<tbody>
-						{#each neighbors as n (n.link.id)}
-							<tr onclick={() => select({ kind: 'links', ids: [n.link.id] }, true)}>
-								<td class="mono">
-									{shortInterface(n.local.interface)}
-									{#if n.local.lag}<span class="tag">{shortInterface(n.local.lag)}</span>{/if}
-								</td>
-								<td>{@render deviceLink(n.remote.device)}</td>
-								<td class="mono">{shortInterface(n.remote.interface)}</td>
-								<td>
-									{formatSpeed(n.link.speed_mbps)}
-									{#if n.link.kind === 'wan'}<span class="tag wan">WAN</span>{/if}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
-		{:else if selection.kind === 'site'}
-			{@const site = index.sites.get(selection.id)}
-			{#if site}
-				{@const devices = index.devicesBySite.get(site.code) ?? []}
-				{@const wan = siteWanLinks(site.code)}
-				<h2>{site.code} · {site.name}</h2>
-				<p class="muted">
-					{site.region ?? 'No region'} · {site.lat.toFixed(4)}, {site.lon.toFixed(4)}
-				</p>
-				<p class="roles">
-					{#each ROLES as role (role)}
-						{@const count = devices.filter((d) => d.role === role).length}
-						{#if count}
-							<span class="role" style:--role={ROLE_COLOR[role]}>{count} {ROLE_LABEL[role]}</span>
-						{/if}
-					{/each}
-				</p>
-				<p class="actions">
-					<button
-						title="Show the site's devices in the hierarchy and topology views"
-						onclick={() =>
-							expandedSites.has(site.code)
-								? expandedSites.delete(site.code)
-								: expandedSites.add(site.code)}
-					>
-						{expandedSites.has(site.code) ? 'Collapse site' : 'Expand site'}
-					</button>
-					<button onclick={() => showNeighborhood({ kind: 'site', id: site.code })}>
-						Show neighborhood
-					</button>
-				</p>
-				<h3>Links to other sites ({wan.length})</h3>
-				<table>
-					<thead><tr><th>Local</th><th>Remote</th><th>Speed</th><th>Circuit</th></tr></thead>
-					<tbody>
-						{#each wan as n (n.link.id)}
-							<tr onclick={() => select({ kind: 'links', ids: [n.link.id] }, true)}>
-								<td>{@render endpoint(n.local)}</td>
-								<td
-									>{@render siteLink(siteOf(index, n.remote.device))}
-									{@render endpoint(n.remote)}</td
-								>
-								<td>{formatSpeed(n.link.speed_mbps)}</td>
-								<td class="muted">
-									{n.link.circuit ? `${n.link.circuit.provider} ${n.link.circuit.circuit_id}` : ''}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-				<details>
-					<summary>Devices ({devices.length})</summary>
-					<ul class="devices">
-						{#each devices as d (d.name)}
-							<li>
-								<span class="dot" style:--role={ROLE_COLOR[d.role]}></span>{@render deviceLink(
-									d.name
-								)}
-							</li>
-						{/each}
-					</ul>
-				</details>
-			{/if}
-		{:else}
-			{@const links = selection.ids.flatMap((id) => index.links.get(id) ?? [])}
-			{@const total = links.reduce((s, l) => s + l.speed_mbps, 0)}
-			<h2>{links.length === 1 ? 'Link' : `${links.length} links`}</h2>
-			<p class="muted">{formatSpeed(total)} total capacity</p>
-			<table>
-				<thead><tr><th>A end</th><th>B end</th><th>Speed</th></tr></thead>
-				<tbody>
-					{#each links as link (link.id)}
-						<tr>
-							<td>{@render endpoint(link.a)}</td>
-							<td>{@render endpoint(link.b)}</td>
-							<td>
-								{formatSpeed(link.speed_mbps)}
-								{#if link.kind === 'wan'}<span class="tag wan">WAN</span>{/if}
-							</td>
-						</tr>
-						{#if link.circuit}
-							<tr class="sub">
-								<td colspan="3">Circuit {link.circuit.circuit_id} · {link.circuit.provider}</td>
-							</tr>
-						{/if}
-					{/each}
-				</tbody>
-			</table>
+		{#if selection}
+			<section aria-label="Selection">
+				<button class="close" onclick={() => select(null)} aria-label="Close details">×</button>
+
+				{#if selection.kind === 'device'}
+					{@const device = index.devices.get(selection.id)}
+					{#if device}
+						{@const neighbors = neighborsOf(index, device.name)}
+						<h2>{device.name}</h2>
+						<p>
+							<span class="role" style:--role={ROLE_COLOR[device.role]}
+								>{ROLE_LABEL[device.role]}</span
+							>
+							at {@render siteLink(device.site)}
+							{index.sites.get(device.site)?.name}
+						</p>
+						<dl>
+							{#if device.platform}<dt>Platform</dt>
+								<dd>{device.platform}</dd>{/if}
+							{#if device.mgmt_ip}<dt>Management</dt>
+								<dd class="mono">{device.mgmt_ip}</dd>{/if}
+						</dl>
+						<p class="actions">
+							<button onclick={() => showNeighborhood({ kind: 'device', id: device.name })}>
+								Show neighborhood
+							</button>
+							<button onclick={() => startPath(device.name)}>Path from here</button>
+						</p>
+						<h3>Neighbors ({neighbors.length})</h3>
+						<table>
+							<thead><tr><th>Local</th><th>Neighbor</th><th>Remote</th><th>Speed</th></tr></thead>
+							<tbody>
+								{#each neighbors as n (n.link.id)}
+									<tr onclick={() => select({ kind: 'links', ids: [n.link.id] }, true)}>
+										<td class="mono">
+											{shortInterface(n.local.interface)}
+											{#if n.local.lag}<span class="tag">{shortInterface(n.local.lag)}</span>{/if}
+										</td>
+										<td>{@render deviceLink(n.remote.device)}</td>
+										<td class="mono">{shortInterface(n.remote.interface)}</td>
+										<td>
+											{formatSpeed(n.link.speed_mbps)}
+											{#if n.link.kind === 'wan'}<span class="tag wan">WAN</span>{/if}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+				{:else if selection.kind === 'site'}
+					{@const site = index.sites.get(selection.id)}
+					{#if site}
+						{@const devices = index.devicesBySite.get(site.code) ?? []}
+						{@const wan = siteWanLinks(site.code)}
+						<h2>{site.code} · {site.name}</h2>
+						<p class="muted">
+							{site.region ?? 'No region'} · {site.lat.toFixed(4)}, {site.lon.toFixed(4)}
+						</p>
+						<p class="roles">
+							{#each ROLES as role (role)}
+								{@const count = devices.filter((d) => d.role === role).length}
+								{#if count}
+									<span class="role" style:--role={ROLE_COLOR[role]}
+										>{count} {ROLE_LABEL[role]}</span
+									>
+								{/if}
+							{/each}
+						</p>
+						<p class="actions">
+							<button
+								title="Show the site's devices in the hierarchy and topology views"
+								onclick={() =>
+									expandedSites.has(site.code)
+										? expandedSites.delete(site.code)
+										: expandedSites.add(site.code)}
+							>
+								{expandedSites.has(site.code) ? 'Collapse site' : 'Expand site'}
+							</button>
+							<button onclick={() => showNeighborhood({ kind: 'site', id: site.code })}>
+								Show neighborhood
+							</button>
+						</p>
+						<h3>Links to other sites ({wan.length})</h3>
+						<table>
+							<thead><tr><th>Local</th><th>Remote</th><th>Speed</th><th>Circuit</th></tr></thead>
+							<tbody>
+								{#each wan as n (n.link.id)}
+									<tr onclick={() => select({ kind: 'links', ids: [n.link.id] }, true)}>
+										<td>{@render endpoint(n.local)}</td>
+										<td
+											>{@render siteLink(siteOf(index, n.remote.device))}
+											{@render endpoint(n.remote)}</td
+										>
+										<td>{formatSpeed(n.link.speed_mbps)}</td>
+										<td class="muted">
+											{n.link.circuit
+												? `${n.link.circuit.provider} ${n.link.circuit.circuit_id}`
+												: ''}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+						<details>
+							<summary>Devices ({devices.length})</summary>
+							<ul class="devices">
+								{#each devices as d (d.name)}
+									<li>
+										<span class="dot" style:--role={ROLE_COLOR[d.role]}></span>{@render deviceLink(
+											d.name
+										)}
+									</li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+				{:else}
+					{@const links = selection.ids.flatMap((id) => index.links.get(id) ?? [])}
+					{@const total = links.reduce((s, l) => s + l.speed_mbps, 0)}
+					<h2>{links.length === 1 ? 'Link' : `${links.length} links`}</h2>
+					<p class="muted">{formatSpeed(total)} total capacity</p>
+					<table>
+						<thead><tr><th>A end</th><th>B end</th><th>Speed</th></tr></thead>
+						<tbody>
+							{#each links as link (link.id)}
+								<tr>
+									<td>{@render endpoint(link.a)}</td>
+									<td>{@render endpoint(link.b)}</td>
+									<td>
+										{formatSpeed(link.speed_mbps)}
+										{#if link.kind === 'wan'}<span class="tag wan">WAN</span>{/if}
+									</td>
+								</tr>
+								{#if link.circuit}
+									<tr class="sub">
+										<td colspan="3">Circuit {link.circuit.circuit_id} · {link.circuit.provider}</td>
+									</tr>
+								{/if}
+							{/each}
+						</tbody>
+					</table>
+				{/if}
+			</section>
 		{/if}
 	</aside>
 {/if}
@@ -197,6 +279,26 @@ and bring that item into view.
 		border-left: 1px solid var(--border);
 		padding: 14px 16px;
 		font-size: 13px;
+	}
+	section {
+		position: relative;
+	}
+	.path {
+		margin: -14px -16px 14px;
+		padding: 14px 16px;
+		border-bottom: 1px solid var(--border);
+		background: color-mix(in srgb, var(--path) 8%, var(--panel));
+	}
+	.hops {
+		margin: 6px 0;
+		padding-left: 22px;
+	}
+	.hops li {
+		margin: 3px 0;
+	}
+	.hops .mono {
+		color: var(--muted);
+		margin-left: 6px;
 	}
 	.close {
 		position: absolute;

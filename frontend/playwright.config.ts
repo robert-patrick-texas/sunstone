@@ -6,9 +6,13 @@
  * Playwright container on a host without Chromium's system libraries (see
  * the README). The container's Playwright version must match this one.
  */
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = Number(process.env['SUNSTONE_E2E_PORT'] ?? 18940);
+// Layouts saved by the tests go to a fresh file, never beside the sample data.
+const LAYOUTS = join(tmpdir(), `sunstone-e2e-${process.pid}.layouts.json`);
 const ws = process.env['PW_WS_ENDPOINT'];
 
 export default defineConfig({
@@ -30,7 +34,9 @@ export default defineConfig({
 		}
 	],
 	webServer: {
-		command: `uv run sunstone --topology ../data/sample/small.yaml --web-dir ../frontend/build --port ${PORT}`,
+		command:
+			'uv run sunstone --topology ../data/sample/small.yaml --web-dir ../frontend/build ' +
+			`--layouts ${LAYOUTS} --port ${PORT}`,
 		cwd: '../backend',
 		url: `http://127.0.0.1:${PORT}/api/topology`,
 		reuseExistingServer: false,

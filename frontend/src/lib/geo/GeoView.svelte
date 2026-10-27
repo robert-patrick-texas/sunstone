@@ -2,7 +2,8 @@
 @component
 Geographic view: sites and site-to-site links on a map. Zooming in past
 `DEVICE_ZOOM` opens each site into its devices and their links. Clicking a
-site selects it and zooms in to its devices.
+site selects it and zooms in to its devices. A path, when shown, is drawn in
+its own color with everything else faded.
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
@@ -19,6 +20,7 @@ site selects it and zooms in to its devices.
 	// MapLibre looks for its worker next to its own module, which bundling moves;
 	// hand it the worker's emitted URL instead.
 	import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
+	import type { PathResult } from '../paths.ts';
 	import { select, ui, type Selection } from '../state.svelte.ts';
 	import { COLOR, ROLE_COLOR } from '../theme.ts';
 	import { siteOf, type TopologyIndex } from '../topology.ts';
@@ -34,7 +36,7 @@ site selects it and zooms in to its devices.
 		type LonLat
 	} from './geojson.ts';
 
-	const { index }: { index: TopologyIndex } = $props();
+	const { index, path }: { index: TopologyIndex; path: PathResult | null } = $props();
 
 	setWorkerUrl(workerUrl);
 
@@ -50,6 +52,7 @@ site selects it and zooms in to its devices.
 	let container: HTMLDivElement;
 	let map = $state.raw<MapLibre | null>(null);
 	let lastFocus = ui.focusRequest;
+	let lastPath = untrack(() => path);
 
 	// The topology never changes while the view is open, so these are computed once.
 	const positions = untrack(() => devicePositions(index));
@@ -70,6 +73,8 @@ site selects it and zooms in to its devices.
 		COLOR.muted
 	];
 	const isSelected: ExpressionSpecification = ['boolean', ['feature-state', 'selected'], false];
+	const onPath: ExpressionSpecification = ['boolean', ['feature-state', 'path'], false];
+	const FADED = 0.12;
 
 	onMount(() => {
 		const m = new MapLibre({
@@ -87,7 +92,9 @@ site selects it and zooms in to its devices.
 				m.getCanvas().style.cursor = featureAt(m, e.point) ? 'pointer' : '';
 			});
 			map = m;
-			if (ui.selection) focus(m, ui.selection);
+			// On opening, a shown path matters more than the selection (often its end).
+			if (path) fitDevices(m, [...path.devices.keys()]);
+			else if (ui.selection) focus(m, ui.selection);
 		});
 		return () => m.remove();
 	});
@@ -116,7 +123,7 @@ site selects it and zooms in to its devices.
 			maxzoom: DEVICE_ZOOM,
 			layout: { 'line-cap': 'round' },
 			paint: {
-				'line-color': ['case', isSelected, COLOR.selected, COLOR.wan],
+				'line-color': ['case', isSelected, COLOR.selected, onPath, COLOR.path, COLOR.wan],
 				'line-opacity': ['case', isSelected, 1, 0.55],
 				'line-width': [
 					'interpolate',
@@ -141,6 +148,8 @@ site selects it and zooms in to its devices.
 					'case',
 					isSelected,
 					COLOR.selected,
+					onPath,
+					COLOR.path,
 					['==', ['get', 'kind'], 'wan'],
 					COLOR.wan,
 					COLOR.lan
@@ -157,8 +166,15 @@ site selects it and zooms in to its devices.
 				'circle-radius': ['interpolate', ['linear'], ['sqrt', ['get', 'devices']], 1, 5, 15, 16],
 				'circle-color': COLOR.site,
 				'circle-opacity': 0.9,
-				'circle-stroke-color': ['case', isSelected, COLOR.selected, COLOR.background],
-				'circle-stroke-width': ['case', isSelected, 3, 1.5]
+				'circle-stroke-color': [
+					'case',
+					isSelected,
+					COLOR.selected,
+					onPath,
+					COLOR.path,
+					COLOR.background
+				],
+				'circle-stroke-width': ['case', isSelected, 3, onPath, 3, 1.5]
 			}
 		});
 		m.addLayer({
@@ -169,8 +185,15 @@ site selects it and zooms in to its devices.
 			paint: {
 				'circle-radius': ['interpolate', ['linear'], ['zoom'], DEVICE_ZOOM, 3, 18, 9],
 				'circle-color': roleColor,
-				'circle-stroke-color': ['case', isSelected, COLOR.selected, COLOR.background],
-				'circle-stroke-width': ['case', isSelected, 3, 1]
+				'circle-stroke-color': [
+					'case',
+					isSelected,
+					COLOR.selected,
+					onPath,
+					COLOR.path,
+					COLOR.background
+				],
+				'circle-stroke-width': ['case', isSelected, 3, onPath, 3, 1]
 			}
 		});
 		m.addLayer({
@@ -248,6 +271,20 @@ site selects it and zooms in to its devices.
 		for (const source of ['sites', 'site-links', 'devices', 'device-links']) {
 			m.removeFeatureState({ source });
 		}
+		if (path) {
+			const trace = (source: string, id: string) =>
+				m.setFeatureState({ source, id }, { path: true });
+			for (const device of path.devices.keys()) {
+				trace('devices', device);
+				trace('sites', siteOf(index, device));
+			}
+			for (const id of path.links) {
+				trace('device-links', id);
+				const pair = pairOfLink.get(id);
+				if (pair) trace('site-links', pair);
+			}
+		}
+		fade(m, path !== null);
 		const mark = (source: string, id: string) =>
 			m.setFeatureState({ source, id }, { selected: true });
 		if (selection?.kind === 'device') {
@@ -272,6 +309,35 @@ site selects it and zooms in to its devices.
 		untrack(() => ui.selection && focus(m, ui.selection));
 	});
 
+	// A newly shown path is brought into view.
+	$effect(() => {
+		const [m, p] = [map, path];
+		if (!m || p === lastPath) return;
+		lastPath = p;
+		if (p) untrack(() => fitDevices(m, [...p.devices.keys()]));
+	});
+
+	/** While a path is shown, everything off it fades. */
+	function fade(m: MapLibre, on: boolean): void {
+		const opacity = (normal: number): ExpressionSpecification =>
+			on ? ['case', isSelected, 1, onPath, 1, FADED] : ['case', isSelected, 1, normal];
+		m.setPaintProperty('site-links', 'line-opacity', opacity(0.55));
+		m.setPaintProperty('device-links', 'line-opacity', opacity(1));
+		m.setPaintProperty('sites', 'circle-opacity', opacity(0.9));
+		m.setPaintProperty('devices', 'circle-opacity', opacity(1));
+	}
+
+	/** Fit devices in view: their ring positions within one site, else their sites. */
+	function fitDevices(m: MapLibre, devices: string[]): void {
+		const sameSite = new Set(devices.map((d) => siteOf(index, d))).size === 1;
+		const points: LonLat[] = devices.flatMap((d) => {
+			const site = index.sites.get(siteOf(index, d));
+			const at = sameSite ? positions.get(d) : site && ([site.lon, site.lat] as LonLat);
+			return at ? [at] : [];
+		});
+		if (points.length) m.fitBounds(bounds(points), { padding: 120, maxZoom: 17 });
+	}
+
 	function focus(m: MapLibre, selection: Selection): void {
 		if (selection.kind === 'device') {
 			const at = positions.get(selection.id);
@@ -286,13 +352,7 @@ site selects it and zooms in to its devices.
 				const link = index.links.get(id);
 				return link ? [link.a.device, link.b.device] : [];
 			});
-			const sameSite = new Set(ends.map((d) => siteOf(index, d))).size === 1;
-			const points: LonLat[] = ends.flatMap((d) => {
-				const site = index.sites.get(siteOf(index, d));
-				const at = sameSite ? positions.get(d) : site && ([site.lon, site.lat] as LonLat);
-				return at ? [at] : [];
-			});
-			if (points.length) m.fitBounds(bounds(points), { padding: 120, maxZoom: 17 });
+			fitDevices(m, ends);
 		}
 	}
 
