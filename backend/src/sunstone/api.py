@@ -13,6 +13,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
+from sunstone.discovery import Comparison, SimulatedDiscovery, compare
 from sunstone.impact import Network, WhatIf
 from sunstone.layouts import (
     MAX_NAME,
@@ -117,7 +118,8 @@ def create_app(
             directory is, or None for files beside the topology.
         state_source: Where live state comes from, or None for simulated
             state (there are no real sources yet), which acts out planned
-            maintenance.
+            maintenance. Discovery is simulated either way, answering for
+            the devices this source finds up.
         warm: Work out the day's events and the present moment in the
             background at startup, and each new moment as it begins while
             anyone is watching, so viewers do not wait.
@@ -145,8 +147,28 @@ def create_app(
     operations = OperationsStore(files.path(topology_path, "operations"), network)
     state = state_source or SimulatedState(topology, plans=operations)
     monitor = Monitor(network, state)
+    discovery = SimulatedDiscovery(topology, state)
+    # The latest discovery run compared, by run and maintenance plans.
+    compared: dict[tuple[datetime, int], Comparison] = {}
+    comparing = threading.Lock()
+
+    def latest_comparison() -> Comparison:
+        """The latest discovery run compared with the topology, worked out once."""
+        step = discovery.interval.total_seconds()
+        run = datetime.fromtimestamp(datetime.now(UTC).timestamp() // step * step, UTC)
+        key = (run, operations.version)
+        with comparing:
+            if key not in compared:
+                compared.clear()
+                found = discovery.discover(run)
+                compared[key] = compare(topology, found, state.snapshot(run))
+            return compared[key]
+
     if warm:
         threading.Thread(target=monitor.warm, name="warm", daemon=True).start()
+        threading.Thread(
+            target=latest_comparison, name="discovery", daemon=True
+        ).start()
         never = threading.Event()
         threading.Thread(
             target=monitor.keep_ahead, args=(never,), name="ahead", daemon=True
@@ -256,6 +278,14 @@ def create_app(
             for e in events
         ]
         return EventLog(since=since, until=now, events=events)
+
+    @app.get("/api/discovery")
+    def get_discovery() -> Comparison:
+        """Return the latest discovery run compared with the documented links.
+
+        Runs come every 15 minutes, and each is compared once for every viewer.
+        """
+        return latest_comparison()
 
     @app.get("/api/history/{device}")
     def get_history(device: str) -> DeviceHistory:

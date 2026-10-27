@@ -43,7 +43,7 @@ test('live problems are listed, and one shows what it affects', async ({ page })
 	await expect(page.getByText('5 sites · 52 devices · 106 links')).toBeVisible();
 	await page.getByRole('button', { name: 'Live' }).click();
 	const side = page.getByRole('complementary', {
-		name: 'Problems, events, maintenance, and on call'
+		name: 'Lists'
 	});
 	const problems = side.getByRole('region', { name: 'Problems' });
 	await expect(side.getByRole('tab', { name: /^Problems \d+$/ })).toBeVisible();

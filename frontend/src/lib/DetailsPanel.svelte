@@ -12,6 +12,7 @@ links that select and bring that item into view.
 -->
 <script lang="ts">
 	import { fetchWhatIf, type Problem, type WhatIf } from './api/analysis.ts';
+	import type { Comparison } from './api/discovery.ts';
 	import type { OnCall, Ownership } from './api/oncall.ts';
 	import { acknowledge, unacknowledge, type Window } from './api/operations.ts';
 	import { fetchHistory, type DeviceHistory, type InterfaceHistory } from './api/state.ts';
@@ -41,6 +42,7 @@ links that select and bring that item into view.
 		ui,
 		type Selection
 	} from './state.svelte.ts';
+	import DiscoveryFor from './DiscoveryFor.svelte';
 	import OnCallFor from './OnCallFor.svelte';
 	import Routing from './Routing.svelte';
 	import Spark from './Spark.svelte';
@@ -68,7 +70,8 @@ links that select and bring that item into view.
 		onchange,
 		live,
 		oncall,
-		ownership
+		ownership,
+		comparison
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
@@ -83,6 +86,8 @@ links that select and bring that item into view.
 		/** Who is on call, or null without an on-call directory. */
 		oncall: OnCall | null;
 		ownership: Ownership | null;
+		/** The latest discovery run, against the documentation. */
+		comparison: Comparison | null;
 	} = $props();
 
 	const HEALTHS: DeviceHealth[] = ['down', 'degraded', 'nodata', 'up', 'unmonitored'];
@@ -610,6 +615,7 @@ links that select and bring that item into view.
 						{#if ifFails}<p class="muted">{consequence(ifFails, 'it')}</p>{/if}
 						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
+						<DiscoveryFor {index} {comparison} item={selection} />
 						<h3>Neighbors ({neighbors.length})</h3>
 						<table>
 							<thead>
@@ -709,6 +715,7 @@ links that select and bring that item into view.
 						{#if ifFails}<p class="muted">{consequence(ifFails, 'the whole site')}</p>{/if}
 						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
+						<DiscoveryFor {index} {comparison} item={selection} />
 						<h3>Links to other sites ({wan.length})</h3>
 						<table>
 							<thead><tr><th>Local</th><th>Remote</th><th>Speed</th><th>Circuit</th></tr></thead>
@@ -760,6 +767,7 @@ links that select and bring that item into view.
 					{/if}
 					<OnCallFor {index} {oncall} {ownership} item={selection} />
 					{@render maintenanceOf(selection)}
+					<DiscoveryFor {index} {comparison} item={selection} />
 					<table>
 						<thead>
 							<tr>

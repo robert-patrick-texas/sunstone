@@ -178,6 +178,25 @@
     }
    }
   },
+  "/api/discovery": {
+   "get": {
+    "summary": "Get Discovery",
+    "description": "Return the latest discovery run compared with the documented links.\n\nRuns come every 15 minutes, and each is compared once for every viewer.",
+    "operationId": "get_discovery_api_discovery_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Comparison"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/history/{device}": {
    "get": {
     "summary": "Get History",
@@ -923,6 +942,63 @@
     "title": "Circuit",
     "description": "A carrier circuit carrying a WAN link."
    },
+   "Comparison": {
+    "properties": {
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "polled": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Polled"
+     },
+     "links": {
+      "additionalProperties": {
+       "type": "string",
+       "enum": [
+        "confirmed",
+        "mismatch",
+        "not-seen",
+        "down",
+        "unchecked"
+       ]
+      },
+      "type": "object",
+      "title": "Links"
+     },
+     "confirmed": {
+      "type": "integer",
+      "title": "Confirmed"
+     },
+     "findings": {
+      "items": {
+       "$ref": "#/components/schemas/Finding"
+      },
+      "type": "array",
+      "title": "Findings"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "source",
+     "at",
+     "polled",
+     "links",
+     "confirmed",
+     "findings"
+    ],
+    "title": "Comparison",
+    "description": "Discovery against the documented topology, as of one run."
+   },
    "Cover": {
     "properties": {
      "team": {
@@ -1314,6 +1390,79 @@
     ],
     "title": "FailedSet",
     "description": "Devices and links that fail."
+   },
+   "Finding": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "wrong-neighbor",
+       "wrong-port",
+       "not-seen",
+       "undocumented",
+       "unknown-device",
+       "no-neighbors"
+      ],
+      "title": "Kind"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "detail": {
+      "type": "string",
+      "title": "Detail"
+     },
+     "link": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Link"
+     },
+     "documented": {
+      "items": {
+       "$ref": "#/components/schemas/Port"
+      },
+      "type": "array",
+      "title": "Documented",
+      "default": []
+     },
+     "seen": {
+      "items": {
+       "$ref": "#/components/schemas/Port"
+      },
+      "type": "array",
+      "title": "Seen",
+      "default": []
+     },
+     "devices": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Devices"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "title",
+     "detail",
+     "devices"
+    ],
+    "title": "Finding",
+    "description": "One place where the documentation and the network disagree."
    },
    "HTTPValidationError": {
     "properties": {
@@ -2109,6 +2258,26 @@
     ],
     "title": "Person",
     "description": "Someone who can be on call."
+   },
+   "Port": {
+    "properties": {
+     "device": {
+      "type": "string",
+      "title": "Device"
+     },
+     "interface": {
+      "type": "string",
+      "title": "Interface"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "device",
+     "interface"
+    ],
+    "title": "Port",
+    "description": "A device's port, as documented or as seen."
    },
    "Position": {
     "properties": {

@@ -60,7 +60,7 @@ export const ui = $state({
 	/** Show the list of problems in live state. */
 	problemsOpen: true,
 	/** Which list the side panel shows. */
-	sideTab: 'problems' as 'problems' | 'events' | 'maintenance' | 'oncall',
+	sideTab: 'problems' as 'problems' | 'events' | 'maintenance' | 'oncall' | 'discovery',
 	/** The team the on-call list is showing, by id. */
 	team: null as string | null,
 	/** Who is using Sunstone, for signing maintenance and acknowledgements. */
