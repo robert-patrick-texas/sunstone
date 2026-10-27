@@ -34,6 +34,8 @@ Sunstone has no sign-in: anyone who can reach it can save and delete layouts, pl
 - **Impact** is drawn like a path, with everything unaffected faded: failed devices red with `×` (octagons in the graph views), cut-off devices as red outlines, devices left without redundancy amber with `!`, and lost links dashed red (amber where only some of a bundle are lost).
 - **Selection** is shared: whatever is selected stays selected when switching views. The details panel shows a device's neighbors interface by interface, a site's links to other sites, or a link's ends and circuit. Names in it are clickable.
 - **Search** with `/`, by device name, site code or name, or management address. `Esc` clears the selection.
+- **Links:** the address bar always holds a link to what is on screen: the view, the selection, Live and the replayed moment, a path, "what if" failures, the problem being shown, the topology view's settings, which sites are expanded, and where the map is. **Copy link** copies it. Opening it shows the same thing; anything in it that no longer matches the network (a renamed device, say) is skipped. Links stay readable, for example `?view=hierarchy&select=device:dal-core-01&live=1`.
+- **Wall display** (header button, or `?wall=1` in a link, with `&dwell=SECONDS` to change the default 20): for a NOC wall screen no one sits at. Live is always on; a bar across the top gives the time, how fresh the data is, and how many problems of each kind no one is on yet. The screen shows in turn the map and the hierarchy, each fitted to the whole network, then each of those problems close up with a large caption saying what and where. Moving the mouse shows controls (previous, pause, next, full screen, leave); `Space` pauses, the arrow keys step, `Esc` leaves.
 
 ## Data
 
@@ -94,6 +96,8 @@ Saved layouts go in a JSON file beside the topology (`small.yaml` → `small.lay
 - **Acknowledgements last until the problem clears**, as in most NOC tools, then are kept a day so replaying shows them. Problem ids stay the same while a problem lasts, which is what an acknowledgement attaches to.
 - **The simulator acts out maintenance.** Devices and links in an open window are down for all of it, as the work would take them down, so planned work shows up in every view, problem, and event the way it would on a real network. A real source needs nothing like this.
 - **Problems and impacts are worked out on the server** (`impact.py`, `problems.py`), once per moment for every viewer, and the analysis lives in one place. The web UI keeps its own copy of the device and link health rules (`live.ts`) to color the views; the backend's copy (`LiveView`) follows the same rules, and each side's tests pin them.
+- **The link is the state.** Rather than a separate "share" feature, the page keeps its address in step with what is on screen, so the address bar, bookmarks, and Copy link all work the same way, and a wall display is just a link opened on a screen. Only what differs from how Sunstone opens goes in, so links stay short and readable. A shared link to a problem names the problem; if it has cleared by the time someone opens the link, they see the network without it.
+- **The wall shows only what needs someone.** Problems acknowledged or accounted for by planned work are counted in the bar but not shown one by one, so the wall keeps cycling through what is still open. It shows at most 10 problems in turn, most urgent first.
 - **Map tiles** come from OpenFreeMap's hosted dark style; viewers' browsers need internet access.
 
 ## Testing

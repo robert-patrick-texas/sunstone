@@ -2,6 +2,7 @@
  * UI state shared by every view, so switching views keeps the user's context.
  */
 import { SvelteSet } from 'svelte/reactivity';
+import { DEFAULT_DWELL_S, type Camera } from './url.ts';
 
 export type View = 'geo' | 'hierarchy' | 'topology';
 
@@ -64,6 +65,12 @@ export const ui = $state({
 	person: rememberedName(),
 	/** The maintenance window being planned or changed, if any. */
 	planning: null as WindowDraft | null,
+	/** Where the map is, kept so a link can carry it. */
+	camera: null as Camera | null,
+	/** Incremented to ask the current view to show everything. */
+	fitRequest: 0,
+	/** The NOC wall display: on, how long it shows each thing, and paused. */
+	wall: { on: false, dwell: DEFAULT_DWELL_S, paused: false },
 	/** The earlier moment whose live state is shown (ISO time), or null for now. */
 	at: null as string | null,
 	/** The problem whose impact is shown, by id. */
@@ -71,6 +78,12 @@ export const ui = $state({
 	/** Devices, sites, and links supposed to fail, to see what that would do. */
 	whatIf: [] as Selection[]
 });
+
+/**
+ * Where a link put the map, for the map to go to when it opens, once. Not
+ * reactive: the map reads it when it starts.
+ */
+export const fromLink: { camera: Camera | null } = { camera: null };
 
 /** Sites the graph views show device by device instead of as one box. */
 export const expandedSites = new SvelteSet<string>();

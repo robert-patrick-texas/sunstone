@@ -3,11 +3,14 @@
 The app: header with view switch and search, the current view, the legend,
 the details panel for whatever is selected, a side panel of maintenance
 windows, and with live state, a time slider over the last day and problems
-and events in the side panel too.
+and events in the side panel too. The address bar always holds a link to
+what is on screen, and opening such a link shows it again. In wall display
+mode, the wall's bar and captions take the place of the controls.
 -->
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
 	import { fetchProblems, fetchWhatIf, type Problem } from '#lib/api/analysis.ts';
 	import { fetchWindows, type Window } from '#lib/api/operations.ts';
 	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
@@ -27,9 +30,19 @@ and events in the side panel too.
 	import { shortestPaths } from '#lib/paths.ts';
 	import ProblemsPanel from '#lib/ProblemsPanel.svelte';
 	import SearchBox from '#lib/SearchBox.svelte';
-	import { expandedSites, select, ui, type View } from '#lib/state.svelte.ts';
+	import {
+		clearPath,
+		expandedSites,
+		fromLink,
+		select,
+		topo,
+		ui,
+		type View
+	} from '#lib/state.svelte.ts';
 	import Timeline from '#lib/Timeline.svelte';
-	import { indexTopology, type TopologyIndex } from '#lib/topology.ts';
+	import { compareNatural, indexTopology, type TopologyIndex } from '#lib/topology.ts';
+	import { fromQuery, readable, toQuery, type Shared } from '#lib/url.ts';
+	import WallDisplay from '#lib/WallDisplay.svelte';
 
 	// Small networks open fully expanded in the hierarchy; larger ones start as one box per site.
 	const EXPAND_ALL_UP_TO = 400;
@@ -72,6 +85,7 @@ and events in the side panel too.
 	});
 	let problem = $state<string | null>(null);
 	let showPerf = $state(false);
+	let copied = $state<string | null>(null);
 
 	onMount(async () => {
 		if (new URLSearchParams(location.search).has('perf')) {
@@ -83,11 +97,87 @@ and events in the side panel too.
 			if (topology.devices.length <= EXPAND_ALL_UP_TO) {
 				for (const site of topology.sites) expandedSites.add(site.code);
 			}
-			index = indexTopology(topology);
+			const built = indexTopology(topology);
+			// Before the views open, so they open on what the link shows.
+			openLink(fromQuery(new URLSearchParams(location.search), built));
+			index = built;
 		} catch (e) {
 			problem = e instanceof Error ? e.message : String(e);
 		}
 	});
+
+	/** Show what a link asks for. */
+	function openLink(found: Partial<Shared>): void {
+		if (found.topo) Object.assign(topo, found.topo);
+		if (found.expanded) {
+			expandedSites.clear();
+			for (const code of found.expanded) expandedSites.add(code);
+		}
+		if (found.view) ui.view = found.view;
+		if (found.selection) ui.selection = found.selection;
+		if (found.path) ui.path = found.path;
+		if (found.whatIf) ui.whatIf = found.whatIf;
+		if (found.live) {
+			ui.live = true;
+			ui.at = found.at ?? null;
+			ui.problem = found.problem ?? null;
+		}
+		if (found.camera) fromLink.camera = found.camera;
+		if (found.wall) {
+			ui.wall.on = true;
+			ui.wall.dwell = found.wall.dwell;
+		}
+	}
+
+	// Keep the address bar a link to what is on screen.
+	$effect(() => {
+		if (!index) return;
+		const shared: Shared = {
+			view: ui.view,
+			selection: ui.selection ? $state.snapshot(ui.selection) : null,
+			live: ui.live,
+			at: ui.at,
+			path: ui.path ? { ...ui.path } : null,
+			whatIf: $state.snapshot(ui.whatIf),
+			problem: ui.problem,
+			topo: { ...$state.snapshot(topo) },
+			expanded: [...expandedSites].sort(compareNatural),
+			camera: ui.camera,
+			wall: ui.wall.on ? { dwell: ui.wall.dwell } : null
+		};
+		// ?perf is for measuring, not for sharing, but keep it while measuring.
+		const parts = [readable(toQuery(shared, index)), showPerf ? 'perf' : ''].filter(Boolean);
+		const search = parts.length ? `?${parts.join('&')}` : '';
+		if (search !== location.search) replaceState(`${location.pathname}${search}`, {});
+	});
+
+	// The wall shows live state as it is now, and nothing else.
+	$effect(() => {
+		if (!ui.wall.on) return;
+		ui.live = true;
+		ui.at = null;
+		ui.whatIf = [];
+		clearPath();
+	});
+
+	async function copyLink(): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(location.href);
+			copied = 'Link copied';
+		} catch {
+			// Clipboards need a secure page and permission; the address bar always works.
+			copied = 'Copy it from the address bar';
+		}
+		setTimeout(() => (copied = null), 2500);
+	}
+
+	function enterWall(): void {
+		ui.wall.on = true;
+		document.documentElement.requestFullscreen().catch((e: unknown) => {
+			// Refused (some browsers, kiosks); the wall still fills the window.
+			console.warn('Full screen refused', e);
+		});
+	}
 
 	// While live state is on, fetch it now and every POLL_MS; or, while
 	// replaying an earlier moment, fetch that moment once.
@@ -213,7 +303,8 @@ and events in the side panel too.
 	}
 
 	function onKeydown(e: KeyboardEvent): void {
-		if (e.key !== 'Escape' || e.target instanceof HTMLInputElement) return;
+		// The wall display has keys of its own.
+		if (ui.wall.on || e.key !== 'Escape' || e.target instanceof HTMLInputElement) return;
 		// Escape first cancels choosing a path's destination, then clears the selection.
 		if (ui.pathFrom) ui.pathFrom = null;
 		else select(null);
@@ -223,64 +314,72 @@ and events in the side panel too.
 <svelte:window onkeydown={onKeydown} />
 {#if showPerf}<PerfPanel />{/if}
 
-<div class="app">
-	<header>
-		<h1><img src="/favicon.svg" alt="" width="22" height="22" />Sunstone</h1>
-		<div class="segmented" role="group" aria-label="View">
-			{#each VIEWS as view (view.id)}
-				<button aria-pressed={ui.view === view.id} onclick={() => (ui.view = view.id)}>
-					{view.label}
-				</button>
-			{/each}
-		</div>
-		<button
-			class="live"
-			aria-pressed={ui.live}
-			title="Show device status and link load"
-			onclick={() => (ui.live = !ui.live)}
-		>
-			<span class="pulse" aria-hidden="true"></span>Live
-		</button>
-		{#if ui.live}
+<div class="app" class:wall={ui.wall.on}>
+	{#if ui.wall.on}
+		{#if index}<WallDisplay {index} {problems} {live} {liveProblem} />{/if}
+	{:else}
+		<header>
+			<h1><img src="/favicon.svg" alt="" width="22" height="22" />Sunstone</h1>
+			<div class="segmented" role="group" aria-label="View">
+				{#each VIEWS as view (view.id)}
+					<button aria-pressed={ui.view === view.id} onclick={() => (ui.view = view.id)}>
+						{view.label}
+					</button>
+				{/each}
+			</div>
 			<button
-				aria-pressed={ui.problemsOpen && ui.sideTab !== 'maintenance'}
-				title="Show or hide the problems no one is on yet, and events"
-				onclick={() => {
-					if (ui.sideTab === 'maintenance') {
-						ui.sideTab = 'problems';
-						ui.problemsOpen = true;
-					} else ui.problemsOpen = !ui.problemsOpen;
-				}}
+				class="live"
+				aria-pressed={ui.live}
+				title="Show device status and link load"
+				onclick={() => (ui.live = !ui.live)}
 			>
-				Problems{live ? ` ${unhandled}` : ''}
+				<span class="pulse" aria-hidden="true"></span>Live
 			</button>
-			<span class="live-status" class:past={ui.at !== null} aria-live="polite">
-				{#if liveProblem}
-					Live state unavailable: {liveProblem}
-				{:else if live}
-					{live.state.source} · {ui.at ? 'replaying' : 'as of'}
-					{new Date(live.state.generated_at).toLocaleTimeString()}
-				{:else}
-					Loading live state…
-				{/if}
-			</span>
-		{/if}
-		<button
-			aria-pressed={ui.problemsOpen && ui.sideTab === 'maintenance'}
-			title="Show or hide maintenance windows"
-			onclick={toggleMaintenance}
-		>
-			Maintenance{coming ? ` ${coming}` : ''}
-		</button>
-		{#if index}
-			<SearchBox {index} />
-			<span class="stats">
-				{index.topology.sites.length} sites · {index.topology.devices.length} devices ·
-				{index.topology.links.length} links
-			</span>
-		{/if}
-	</header>
-	{#if ui.live && events}
+			{#if ui.live}
+				<button
+					aria-pressed={ui.problemsOpen && ui.sideTab !== 'maintenance'}
+					title="Show or hide the problems no one is on yet, and events"
+					onclick={() => {
+						if (ui.sideTab === 'maintenance') {
+							ui.sideTab = 'problems';
+							ui.problemsOpen = true;
+						} else ui.problemsOpen = !ui.problemsOpen;
+					}}
+				>
+					Problems{live ? ` ${unhandled}` : ''}
+				</button>
+				<span class="live-status" class:past={ui.at !== null} aria-live="polite">
+					{#if liveProblem}
+						Live state unavailable: {liveProblem}
+					{:else if live}
+						{live.state.source} · {ui.at ? 'replaying' : 'as of'}
+						{new Date(live.state.generated_at).toLocaleTimeString()}
+					{:else}
+						Loading live state…
+					{/if}
+				</span>
+			{/if}
+			<button
+				aria-pressed={ui.problemsOpen && ui.sideTab === 'maintenance'}
+				title="Show or hide maintenance windows"
+				onclick={toggleMaintenance}
+			>
+				Maintenance{coming ? ` ${coming}` : ''}
+			</button>
+			{#if index}
+				<SearchBox {index} />
+				<span class="stats">
+					{index.topology.sites.length} sites · {index.topology.devices.length} devices ·
+					{index.topology.links.length} links
+				</span>
+			{/if}
+			<button title="Copy a link that shows someone else exactly this" onclick={copyLink}>
+				{copied ?? 'Copy link'}
+			</button>
+			<button title="Full-screen display for a NOC wall" onclick={enterWall}>Wall display</button>
+		</header>
+	{/if}
+	{#if ui.live && events && !ui.wall.on}
 		<Timeline log={events} />
 	{/if}
 	<main>
@@ -289,7 +388,7 @@ and events in the side panel too.
 		{:else if !index}
 			<p class="message">Loading topology…</p>
 		{:else}
-			{#if ui.problemsOpen && (live || ui.sideTab === 'maintenance')}
+			{#if !ui.wall.on && ui.problemsOpen && (live || ui.sideTab === 'maintenance')}
 				<aside class="side" aria-label="Problems, events, and maintenance">
 					<div class="segmented tabs" role="tablist" aria-label="List">
 						{#if live}
@@ -340,16 +439,18 @@ and events in the side panel too.
 					</p>
 				{/if}
 			</section>
-			<DetailsPanel
-				{index}
-				{path}
-				{impact}
-				problem={focused}
-				{whatIfProblem}
-				{windows}
-				onchange={refetch}
-				{live}
-			/>
+			{#if !ui.wall.on}
+				<DetailsPanel
+					{index}
+					{path}
+					{impact}
+					problem={focused}
+					{whatIfProblem}
+					{windows}
+					onchange={refetch}
+					{live}
+				/>
+			{/if}
 		{/if}
 	</main>
 </div>
