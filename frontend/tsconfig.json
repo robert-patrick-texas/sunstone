@@ -1,0 +1,12 @@
+{
+	"extends": "$app/tsconfig",
+	"compilerOptions": {
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"types": ["$app/types", "node"]
+	},
+	"include": ["src", "e2e", "*.ts"],
+	"exclude": ["build", "node_modules"]
+}

@@ -1,0 +1,265 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "Sunstone",
+  "version": "0.1.0"
+ },
+ "paths": {
+  "/api/topology": {
+   "get": {
+    "summary": "Get Topology",
+    "description": "Return the whole topology.",
+    "operationId": "get_topology_api_topology_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Topology"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "Circuit": {
+    "properties": {
+     "provider": {
+      "type": "string",
+      "title": "Provider"
+     },
+     "circuit_id": {
+      "type": "string",
+      "title": "Circuit Id"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "provider",
+     "circuit_id"
+    ],
+    "title": "Circuit",
+    "description": "A carrier circuit carrying a WAN link."
+   },
+   "Device": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "site": {
+      "type": "string",
+      "title": "Site"
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "wan-edge",
+       "core",
+       "distribution",
+       "access"
+      ],
+      "title": "Role"
+     },
+     "platform": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Platform"
+     },
+     "mgmt_ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mgmt Ip"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "site",
+     "role"
+    ],
+    "title": "Device",
+    "description": "A network device at one site."
+   },
+   "Endpoint": {
+    "properties": {
+     "device": {
+      "type": "string",
+      "title": "Device"
+     },
+     "interface": {
+      "type": "string",
+      "title": "Interface"
+     },
+     "lag": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lag"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "device",
+     "interface"
+    ],
+    "title": "Endpoint",
+    "description": "One end of a link: a device's interface, optionally a LAG member."
+   },
+   "Link": {
+    "properties": {
+     "a": {
+      "$ref": "#/components/schemas/Endpoint"
+     },
+     "b": {
+      "$ref": "#/components/schemas/Endpoint"
+     },
+     "speed_mbps": {
+      "type": "integer",
+      "exclusiveMinimum": 0.0,
+      "title": "Speed Mbps"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "lan",
+       "wan"
+      ],
+      "title": "Kind",
+      "default": "lan"
+     },
+     "circuit": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Circuit"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "description": "Stable identifier that does not depend on which end is listed first.\n\nReturns:\n    The two ``device:interface`` ends, sorted and joined with ``--``.",
+      "readOnly": true
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "a",
+     "b",
+     "speed_mbps",
+     "id"
+    ],
+    "title": "Link",
+    "description": "A physical connection between two device interfaces."
+   },
+   "Site": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "region": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Region"
+     },
+     "lat": {
+      "type": "number",
+      "maximum": 90.0,
+      "minimum": -90.0,
+      "title": "Lat"
+     },
+     "lon": {
+      "type": "number",
+      "maximum": 180.0,
+      "minimum": -180.0,
+      "title": "Lon"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "code",
+     "name",
+     "lat",
+     "lon"
+    ],
+    "title": "Site",
+    "description": "A physical location with map coordinates."
+   },
+   "Topology": {
+    "properties": {
+     "sites": {
+      "items": {
+       "$ref": "#/components/schemas/Site"
+      },
+      "type": "array",
+      "title": "Sites"
+     },
+     "devices": {
+      "items": {
+       "$ref": "#/components/schemas/Device"
+      },
+      "type": "array",
+      "title": "Devices"
+     },
+     "links": {
+      "items": {
+       "$ref": "#/components/schemas/Link"
+      },
+      "type": "array",
+      "title": "Links"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "sites",
+     "devices",
+     "links"
+    ],
+    "title": "Topology",
+    "description": "A whole network: every site, device, and link."
+   }
+  }
+ }
+}

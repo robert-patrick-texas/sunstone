@@ -1,0 +1,31 @@
+[project]
+name = "sunstone"
+version = "0.1.0"
+description = "Sunstone backend: serves network topology to the map views"
+authors = [
+    { name = "Robert Patrick", email = "193846785+robert-patrick-texas@users.noreply.github.com" }
+]
+requires-python = ">=3.15"
+dependencies = [
+    "fastapi>=0.162.0",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+sunstone = "sunstone.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.3",
+    "ty>=0.0.92",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
