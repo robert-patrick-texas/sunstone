@@ -6,6 +6,8 @@ site selects it and zooms in to its devices. A path, when shown, is drawn in
 its own color with everything else faded. With live state, sites and
 devices take their health colors and glyphs, and links their load colors;
 links that are down or partly down are dashed, and links with no data dotted.
+An impact is drawn like a path: affected sites, devices, and links in impact
+styles, everything else faded.
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
@@ -24,12 +26,14 @@ links that are down or partly down are dashed, and links with no data dotted.
 	// MapLibre looks for its worker next to its own module, which bundling moves;
 	// hand it the worker's emitted URL instead.
 	import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
+	import type { Impact } from '../impact.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
 	import { select, ui, type Selection } from '../state.svelte.ts';
 	import {
 		COLOR,
 		HEALTH_COLOR,
+		IMPACT_COLOR,
 		LINK_NODATA,
 		LINK_UNMONITORED,
 		ROLE_COLOR,
@@ -51,8 +55,14 @@ links that are down or partly down are dashed, and links with no data dotted.
 	const {
 		index,
 		path,
+		impact,
 		live
-	}: { index: TopologyIndex; path: PathResult | null; live: LiveIndex | null } = $props();
+	}: {
+		index: TopologyIndex;
+		path: PathResult | null;
+		impact: Impact | null;
+		live: LiveIndex | null;
+	} = $props();
 
 	setWorkerUrl(workerUrl);
 
@@ -130,16 +140,40 @@ links that are down or partly down are dashed, and links with no data dotted.
 			...UTIL_BANDS.slice(1).flat()
 		]
 	] as ExpressionSpecification;
-	const lineState = (states: string[]): ExpressionSpecification => [
+	// Impact styling applies only to features an impact touches.
+	const hasImpact: ExpressionSpecification = ['has', 'impact'];
+	const impactIs = (i: string): ExpressionSpecification => ['==', ['get', 'impact'], i];
+	const impactFill: ExpressionSpecification = [
+		'match',
+		['get', 'impact'],
+		'failed',
+		IMPACT_COLOR.failed,
+		'exposed',
+		IMPACT_COLOR.exposed,
+		COLOR.background
+	];
+	const impactLine: ExpressionSpecification = [
+		'match',
+		['get', 'impact'],
+		'lost',
+		IMPACT_COLOR.failed,
+		IMPACT_COLOR.exposed
+	];
+	const valueIn = (key: string, values: string[]): ExpressionSpecification => [
 		'in',
-		['coalesce', ['get', 'health'], ''],
-		['literal', states]
+		['coalesce', ['get', key], ''],
+		['literal', values]
+	];
+	const dashed: ExpressionSpecification = [
+		'any',
+		valueIn('health', ['down', 'partial']),
+		valueIn('impact', ['lost', 'partial'])
 	];
 	// One layer per line style: dash patterns cannot vary feature by feature.
 	const LINE_FILTER: Record<string, FilterSpecification> = {
-		'': ['!', lineState(['down', 'partial', 'nodata'])],
-		'-dashed': lineState(['down', 'partial']),
-		'-dotted': lineState(['nodata'])
+		'': ['all', ['!', dashed], ['!', valueIn('health', ['nodata'])]],
+		'-dashed': dashed,
+		'-dotted': ['all', ['!', dashed], valueIn('health', ['nodata'])]
 	};
 	const LINE_DASH: Record<string, number[] | undefined> = {
 		'': undefined,
@@ -174,20 +208,21 @@ links that are down or partly down are dashed, and links with no data dotted.
 	});
 
 	function addLayers(m: MapLibre, l: LiveIndex | null): void {
+		const i = untrack(() => impact);
 		m.addSource('site-links', {
 			type: 'geojson',
-			data: sitePairFeatures(index, pairs, l),
+			data: sitePairFeatures(index, pairs, l, i),
 			promoteId: 'key'
 		});
-		m.addSource('sites', { type: 'geojson', data: siteFeatures(index, l), promoteId: 'code' });
+		m.addSource('sites', { type: 'geojson', data: siteFeatures(index, l, i), promoteId: 'code' });
 		m.addSource('device-links', {
 			type: 'geojson',
-			data: linkFeatures(index.topology.links, positions, l),
+			data: linkFeatures(index.topology.links, positions, l, i),
 			promoteId: 'id'
 		});
 		m.addSource('devices', {
 			type: 'geojson',
-			data: deviceFeatures(index, positions, l),
+			data: deviceFeatures(index, positions, l, i),
 			promoteId: 'name'
 		});
 		for (const style of LINE_STYLES) {
@@ -206,6 +241,8 @@ links that are down or partly down are dashed, and links with no data dotted.
 						COLOR.selected,
 						onPath,
 						COLOR.path,
+						hasImpact,
+						impactLine,
 						hasLive,
 						loadColor,
 						COLOR.wan
@@ -241,6 +278,8 @@ links that are down or partly down are dashed, and links with no data dotted.
 						COLOR.selected,
 						onPath,
 						COLOR.path,
+						hasImpact,
+						impactLine,
 						hasLive,
 						loadColor,
 						['==', ['get', 'kind'], 'wan'],
@@ -258,6 +297,10 @@ links that are down or partly down are dashed, and links with no data dotted.
 			COLOR.selected,
 			onPath,
 			COLOR.path,
+			impactIs('cutoff'),
+			IMPACT_COLOR.cutoff,
+			hasImpact,
+			COLOR.background,
 			healthIs('unmonitored'),
 			HEALTH_COLOR.unmonitored,
 			healthIs('nodata'),
@@ -271,10 +314,10 @@ links that are down or partly down are dashed, and links with no data dotted.
 			maxzoom: DEVICE_ZOOM,
 			paint: {
 				'circle-radius': ['interpolate', ['linear'], ['sqrt', ['get', 'devices']], 1, 5, 15, 16],
-				'circle-color': ['case', hasLive, healthFill, COLOR.site],
+				'circle-color': ['case', hasImpact, impactFill, hasLive, healthFill, COLOR.site],
 				'circle-opacity': 0.9,
 				'circle-stroke-color': ring,
-				'circle-stroke-width': ['case', isSelected, 3, onPath, 3, 1.5]
+				'circle-stroke-width': ['case', isSelected, 3, onPath, 3, impactIs('cutoff'), 2.5, 1.5]
 			}
 		});
 		m.addLayer({
@@ -284,7 +327,7 @@ links that are down or partly down are dashed, and links with no data dotted.
 			minzoom: DEVICE_ZOOM,
 			paint: {
 				'circle-radius': ['interpolate', ['linear'], ['zoom'], DEVICE_ZOOM, 3, 18, 9],
-				'circle-color': ['case', hasLive, healthFill, roleColor],
+				'circle-color': ['case', hasImpact, impactFill, hasLive, healthFill, roleColor],
 				'circle-stroke-color': ring,
 				'circle-stroke-width': [
 					'case',
@@ -292,6 +335,10 @@ links that are down or partly down are dashed, and links with no data dotted.
 					3,
 					onPath,
 					3,
+					impactIs('cutoff'),
+					2,
+					hasImpact,
+					1,
 					['any', healthIs('unmonitored'), healthIs('nodata')],
 					1.5,
 					1
@@ -381,17 +428,17 @@ links that are down or partly down are dashed, and links with no data dotted.
 		}
 	}
 
-	// New snapshots replace the features' live properties.
+	// New snapshots, or a new impact to show, replace the features' properties.
 	$effect(() => {
-		const [m, l] = [map, live];
+		const [m, l, i] = [map, live, impact];
 		if (!m) return;
 		untrack(() => {
 			const update = (id: string, data: GeoJSON.FeatureCollection) =>
 				(m.getSource(id) as GeoJSONSource | undefined)?.setData(data);
-			update('sites', siteFeatures(index, l));
-			update('site-links', sitePairFeatures(index, pairs, l));
-			update('devices', deviceFeatures(index, positions, l));
-			update('device-links', linkFeatures(index.topology.links, positions, l));
+			update('sites', siteFeatures(index, l, i));
+			update('site-links', sitePairFeatures(index, pairs, l, i));
+			update('devices', deviceFeatures(index, positions, l, i));
+			update('device-links', linkFeatures(index.topology.links, positions, l, i));
 		});
 	});
 
@@ -413,7 +460,7 @@ links that are down or partly down are dashed, and links with no data dotted.
 				if (pair) trace('site-links', pair);
 			}
 		}
-		fade(m, path !== null, live !== null);
+		fade(m, path !== null ? onPath : impact !== null ? hasImpact : null, live !== null);
 		const mark = (source: string, id: string) =>
 			m.setFeatureState({ source, id }, { selected: true });
 		if (selection?.kind === 'device') {
@@ -446,16 +493,23 @@ links that are down or partly down are dashed, and links with no data dotted.
 		if (p) untrack(() => fitDevices(m, [...p.devices.keys()]));
 	});
 
-	/** While a path is shown, everything off it fades. Live load colors need more opacity. */
-	function fade(m: MapLibre, pathShown: boolean, liveShown: boolean): void {
+	/**
+	 * While a path or an impact is shown, everything else fades. Live load
+	 * colors need more opacity.
+	 */
+	function fade(m: MapLibre, shown: ExpressionSpecification | null, liveShown: boolean): void {
 		const opacity = (normal: number): ExpressionSpecification =>
-			pathShown ? ['case', isSelected, 1, onPath, 1, FADED] : ['case', isSelected, 1, normal];
+			shown ? ['case', isSelected, 1, shown, 1, FADED] : ['case', isSelected, 1, normal];
 		for (const style of LINE_STYLES) {
 			m.setPaintProperty(`site-links${style}`, 'line-opacity', opacity(liveShown ? 0.9 : 0.55));
 			m.setPaintProperty(`device-links${style}`, 'line-opacity', opacity(1));
 		}
 		m.setPaintProperty('sites', 'circle-opacity', opacity(0.9));
 		m.setPaintProperty('devices', 'circle-opacity', opacity(1));
+		// Outlines and glyphs fade with their circles.
+		m.setPaintProperty('sites', 'circle-stroke-opacity', opacity(1));
+		m.setPaintProperty('devices', 'circle-stroke-opacity', opacity(1));
+		m.setPaintProperty('device-glyphs', 'text-opacity', opacity(1));
 	}
 
 	/** Fit devices in view: their ring positions within one site, else their sites. */

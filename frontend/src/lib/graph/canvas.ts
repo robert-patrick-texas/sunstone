@@ -7,7 +7,9 @@
  * when one is shown, is highlighted and labeled the same way, and everything
  * off it is faded. With live state, devices and site boxes take their health
  * colors and glyphs and edges their load colors; path and selection still
- * draw on top.
+ * draw on top. An impact (a problem's, or a "what if") is drawn like a path:
+ * failed, cut-off, and exposed devices and lost links in their own styles,
+ * everything else faded.
  */
 import cytoscape, {
 	type CollectionReturnValue,
@@ -17,20 +19,16 @@ import cytoscape, {
 	type Position,
 	type StylesheetJson
 } from 'cytoscape';
-import {
-	bundleLive,
-	deviceHealth,
-	groupHealth,
-	linkLive,
-	type DeviceHealth,
-	type LiveIndex
-} from '../live.ts';
+import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
+import { bundleLive, deviceHealth, groupHealth, linkLive, type LiveIndex } from '../live.ts';
 import type { PathResult } from '../paths.ts';
 import { select, type Selection } from '../state.svelte.ts';
 import {
 	COLOR,
 	HEALTH_COLOR,
 	HEALTH_GLYPH,
+	IMPACT_COLOR,
+	IMPACT_GLYPH,
 	LINK_NODATA,
 	LINK_UNMONITORED,
 	ROLE_COLOR,
@@ -166,6 +164,42 @@ const STYLE: StylesheetJson = [
 	},
 	{ selector: 'edge.live-nodata', style: { 'line-style': 'dotted', opacity: 0.8 } },
 	{ selector: 'edge.live-unmonitored', style: { opacity: 0.6 } },
+	{
+		selector: 'node.impact[kind = "device"]',
+		style: { label: 'data(impactLabel)', 'background-opacity': 1, 'border-width': 0 }
+	},
+	{
+		selector: 'node.impact-failed[kind = "device"]',
+		style: {
+			'background-color': IMPACT_COLOR.failed,
+			shape: 'octagon',
+			width: 24,
+			height: 18
+		}
+	},
+	{
+		selector: 'node.impact-cutoff[kind = "device"]',
+		style: {
+			'background-color': COLOR.background,
+			'border-width': 2,
+			'border-style': 'solid',
+			'border-color': IMPACT_COLOR.cutoff
+		}
+	},
+	{
+		selector: 'node.impact-exposed[kind = "device"]',
+		style: { 'background-color': IMPACT_COLOR.exposed }
+	},
+	{
+		selector: 'node.impact[kind = "site"]',
+		style: { 'border-width': 3, 'border-color': 'data(impactColor)', label: 'data(impactLabel)' }
+	},
+	{
+		selector: 'edge.impact',
+		style: { 'line-style': 'dashed', 'line-dash-pattern': [6, 3], opacity: 1, 'z-index': 6 }
+	},
+	{ selector: 'edge.impact-lost', style: { 'line-color': IMPACT_COLOR.failed } },
+	{ selector: 'edge.impact-partial', style: { 'line-color': IMPACT_COLOR.exposed } },
 	{ selector: 'node.center', style: { 'border-width': 2, 'border-color': COLOR.site } },
 	{ selector: '.faded', style: { opacity: 0.15 } },
 	{ selector: 'node.path', style: { 'border-width': 3, 'border-color': COLOR.path } },
@@ -195,6 +229,7 @@ export class GraphCanvas {
 	private labelsShown = false;
 	private selection: Selection | null = null;
 	private path: PathResult | null = null;
+	private impact: Impact | null = null;
 	private live: LiveIndex | null = null;
 
 	/**
@@ -288,15 +323,17 @@ export class GraphCanvas {
 	}
 
 	/**
-	 * Highlight the selection and a path, and label their links. Both stay
-	 * highlighted when the graph is redrawn.
+	 * Highlight the selection and a path or an impact, and label their links.
+	 * They stay highlighted when the graph is redrawn.
 	 *
 	 * @param selection - The selection, or null for none.
 	 * @param path - Shortest paths to show, or null for none.
+	 * @param impact - Impact to show when there is no path, or null for none.
 	 */
-	highlight(selection: Selection | null, path: PathResult | null): void {
+	highlight(selection: Selection | null, path: PathResult | null, impact: Impact | null): void {
 		this.selection = selection;
 		this.path = path;
+		this.impact = impact;
 		this.applyHighlight();
 	}
 
@@ -339,7 +376,8 @@ export class GraphCanvas {
 			if (!live) return;
 			core.nodes('[kind = "device"]').forEach((n) => {
 				const health = deviceHealth(live, n.id());
-				n.data({ liveColor: HEALTH_COLOR[health], liveLabel: glyphed(health, n.data('label')) });
+				const liveLabel = glyphed(HEALTH_GLYPH[health], n.data('label'));
+				n.data({ liveColor: HEALTH_COLOR[health], liveLabel });
 				n.addClass(`live live-${health}`);
 			});
 			core.nodes('[kind = "site"]').forEach((n) => {
@@ -372,6 +410,7 @@ export class GraphCanvas {
 		const core = this.core;
 		core.batch(() => {
 			core.elements('.selected, .path, .faded').removeClass('selected path faded');
+			core.elements('.impact').removeClass(IMPACT_CLASSES);
 			core.edges('.context').removeClass('context');
 			if (this.path) {
 				const onPath = this.pathElements(this.path);
@@ -383,11 +422,49 @@ export class GraphCanvas {
 					.difference(onPath)
 					.filter((e) => e.data('kind') !== 'frame')
 					.addClass('faded');
+			} else if (this.impact) {
+				this.applyImpact(this.impact);
 			}
 			const eles = this.elementsFor(this.selection);
 			eles.addClass('selected').removeClass('faded');
 			const links = this.selection?.kind === 'device' ? eles.connectedEdges() : eles.edges();
 			links.addClass('context');
+		});
+	}
+
+	private applyImpact(impact: Impact): void {
+		const index = this.index;
+		this.core.nodes('[kind = "device"]').forEach((n) => {
+			const found = deviceImpact(impact, n.id());
+			if (found) {
+				n.data('impactLabel', glyphed(IMPACT_GLYPH[found], n.data('label')));
+				n.addClass(`impact impact-${found}`);
+			} else n.addClass('faded');
+		});
+		// A collapsed site shows its worst-affected device, and how many it loses.
+		this.core.nodes('[kind = "site"]').forEach((n) => {
+			const devices = (index.devicesBySite.get(n.data('site')) ?? []).map((d) => d.name);
+			const found = worstImpact(impact, devices);
+			if (!found) {
+				n.addClass('faded');
+				return;
+			}
+			const lost = devices.filter((d) => impact.cutOff.has(d) || impact.failed.devices.has(d));
+			const label: string = n.data('label');
+			n.data({
+				impactColor: IMPACT_COLOR[found],
+				impactLabel: lost.length ? `${label}\n${lost.length} lost` : label
+			});
+			n.addClass(`impact impact-${found}`);
+		});
+		this.core.edges().forEach((e) => {
+			const ids: string[] = e.data('linkIds');
+			const found = linksImpact(
+				impact,
+				ids.flatMap((id) => index.links.get(id) ?? [])
+			);
+			if (found) e.addClass(`impact impact-${found}`);
+			else e.addClass('faded');
 		});
 	}
 
@@ -404,8 +481,12 @@ const LIVE_CLASSES = [
 	...['up', 'degraded', 'down', 'nodata', 'unmonitored', 'ok', 'partial'].map((h) => `live-${h}`)
 ].join(' ');
 
-/** A device label with its health glyph in front, if it has one. */
-function glyphed(health: DeviceHealth, label: string): string {
-	const glyph = HEALTH_GLYPH[health];
+const IMPACT_CLASSES = [
+	'impact',
+	...['failed', 'cutoff', 'exposed', 'lost', 'partial'].map((i) => `impact-${i}`)
+].join(' ');
+
+/** A device label with a glyph in front, if there is one. */
+function glyphed(glyph: string, label: string): string {
 	return glyph ? `${glyph} ${label}` : label;
 }

@@ -26,6 +26,7 @@ the backend and opened again later.
 	import type { NodeSingular } from 'cytoscape';
 	import { GraphCanvas } from '../graph/canvas.ts';
 	import type { LayoutIn, SavedLayout } from '../api/layouts.ts';
+	import type { Impact } from '../impact.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
 	import { siteNodeId } from '../graph/model.ts';
@@ -39,8 +40,14 @@ the backend and opened again later.
 	const {
 		index,
 		path,
+		impact,
 		live
-	}: { index: TopologyIndex; path: PathResult | null; live: LiveIndex | null } = $props();
+	}: {
+		index: TopologyIndex;
+		path: PathResult | null;
+		impact: Impact | null;
+		live: LiveIndex | null;
+	} = $props();
 
 	const LIMIT = 400;
 	const HOPS = [1, 2, 3, 4];
@@ -117,7 +124,7 @@ the backend and opened again later.
 	});
 
 	$effect(() => {
-		canvas?.highlight(ui.selection, path);
+		canvas?.highlight(ui.selection, path, impact);
 	});
 
 	$effect(() => {

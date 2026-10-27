@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureIndex } from '../test-fixture.ts';
 import type { NetworkState } from '../api/state.ts';
+import { failuresOf, impactOf } from '../impact.ts';
 import { indexState } from '../live.ts';
 import {
 	deviceFeatures,
@@ -91,6 +92,26 @@ describe('live properties', () => {
 		expect(byName['c-wan-01']).not.toHaveProperty('glyph');
 		const site = siteFeatures(index, live).features.find((f) => f.properties?.['code'] === 'C');
 		expect(site?.properties).toMatchObject({ health: 'down', label: 'C · 1 down' });
+	});
+
+	it('give way to an impact, which marks only what it touches', () => {
+		const index = fixtureIndex();
+		const live = indexState(state);
+		const impact = impactOf(index, failuresOf(index, [{ kind: 'device', id: 'c-wan-01' }]));
+		const devices = deviceFeatures(index, devicePositions(index), live, impact).features;
+		const byName = Object.fromEntries(devices.map((f) => [f.properties?.['name'], f.properties]));
+		expect(byName['c-wan-01']).toMatchObject({ impact: 'failed', glyph: '×' });
+		// c-acc-01 is down in live state, but here it is cut off, which has no glyph.
+		expect(byName['c-acc-01']).toMatchObject({ impact: 'cutoff' });
+		expect(byName['c-acc-01']).not.toHaveProperty('glyph');
+		expect(byName['a-wan-01']).not.toHaveProperty('impact');
+		const site = siteFeatures(index, live, impact).features.find(
+			(f) => f.properties?.['code'] === 'C'
+		);
+		expect(site?.properties).toMatchObject({ impact: 'failed', label: 'C · 3 lost' });
+		const lines = linkFeatures(index.topology.links, devicePositions(index), live, impact).features;
+		const lost = lines.filter((f) => f.properties?.['impact'] === 'lost');
+		expect(lost).toHaveLength(4);
 	});
 
 	it('leave load off links with no measurement instead of writing 0', () => {

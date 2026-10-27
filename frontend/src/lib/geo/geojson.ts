@@ -8,12 +8,15 @@
  *
  * Given live state, features also carry `health` (and `util`, `glyph`, or a
  * fuller site `label`) for the map's live styling; without it they carry
- * none, and the map draws structure only.
+ * none, and the map draws structure only. Given an impact to show, affected
+ * features carry `impact` (and a `glyph` and site `label` to match), and
+ * unaffected ones carry neither.
  */
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import type { Link } from '../api/topology.ts';
+import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
 import { bundleLive, deviceHealth, groupHealth, linkLive, type LiveIndex } from '../live.ts';
-import { HEALTH_GLYPH } from '../theme.ts';
+import { HEALTH_GLYPH, IMPACT_GLYPH } from '../theme.ts';
 import { ROLES, siteOf, type TopologyIndex } from '../topology.ts';
 
 export type LonLat = [number, number];
@@ -107,11 +110,14 @@ function collection<G extends Point | LineString>(features: Feature<G>[]): Featu
  *
  * @param index - Topology index.
  * @param live - Live state, or null for structure only.
- * @returns One point per site; with live state, its worst device health.
+ * @param impact - Impact to show, or null.
+ * @returns One point per site; with live state, its worst device health;
+ *   with an impact, its worst-affected device.
  */
 export function siteFeatures(
 	index: TopologyIndex,
-	live: LiveIndex | null = null
+	live: LiveIndex | null = null,
+	impact: Impact | null = null
 ): FeatureCollection<Point> {
 	return collection(
 		index.topology.sites.map((site) => {
@@ -125,6 +131,13 @@ export function siteFeatures(
 				const { health, counts } = groupHealth(live, devices);
 				properties['health'] = health;
 				if (counts.down) properties['label'] = `${site.code} · ${counts.down} down`;
+			}
+			if (impact) {
+				const found = worstImpact(impact, devices);
+				const lost = devices.filter((d) => impact.cutOff.has(d) || impact.failed.devices.has(d));
+				delete properties['label'];
+				if (found) properties['impact'] = found;
+				if (lost.length) properties['label'] = `${site.code} · ${lost.length} lost`;
 			}
 			return {
 				type: 'Feature',
@@ -141,12 +154,15 @@ export function siteFeatures(
  * @param index - Topology index.
  * @param pairs - Site pairs from {@link sitePairs}.
  * @param live - Live state, or null for structure only.
- * @returns One line per pair; with live state, the busiest link's load.
+ * @param impact - Impact to show, or null.
+ * @returns One line per pair; with live state, the busiest link's load;
+ *   with an impact, whether its links are lost.
  */
 export function sitePairFeatures(
 	index: TopologyIndex,
 	pairs: SitePair[],
-	live: LiveIndex | null = null
+	live: LiveIndex | null = null,
+	impact: Impact | null = null
 ): FeatureCollection<LineString> {
 	const coords = (code: string): LonLat => {
 		const site = index.sites.get(code);
@@ -160,7 +176,13 @@ export function sitePairFeatures(
 				key: pair.key,
 				links: pair.linkIds.length,
 				capacity: pair.capacityMbps,
-				...(live ? bundleProperties(index, live, pair.linkIds) : {})
+				...(live ? bundleProperties(index, live, pair.linkIds) : {}),
+				...(impact
+					? lostProperty(
+							impact,
+							pair.linkIds.flatMap((id) => index.links.get(id) ?? [])
+						)
+					: {})
 			}
 		}))
 	);
@@ -172,12 +194,15 @@ export function sitePairFeatures(
  * @param index - Topology index.
  * @param positions - From {@link devicePositions}.
  * @param live - Live state, or null for structure only.
- * @returns One point per device; with live state, its health and glyph.
+ * @param impact - Impact to show, or null.
+ * @returns One point per device; with live state, its health and glyph;
+ *   with an impact, how it is affected, and that glyph instead.
  */
 export function deviceFeatures(
 	index: TopologyIndex,
 	positions: Map<string, LonLat>,
-	live: LiveIndex | null = null
+	live: LiveIndex | null = null,
+	impact: Impact | null = null
 ): FeatureCollection<Point> {
 	return collection(
 		index.topology.devices.map((device) => {
@@ -186,6 +211,12 @@ export function deviceFeatures(
 				const health = deviceHealth(live, device.name);
 				properties['health'] = health;
 				if (HEALTH_GLYPH[health]) properties['glyph'] = HEALTH_GLYPH[health];
+			}
+			if (impact) {
+				const found = deviceImpact(impact, device.name);
+				delete properties['glyph'];
+				if (found) properties['impact'] = found;
+				if (found && IMPACT_GLYPH[found]) properties['glyph'] = IMPACT_GLYPH[found];
 			}
 			return {
 				type: 'Feature',
@@ -202,12 +233,15 @@ export function deviceFeatures(
  * @param links - Links to draw.
  * @param positions - From {@link devicePositions}.
  * @param live - Live state, or null for structure only.
- * @returns One line per link; with live state, its health and load.
+ * @param impact - Impact to show, or null.
+ * @returns One line per link; with live state, its health and load; with an
+ *   impact, whether it is lost.
  */
 export function linkFeatures(
 	links: Link[],
 	positions: Map<string, LonLat>,
-	live: LiveIndex | null = null
+	live: LiveIndex | null = null,
+	impact: Impact | null = null
 ): FeatureCollection<LineString> {
 	return collection(
 		links.map((link) => ({
@@ -223,7 +257,8 @@ export function linkFeatures(
 				id: link.id,
 				kind: link.kind,
 				speed: link.speed_mbps,
-				...(live ? liveProperties(linkLive(live, link)) : {})
+				...(live ? liveProperties(linkLive(live, link)) : {}),
+				...(impact ? lostProperty(impact, [link]) : {})
 			}
 		}))
 	);
@@ -232,6 +267,11 @@ export function linkFeatures(
 function bundleProperties(index: TopologyIndex, live: LiveIndex, ids: string[]) {
 	const links = ids.flatMap((id) => index.links.get(id) ?? []);
 	return liveProperties(bundleLive(links.map((l) => linkLive(live, l))));
+}
+
+function lostProperty(impact: Impact, links: Link[]) {
+	const lost = linksImpact(impact, links);
+	return lost ? { impact: lost } : {};
 }
 
 /** Health always; load only when measured, so "no data" never reads as 0%. */

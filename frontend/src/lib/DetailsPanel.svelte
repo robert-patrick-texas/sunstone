@@ -2,12 +2,15 @@
 @component
 Details of the current selection: a device and its neighbors, a site and
 its WAN links, or a set of links. With live state, also health, round-trip
-times from each monitoring position, and load on each link. Above it, the shortest paths between two
-devices when a path is shown, hop by hop with interfaces. Names in the panel
-are links that select and bring that item into view.
+times from each monitoring position, and load on each link, and what
+failing it would do. Above it, the shortest paths between two devices when
+a path is shown, hop by hop with interfaces; or the impact being shown, of
+a problem or of "what if" failures. Names in the panel are links that select
+and bring that item into view.
 -->
 <script lang="ts">
 	import type { Endpoint, Link } from './api/topology.ts';
+	import { failuresOf, impactOf, reach, type Impact } from './impact.ts';
 	import {
 		deviceHealth,
 		groupHealth,
@@ -17,7 +20,9 @@ are links that select and bring that item into view.
 		type LiveIndex
 	} from './live.ts';
 	import { linksBetween, type PathResult } from './paths.ts';
+	import { currentFailures, type Problem } from './problems.ts';
 	import {
+		addFailure,
 		clearPath,
 		expandedSites,
 		select,
@@ -29,7 +34,9 @@ are links that select and bring that item into view.
 	} from './state.svelte.ts';
 	import { HEALTH_COLOR, HEALTH_GLYPH, ROLE_COLOR, utilColor } from './theme.ts';
 	import {
+		compareNatural,
 		formatSpeed,
+		linkName,
 		neighborsOf,
 		ROLE_LABEL,
 		ROLES,
@@ -41,8 +48,16 @@ are links that select and bring that item into view.
 	const {
 		index,
 		path,
+		impact,
+		problem,
 		live
-	}: { index: TopologyIndex; path: PathResult | null; live: LiveIndex | null } = $props();
+	}: {
+		index: TopologyIndex;
+		path: PathResult | null;
+		impact: Impact | null;
+		problem: Problem | null;
+		live: LiveIndex | null;
+	} = $props();
 
 	const HEALTHS: DeviceHealth[] = ['down', 'degraded', 'nodata', 'up', 'unmonitored'];
 	const LINK_STATE: Record<string, string> = {
@@ -50,6 +65,9 @@ are links that select and bring that item into view.
 		nodata: 'no data',
 		unmonitored: 'not monitored'
 	};
+	/** Most groups of exposed devices, and failed devices, listed one by one. */
+	const MAX_GROUPS = 8;
+	const MAX_NAMED = 12;
 
 	/** Load on a link as seen leaving and entering one of its ends. */
 	function loadAt(l: LiveIndex, link: Link, end: Endpoint) {
@@ -67,6 +85,67 @@ are links that select and bring that item into view.
 	}
 
 	const selection = $derived(ui.selection);
+	// What failing the selection alone would do, on top of what live state shows down now.
+	const ifFails = $derived.by(() => {
+		if (!selection) return null;
+		const failures = failuresOf(index, [selection]);
+		if (!live) return impactOf(index, failures);
+		const before = currentFailures(index, live);
+		// Already down or cut off, it can lose nothing more.
+		const { reached } = reach(index, before);
+		const gone = (d: string) => !reached.has(d);
+		const already =
+			[...failures.devices].every(gone) &&
+			[...failures.links].every((id) => {
+				const link = index.links.get(id);
+				return before.links.has(id) || !link || gone(link.a.device) || gone(link.b.device);
+			});
+		return already ? 'down' : impactOf(index, failures, before);
+	});
+
+	function plural(n: number, noun: string): string {
+		return `${n} ${noun}${n === 1 ? '' : 's'}`;
+	}
+
+	function consequence(i: Impact | 'down', subject: string): string {
+		if (i === 'down') return `Live state already shows ${subject} down or cut off.`;
+		const parts: string[] = [];
+		if (i.cutOff.size) parts.push(`cut off ${plural(i.cutOff.size, 'device')}`);
+		if (i.exposed.size) parts.push(`leave ${plural(i.exposed.size, 'device')} without redundancy`);
+		return parts.length
+			? `Failing ${subject} would ${parts.join(' and ')}.`
+			: `Failing ${subject} would cut nothing else off, and every device would keep a second path.`;
+	}
+
+	function itemName(item: Selection): string {
+		if (item.kind === 'device') return item.id;
+		if (item.kind === 'site') return `${item.id} (whole site)`;
+		const links = item.ids.flatMap((id) => index.links.get(id) ?? []);
+		return links.length === 1 && links[0] ? linkName(links[0]) : `${links.length} links`;
+	}
+
+	function sitesOf(devices: Iterable<string>): string[] {
+		return [...new Set([...devices].map((d) => siteOf(index, d)))].sort(compareNatural);
+	}
+
+	/** How many of some devices are at each site, most first. */
+	function countBySite(devices: Set<string>): [string, number][] {
+		const counts = new Map<string, number>();
+		for (const d of devices) counts.set(siteOf(index, d), (counts.get(siteOf(index, d)) ?? 0) + 1);
+		return [...counts].sort((x, y) => y[1] - x[1] || compareNatural(x[0], y[0]));
+	}
+
+	/** Exposed devices grouped by the devices they now depend on, biggest group first. */
+	function dependents(exposed: Map<string, string[]>): { chain: string[]; devices: string[] }[] {
+		const groups = new Map<string, { chain: string[]; devices: string[] }>();
+		for (const [device, chain] of exposed) {
+			const key = chain.join(' ');
+			const group = groups.get(key) ?? { chain, devices: [] };
+			group.devices.push(device);
+			groups.set(key, group);
+		}
+		return [...groups.values()].sort((x, y) => y.devices.length - x.devices.length);
+	}
 
 	/** Select a name in the panel; the click must not also reach its row, which selects the link. */
 	function follow(e: MouseEvent, target: Selection): void {
@@ -118,13 +197,59 @@ are links that select and bring that item into view.
 	<button class="link" onclick={(e) => follow(e, { kind: 'site', id: code })}>{code}</button>
 {/snippet}
 
+{#snippet whatIf(item: Selection, label: string)}
+	{@const added = ui.whatIf.some((f) => JSON.stringify(f) === JSON.stringify(item))}
+	<button disabled={added} onclick={() => addFailure($state.snapshot(item))}>
+		{added ? 'In what if' : ui.whatIf.length ? 'Add to what if' : label}
+	</button>
+{/snippet}
+
+{#snippet consequences(i: Impact)}
+	{#if ui.whatIf.length === 0 && i.failed.devices.size}
+		{@const down = [...i.failed.devices].sort(compareNatural)}
+		<h3>Down ({down.length})</h3>
+		<p class="names">
+			{#each down.slice(0, MAX_NAMED) as d (d)}{@render deviceLink(d)}{/each}
+			{#if down.length > MAX_NAMED}<span class="muted">and {down.length - MAX_NAMED} more</span
+				>{/if}
+		</p>
+	{/if}
+	{#if i.cutOff.size}
+		<h3>Cut off ({i.cutOff.size})</h3>
+		<p class="names">
+			{#each countBySite(i.cutOff) as [site, n] (site)}
+				<span>{@render siteLink(site)} {n}</span>
+			{/each}
+		</p>
+	{/if}
+	{#if i.exposed.size}
+		{@const groups = dependents(i.exposed)}
+		<h3>No redundancy left ({i.exposed.size})</h3>
+		<ul class="groups">
+			{#each groups.slice(0, MAX_GROUPS) as g (g.chain.join(' '))}
+				<li>
+					{plural(g.devices.length, 'device')} at {sitesOf(g.devices).join(', ')}
+					{g.devices.length === 1 ? 'depends' : 'depend'} on
+					{#each g.chain as d, j (d)}{j > 0 ? ' and ' : ''}{@render deviceLink(d)}{/each}
+				</li>
+			{/each}
+		</ul>
+		{#if groups.length > MAX_GROUPS}
+			<p class="muted">and {groups.length - MAX_GROUPS} more groups</p>
+		{/if}
+	{/if}
+	{#if i.cutOff.size === 0 && i.exposed.size === 0}
+		<p>Nothing else is cut off, and every device keeps a second path to the core.</p>
+	{/if}
+{/snippet}
+
 {#snippet endpoint(end: Endpoint)}
 	{@render deviceLink(end.device)}
 	<span class="mono">{shortInterface(end.interface)}</span>
 	{#if end.lag}<span class="tag">{shortInterface(end.lag)}</span>{/if}
 {/snippet}
 
-{#if selection || path || ui.pathFrom}
+{#if selection || path || ui.pathFrom || impact}
 	<aside class="details" aria-label="Details">
 		{#if ui.pathFrom}
 			<section class="path" aria-label="Path">
@@ -170,6 +295,37 @@ are links that select and bring that item into view.
 						<p class="muted">and {path.count - path.listed.length} more</p>
 					{/if}
 				{/if}
+			</section>
+		{:else if impact}
+			<section class="impact" aria-label="Impact">
+				{#if ui.whatIf.length}
+					<button class="close" onclick={() => (ui.whatIf = [])} aria-label="Clear what if"
+						>×</button
+					>
+					<h2>What if {ui.whatIf.length === 1 ? 'this fails' : 'these fail'}</h2>
+					<ul class="failures">
+						{#each ui.whatIf as item, i (JSON.stringify(item))}
+							<li>
+								<button class="link" onclick={(e) => follow(e, $state.snapshot(item))}
+									>{itemName(item)}</button
+								>
+								<button
+									class="remove"
+									aria-label="Remove {itemName(item)}"
+									onclick={() => ui.whatIf.splice(i, 1)}>×</button
+								>
+							</li>
+						{/each}
+					</ul>
+					{#if live}<p class="muted">On top of what live state shows down now.</p>{/if}
+				{:else if problem}
+					<button class="close" onclick={() => (ui.problem = null)} aria-label="Stop showing impact"
+						>×</button
+					>
+					<h2>{problem.title}</h2>
+					{#if problem.detail}<p class="muted">{problem.detail}</p>{/if}
+				{/if}
+				{@render consequences(impact)}
 			</section>
 		{/if}
 
@@ -227,7 +383,9 @@ are links that select and bring that item into view.
 								Show neighborhood
 							</button>
 							<button onclick={() => startPath(device.name)}>Path from here</button>
+							{@render whatIf(selection, 'What if it fails?')}
 						</p>
+						{#if ifFails}<p class="muted">{consequence(ifFails, 'it')}</p>{/if}
 						<h3>Neighbors ({neighbors.length})</h3>
 						<table>
 							<thead>
@@ -305,7 +463,9 @@ are links that select and bring that item into view.
 							<button onclick={() => showNeighborhood({ kind: 'site', id: site.code })}>
 								Show neighborhood
 							</button>
+							{@render whatIf(selection, 'What if it fails?')}
 						</p>
+						{#if ifFails}<p class="muted">{consequence(ifFails, 'the whole site')}</p>{/if}
 						<h3>Links to other sites ({wan.length})</h3>
 						<table>
 							<thead><tr><th>Local</th><th>Remote</th><th>Speed</th><th>Circuit</th></tr></thead>
@@ -345,6 +505,15 @@ are links that select and bring that item into view.
 					{@const total = links.reduce((s, l) => s + l.speed_mbps, 0)}
 					<h2>{links.length === 1 ? 'Link' : `${links.length} links`}</h2>
 					<p class="muted">{formatSpeed(total)} total capacity</p>
+					<p class="actions">
+						{@render whatIf(
+							selection,
+							links.length === 1 ? 'What if it fails?' : 'What if they fail?'
+						)}
+					</p>
+					{#if ifFails}
+						<p class="muted">{consequence(ifFails, links.length === 1 ? 'it' : 'them')}</p>
+					{/if}
 					<table>
 						<thead>
 							<tr>
@@ -401,6 +570,32 @@ are links that select and bring that item into view.
 		padding: 14px 16px;
 		border-bottom: 1px solid var(--border);
 		background: color-mix(in srgb, var(--path) 8%, var(--panel));
+	}
+	.impact {
+		margin: -14px -16px 14px;
+		padding: 14px 16px;
+		border-bottom: 1px solid var(--border);
+		background: color-mix(in srgb, var(--down) 8%, var(--panel));
+	}
+	.failures,
+	.groups {
+		margin: 6px 0;
+		padding-left: 18px;
+	}
+	.failures li,
+	.groups li {
+		margin: 3px 0;
+	}
+	.remove {
+		border: none;
+		background: none;
+		padding: 0 4px;
+		color: var(--muted);
+	}
+	.names {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 2px 12px;
 	}
 	.hops {
 		margin: 6px 0;

@@ -3,6 +3,7 @@
  * values, not CSS variables, so they live here; `app.css` mirrors the UI ones.
  */
 import type { Role } from './api/topology.ts';
+import type { DeviceImpact } from './impact.ts';
 import type { DeviceHealth } from './live.ts';
 
 export const ROLE_COLOR: Record<Role, string> = {
@@ -55,6 +56,17 @@ export const UTIL_BANDS: readonly [number, string][] = [
 	[80, '#fab219'],
 	[95, '#d03b3b']
 ];
+
+// Impact reuses the status colors: red for lost, amber for one failure away
+// from lost. A failed device is filled and marked ×, a cut-off one is a red
+// outline, so the cause stands out from what it takes down with it.
+export const IMPACT_COLOR: Record<DeviceImpact, string> = {
+	failed: HEALTH_COLOR.down,
+	cutoff: HEALTH_COLOR.down,
+	exposed: HEALTH_COLOR.degraded
+};
+
+export const IMPACT_GLYPH: Record<DeviceImpact, string> = { failed: '×', cutoff: '', exposed: '!' };
 
 export const LINK_NODATA = '#8a96a8';
 export const LINK_UNMONITORED = '#3a4655';
