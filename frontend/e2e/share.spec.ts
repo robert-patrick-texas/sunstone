@@ -4,7 +4,7 @@ const details = (page: Page) => page.getByRole('complementary', { name: 'Details
 const impact = (page: Page) => page.getByRole('region', { name: 'Impact' });
 
 async function searchFor(page: Page, text: string): Promise<void> {
-	await page.getByRole('searchbox', { name: 'Search sites and devices' }).fill(text);
+	await page.getByRole('combobox', { name: 'Search' }).fill(text);
 	await page.keyboard.press('Enter');
 }
 

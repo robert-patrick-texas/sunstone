@@ -29,17 +29,49 @@ def client(tmp_path: Path, topology: Topology) -> TestClient:
     return TestClient(create_app(path, files=files, warm=False))
 
 
-def window(**extra: object) -> dict:
-    now = datetime.now(UTC)
+def window(around: datetime | None = None, **extra: object) -> dict:
+    at = around or datetime.now(UTC)
     return {
         "title": "Replace line card",
-        # Opened well before now, so the 5-minute step that holds now is inside it.
-        "start": (now - timedelta(minutes=10)).isoformat(),
-        "end": (now + timedelta(minutes=30)).isoformat(),
+        # Opened well before the moment, so the 5-minute step that holds it is inside.
+        "start": (at - timedelta(minutes=10)).isoformat(),
+        "end": (at + timedelta(minutes=30)).isoformat(),
         "targets": [{"kind": "device", "id": "dal-dist-01"}],
         "by": "Pat",
         **extra,
     }
+
+
+def quiet_moment(topology: Topology) -> datetime:
+    """A recent moment when dal-dist-01 and every device next to it are up.
+
+    Work on dal-dist-01 then makes a problem of its own, whatever the
+    simulator happens to have down now: a neighbor down at the same time
+    would join it in one outage, which the work only partly accounts for.
+
+    Args:
+        topology: The test topology.
+
+    Returns:
+        The moment, between 15 minutes and 12 hours ago.
+
+    Raises:
+        AssertionError: If there is no such moment.
+    """
+    near = {"dal-dist-01"} | {
+        end.device
+        for link in topology.links
+        if "dal-dist-01" in (link.a.device, link.b.device)
+        for end in (link.a, link.b)
+    }
+    state = SimulatedState(topology)
+    now = datetime.now(UTC)
+    for minutes in range(15, 12 * 60, 5):
+        at = now - timedelta(minutes=minutes)
+        devices = state.snapshot(at).devices
+        if all(d.status == "up" for d in devices if d.device in near):
+            return at
+    raise AssertionError("dal-dist-01 or a neighbor was down all the last 12 hours")
 
 
 class Plans:
@@ -98,9 +130,12 @@ def test_a_window_naming_something_not_in_the_topology_is_refused(
     assert "nope-01" in response.text
 
 
-def test_planned_work_shows_as_planned_problems_and_events(client: TestClient) -> None:
-    window_id = client.post("/api/maintenance", json=window()).json()["id"]
-    state = client.get("/api/state").json()
+def test_planned_work_shows_as_planned_problems_and_events(
+    client: TestClient, topology: Topology
+) -> None:
+    at = quiet_moment(topology)
+    window_id = client.post("/api/maintenance", json=window(at)).json()["id"]
+    state = client.get("/api/state", params={"at": at.isoformat()}).json()
     status = {d["device"]: d["status"] for d in state["devices"]}
     assert status["dal-dist-01"] == "down"
     problems = client.get("/api/problems", params={"at": state["generated_at"]}).json()

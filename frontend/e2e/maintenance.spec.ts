@@ -19,7 +19,7 @@ function minutesFromNow(page: Page, minutes: number): Promise<string> {
 
 test('maintenance on a switch is checked first, then shown as planned work', async ({ page }) => {
 	await open(page);
-	await page.getByRole('searchbox', { name: 'Search sites and devices' }).fill('dal-dist-01');
+	await page.getByRole('combobox', { name: 'Search' }).fill('dal-dist-01');
 	await page.keyboard.press('Enter');
 	await details(page).getByRole('button', { name: 'Plan maintenance…' }).click();
 
@@ -38,12 +38,16 @@ test('maintenance on a switch is checked first, then shown as planned work', asy
 	await expect(maintenance.getByText('Replace line card')).toBeVisible();
 	await expect(details(page).getByText('Open now')).toBeVisible();
 
-	// Live, the simulator takes the switch down, and the problem says why.
+	// Live, the simulator takes the switch down, and the problem says why. If
+	// the simulator has a neighbor down too, the two are one outage, which the
+	// work only partly accounts for, so it is not marked planned.
 	await page.getByRole('button', { name: 'Live' }).click();
 	await page.getByRole('tab', { name: /^Problems/ }).click();
-	await expect(problems(page).getByRole('button', { name: /dal-dist-01 down/ })).toContainText(
-		'Planned: Replace line card'
-	);
+	const alone = problems(page).getByRole('button', { name: /^dal-dist-01 down/ });
+	const joined = problems(page).getByRole('button', { name: /reach stops at .*dal-dist-01/ });
+	await expect(alone.or(joined)).toBeVisible();
+	if (await alone.count()) await expect(alone).toContainText('Planned: Replace line card');
+	else await expect(joined).not.toContainText('Planned');
 
 	// Deleting asks once more.
 	await page.getByRole('tab', { name: /^Maintenance/ }).click();

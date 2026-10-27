@@ -3,6 +3,7 @@ import { fixtureIndex } from './test-fixture.ts';
 import {
 	DEFAULT_DWELL_S,
 	fromQuery,
+	movesOn,
 	readable,
 	readItem,
 	toQuery,
@@ -116,5 +117,42 @@ describe('readable', () => {
 			kind: 'links',
 			ids: [CIRCUIT]
 		});
+	});
+});
+
+describe('movesOn', () => {
+	const device = (id: string) => ({ kind: 'device' as const, id });
+
+	it('goes somewhere new for another view, selection, path, problem, or "what if"', () => {
+		expect(movesOn(OPENING, { ...OPENING, view: 'hierarchy' })).toBe(true);
+		expect(movesOn(OPENING, { ...OPENING, selection: device('a') })).toBe(true);
+		const selected = { ...OPENING, selection: device('a') };
+		expect(movesOn(selected, { ...selected, selection: device('b') })).toBe(true);
+		expect(movesOn(selected, { ...selected, path: { from: 'a', to: 'b' } })).toBe(true);
+		expect(movesOn(selected, { ...selected, problem: 'p1' })).toBe(true);
+		expect(movesOn(selected, { ...selected, whatIf: [device('a')] })).toBe(true);
+	});
+
+	it('goes somewhere new for another neighborhood, but only in the topology view', () => {
+		const topology: Shared = { ...OPENING, view: 'topology' };
+		const around = (id: string): Shared => ({
+			...topology,
+			topo: { ...topology.topo, scope: 'neighborhood', center: device(id) }
+		});
+		expect(movesOn(topology, around('a'))).toBe(true);
+		expect(movesOn(around('a'), around('b'))).toBe(true);
+		expect(movesOn(around('a'), { ...around('a'), topo: { ...around('a').topo, hops: 3 } })).toBe(
+			false
+		);
+		expect(movesOn(OPENING, { ...OPENING, topo: around('a').topo })).toBe(false);
+	});
+
+	it('stays in place when the same place changes how it looks, or is cleared', () => {
+		const selected = { ...OPENING, selection: device('a'), live: true };
+		expect(movesOn(selected, { ...selected, live: false })).toBe(false);
+		expect(movesOn(selected, { ...selected, at: '2026-10-27T14:05:00Z' })).toBe(false);
+		expect(movesOn(selected, { ...selected, camera: { lon: 1, lat: 2, zoom: 3 } })).toBe(false);
+		expect(movesOn(selected, { ...selected, expanded: ['A'] })).toBe(false);
+		expect(movesOn(selected, { ...selected, selection: null })).toBe(false);
 	});
 });

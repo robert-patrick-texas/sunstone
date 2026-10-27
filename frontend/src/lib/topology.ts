@@ -103,21 +103,22 @@ export function linkName(link: Link): string {
 		: `${link.a.device} – ${link.b.device}`;
 }
 
+// Case does not matter, so names typed into search abbreviate too.
 const INTERFACE_ABBREVIATIONS: [RegExp, string][] = [
-	[/^HundredGigE/, 'Hu'],
-	[/^FortyGigabitEthernet/, 'Fo'],
-	[/^TwentyFiveGigE/, 'Twe'],
-	[/^TenGigabitEthernet/, 'Te'],
-	[/^GigabitEthernet/, 'Gi'],
-	[/^FastEthernet/, 'Fa'],
-	[/^Port-channel/, 'Po'],
-	[/^Ethernet/, 'Eth']
+	[/^HundredGigE/i, 'Hu'],
+	[/^FortyGigabitEthernet/i, 'Fo'],
+	[/^TwentyFiveGigE/i, 'Twe'],
+	[/^TenGigabitEthernet/i, 'Te'],
+	[/^GigabitEthernet/i, 'Gi'],
+	[/^FastEthernet/i, 'Fa'],
+	[/^Port-channel/i, 'Po'],
+	[/^Ethernet/i, 'Eth']
 ];
 
 /**
  * Abbreviate an interface name the way IOS does: `TenGigabitEthernet1/0/1` → `Te1/0/1`.
  *
- * @param name - Full interface name.
+ * @param name - Full interface name, in any case.
  * @returns The short form, or the name unchanged if it has no known prefix.
  */
 export function shortInterface(name: string): string {

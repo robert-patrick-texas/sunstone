@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { DeviceHistory, StateEvent } from './api/state.ts';
-import { EVENT_CATEGORIES, eventRows, linkHistory, downsBySteps, STEP_MS } from './history.ts';
+import {
+	EVENT_CATEGORIES,
+	eventRows,
+	linkHistory,
+	downsBySteps,
+	STEP_MS,
+	stepEarlier,
+	stepLater
+} from './history.ts';
 import { fixture, fixtureIndex } from './test-fixture.ts';
 
 const T0 = '2026-10-27T15:00:00Z';
@@ -70,5 +78,29 @@ describe('linkHistory', () => {
 			bToA: [40, null],
 			down: [false, true]
 		});
+	});
+});
+
+describe('stepEarlier and stepLater', () => {
+	// History runs from 14:02 yesterday to 14:07 today, so its steps run 14:05 to 14:05.
+	const span = { since: '2026-10-26T14:02:00.000Z', until: '2026-10-27T14:07:00.000Z' };
+
+	it('step back from now to the latest step, then 5 minutes at a time', () => {
+		expect(stepEarlier(null, span)).toBe('2026-10-27T14:05:00.000Z');
+		expect(stepEarlier('2026-10-27T14:05:00.000Z', span)).toBe('2026-10-27T14:00:00.000Z');
+	});
+
+	it('stop at the start of history', () => {
+		expect(stepEarlier('2026-10-26T14:05:00.000Z', span)).toBe('2026-10-26T14:05:00.000Z');
+	});
+
+	it('step forward, and back to now after the latest step', () => {
+		expect(stepLater('2026-10-27T14:00:00.000Z', span)).toBe('2026-10-27T14:05:00.000Z');
+		expect(stepLater('2026-10-27T14:05:00.000Z', span)).toBeNull();
+	});
+
+	it('go from the nearest step when a link gives a moment between steps', () => {
+		expect(stepEarlier('2026-10-27T13:51:00.000Z', span)).toBe('2026-10-27T13:45:00.000Z');
+		expect(stepLater('2026-10-27T13:51:00.000Z', span)).toBe('2026-10-27T13:55:00.000Z');
 	});
 });

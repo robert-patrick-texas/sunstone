@@ -87,6 +87,7 @@ links; a link's camera, if any, is where the map opens.
 	let map = $state.raw<MapLibre | null>(null);
 	let lastFocus = ui.focusRequest;
 	let lastFit = ui.fitRequest;
+	let lastCamera = ui.cameraRequest;
 	let lastPath = untrack(() => path);
 
 	// The topology never changes while the view is open, so these are computed once.
@@ -505,6 +506,17 @@ links; a link's camera, if any, is where the map opens.
 		if (!m || request === lastFit) return;
 		lastFit = request;
 		m.fitBounds(allSitesBounds(), { padding: FIT_PADDING });
+	});
+
+	// Back and Forward return the map to where it was.
+	$effect(() => {
+		const request = ui.cameraRequest;
+		const m = map;
+		if (!m || request === lastCamera) return;
+		lastCamera = request;
+		const camera = fromLink.camera;
+		fromLink.camera = null;
+		if (camera) m.flyTo({ center: [camera.lon, camera.lat], zoom: camera.zoom });
 	});
 
 	// A newly shown path is brought into view.

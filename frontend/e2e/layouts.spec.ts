@@ -12,7 +12,7 @@ async function openTopology(page: Page): Promise<void> {
 test('a saved layout opens again after reloading the page', async ({ page }) => {
 	const name = `e2e ${Date.now()}`;
 	await openTopology(page);
-	await page.getByRole('searchbox', { name: 'Search sites and devices' }).fill('hou-dist-01');
+	await page.getByRole('combobox', { name: 'Search' }).fill('hou-dist-01');
 	await page.keyboard.press('Enter');
 	await page.getByRole('button', { name: 'Neighborhood', exact: true }).click();
 	await page.getByLabel('Hops').selectOption('1');

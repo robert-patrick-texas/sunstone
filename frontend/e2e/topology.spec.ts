@@ -5,7 +5,7 @@ const heading = (page: Page) =>
 	page.getByRole('complementary', { name: 'Details' }).getByRole('heading', { level: 2 });
 
 async function searchFor(page: Page, text: string): Promise<void> {
-	await page.getByRole('searchbox', { name: 'Search sites and devices' }).fill(text);
+	await page.getByRole('combobox', { name: 'Search' }).fill(text);
 	await page.keyboard.press('Enter');
 }
 
