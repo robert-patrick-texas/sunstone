@@ -2,7 +2,7 @@
 
 **Sunstone** — Network mapping and visualization tool
 
-Sunstone shows network operations staff a map of the network they can pan, zoom, and switch between views of: a geographic map with sites and links, a top-down hierarchy, and (planned) automatic layouts built around device and link neighbor details.
+Sunstone shows network operations staff a map of the network they can pan, zoom, and switch between views of: a geographic map with sites and links, a top-down hierarchy, and automatic topology layouts of the whole network or of the neighborhood around a device.
 
 > **Status:** workshop prototype. It runs on generated mock data, shows structure only (no live state), and has no integrations yet.
 
@@ -22,6 +22,7 @@ For development, run `make dev-api` and `make dev-web` in two terminals and open
 
 - **Geographic:** sites and the links between them; line width is total capacity. Click a site, or zoom in, to see its devices on rings around it (upper tiers inside). The rings are a drawing aid: sources give coordinates per site, not per device.
 - **Hierarchy:** sites with a core tier on top, other sites below by WAN hops. Double-click a site, or use the details panel, to expand it into tier rows (WAN edge, core, distribution, access). Interface names label the selected device's links, and every link once zoomed in. Networks over 400 devices open with sites collapsed.
+- **Topology:** automatic layouts, either of the whole network (collapsible sites, as in the hierarchy) or of a **neighborhood**: the devices within 1–4 hops of a device, site, or link. Choose a force-directed layout, optionally grouped into a frame per site, or a radial one with the center in the middle and a ring per hop. Open a neighborhood with **Show neighborhood** in the details panel or by double-clicking a device; double-click another device to walk on from there. Neighborhoods stop at 400 devices, adding whole hops only, and say what the next hop would have added. Nodes can be dragged, and finished layouts are kept while the page is open, so switching views and back shows the same picture.
 - **Selection** is shared: whatever is selected stays selected when switching views. The details panel shows a device's neighbors interface by interface, a site's links to other sites, or a link's ends and circuit. Names in it are clickable.
 - **Search** with `/`, by device name, site code or name, or management address. `Esc` clears the selection.
 
@@ -54,7 +55,7 @@ Roles are `wan-edge`, `core`, `distribution`, and `access`. Each link end is a d
 | Path | What |
 |---|---|
 | `backend/` | Python, FastAPI, managed with uv. Model and validation (`model.py`), YAML loader, API, CLI, mock generator. |
-| `frontend/` | SvelteKit single-page app (Svelte 5, TypeScript), built static and served by the backend. MapLibre GL for the map, Cytoscape.js for the hierarchy. |
+| `frontend/` | SvelteKit single-page app (Svelte 5, TypeScript), built static and served by the backend. MapLibre GL for the map; Cytoscape.js with fcose for the graph views. `src/lib/graph/` is shared by the graph views, `hierarchy/` and `topo/` are the two views. |
 | `data/sample/` | Mock topologies. |
 
 ## Decisions so far
@@ -63,6 +64,7 @@ Roles are `wan-edge`, `core`, `distribution`, and `access`. Each link end is a d
 - **Data sources, eventually:** NetBox/Nautobot, LLDP/CDP discovery, existing NMS and NOC tools, and vakr for metrics. vakr covers only some devices, so its data will be an optional overlay; a device never needs vakr data to appear on the map.
 - **Scale target:** 500–5,000 devices. Views start grouped (sites as points on the map, collapsed sites in the hierarchy) and open up on demand.
 - **Hierarchy layout** is a small fixed-row layout rather than ELK.js. Layered-graph algorithms put every link between two different rows, which splits a redundant pair joined by a peer link onto two rows; fixed tier rows keep pairs side by side. The full 3,000-device layout takes about 40 ms.
+- **Topology layouts** use fcose, whose cost climbs steeply with size. Measured on the 3,000-device sample: 0.4 s with sites collapsed, but 18 s or more for one pass over the fully expanded network (and its fast draft mode piles sites on top of each other). Above 800 nodes the layout therefore goes site by site, each site's devices alone and then the sites among each other, with a final pass that pushes overlapping sites apart. That takes about 5 s for the full sample. Expanding one site in a graph of up to 300 nodes refines the current picture instead of starting over.
 - **Map tiles** come from OpenFreeMap's hosted dark style; viewers' browsers need internet access.
 
 ## Testing
@@ -79,6 +81,6 @@ $ PW_WS_ENDPOINT=ws://127.0.0.1:3124/ make e2e
 
 ## Next
 
-- Automatic layouts: force-directed, grouped, and a device-centric view of N hops around a selection.
+- Topology: paths between two devices, and saving hand-arranged layouts beyond the browser session.
 - Sources: NetBox/Nautobot import, then NMS import and LLDP/CDP discovery.
 - Live state: up/down status, then utilization and latency overlays (vakr among the sources).

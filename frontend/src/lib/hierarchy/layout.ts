@@ -10,16 +10,20 @@
  *
  * Each level is wrapped into lines. One line width is used for every level,
  * chosen so the busiest level comes out about as wide as a screen is.
- *
- * Links between the same two visible nodes are merged into one edge. Each
- * end is labeled with its interface, or with the LAG and member count for a
- * bundle, so the drawing keeps interface-level detail.
  */
-import type { Link, Role } from '../api/topology.ts';
-import { compareNatural, ROLES, shortInterface, siteOf, type TopologyIndex } from '../topology.ts';
-
-export const SITE_W = 150;
-export const SITE_H = 54;
+import type { Device } from '../api/topology.ts';
+import {
+	deviceNode,
+	frameNode,
+	mergeLinks,
+	SITE_H,
+	SITE_W,
+	siteBoxNode,
+	siteNodeId,
+	type GraphEdge,
+	type GraphNode
+} from '../graph/model.ts';
+import { compareNatural, ROLES, siteOf, type TopologyIndex } from '../topology.ts';
 const DX = 76;
 const DY = 64;
 const TIER_GAP = 36;
@@ -34,52 +38,19 @@ const LEVEL_GAP = 170;
 const MIN_LINE_W = 2400;
 const SCREEN_ASPECT = 1.8;
 
-export interface HNode {
-	/** Device name, or {@link siteNodeId} for a site box or frame. */
-	id: string;
-	kind: 'device' | 'site' | 'frame';
-	label: string;
-	site: string;
-	role?: Role;
-	parent?: string;
-	x: number;
-	y: number;
-	/** Size of site boxes and frames; device nodes have a fixed size. */
-	w?: number;
-	h?: number;
-}
-
-export interface HEdge {
-	id: string;
-	source: string;
-	target: string;
-	linkIds: string[];
-	kind: 'lan' | 'wan';
-	capacityMbps: number;
-	sourceLabel: string;
-	targetLabel: string;
-}
+/** A node with the position this layout gives it. */
+export type HNode = GraphNode & { x: number; y: number };
 
 export interface HierarchyGraph {
 	nodes: HNode[];
-	edges: HEdge[];
+	edges: GraphEdge[];
 }
 
 interface Block {
 	code: string;
 	w: number;
 	h: number;
-	devices: { name: string; role: Role; x: number; y: number }[];
-}
-
-/**
- * Node id of a site's box (collapsed) or frame (expanded).
- *
- * @param code - Site code.
- * @returns The node id.
- */
-export function siteNodeId(code: string): string {
-	return `site:${code}`;
+	devices: { device: Device; x: number; y: number }[];
 }
 
 /**
@@ -165,7 +136,7 @@ function expandedBlock(index: TopologyIndex, code: string): Block {
 			row.forEach((d, i) => {
 				const dx = (i - (row.length - 1) / 2) * DX;
 				x.set(d.name, dx);
-				placed.push({ name: d.name, role, x: dx, y });
+				placed.push({ device: d, x: dx, y });
 			});
 			y += DY;
 		}
@@ -235,7 +206,11 @@ export function buildHierarchy(
 		}
 		top += LEVEL_GAP - LINE_GAP;
 	}
-	return { nodes, edges: buildEdges(index, expanded) };
+	const nodeOf = (device: string) => {
+		const site = siteOf(index, device);
+		return expanded.has(site) ? device : siteNodeId(site);
+	};
+	return { nodes, edges: mergeLinks(index.topology.links, nodeOf) };
 }
 
 function blockNodes(
@@ -246,63 +221,14 @@ function blockNodes(
 	top: number
 ): HNode[] {
 	const { code, w, h } = block;
-	const name = index.sites.get(code)?.name ?? code;
-	const id = siteNodeId(code);
 	const center = { x: left + w / 2, y: top + h / 2, w, h };
-	if (!expanded) {
-		const count = index.devicesBySite.get(code)?.length ?? 0;
-		return [{ id, kind: 'site', label: `${code}\n${name} · ${count}`, site: code, ...center }];
-	}
+	if (!expanded) return [{ ...siteBoxNode(index, code), ...center }];
 	return [
-		{ id, kind: 'frame', label: `${code} · ${name}`, site: code, ...center },
+		{ ...frameNode(index, code), ...center },
 		...block.devices.map((d) => ({
-			id: d.name,
-			kind: 'device' as const,
-			label: d.name,
-			site: code,
-			role: d.role,
-			parent: id,
+			...deviceNode(d.device, true),
 			x: left + d.x,
 			y: top + d.y
 		}))
 	];
-}
-
-function buildEdges(index: TopologyIndex, expanded: ReadonlySet<string>): HEdge[] {
-	const visible = (device: string) => {
-		const site = siteOf(index, device);
-		return expanded.has(site) ? device : siteNodeId(site);
-	};
-	const groups = new Map<string, { source: string; target: string; links: Link[] }>();
-	for (const link of index.topology.links) {
-		const u = visible(link.a.device);
-		const v = visible(link.b.device);
-		if (u === v) continue;
-		const [source, target] = u < v ? [u, v] : [v, u];
-		const key = `${source}~${target}`;
-		const group = groups.get(key) ?? { source, target, links: [] };
-		group.links.push(link);
-		groups.set(key, group);
-	}
-	return [...groups].map(([id, { source, target, links }]) => ({
-		id,
-		source,
-		target,
-		linkIds: links.map((l) => l.id),
-		kind: links.some((l) => l.kind === 'wan') ? 'wan' : 'lan',
-		capacityMbps: links.reduce((s, l) => s + l.speed_mbps, 0),
-		sourceLabel: endLabel(links, source),
-		targetLabel: endLabel(links, target)
-	}));
-}
-
-/** Label for one end of a merged edge: the interface, or the LAG and member count. */
-function endLabel(links: Link[], node: string): string {
-	const ends = links.map((l) => (l.a.device === node ? l.a : l.b.device === node ? l.b : null));
-	if (ends.some((e) => e === null)) return ''; // this end is a collapsed site, not a device
-	const [first] = ends;
-	if (ends.length === 1 && first) return shortInterface(first.interface);
-	const lags = new Set(ends.map((e) => e?.lag));
-	const [lag] = lags;
-	return lags.size === 1 && lag ? `${shortInterface(lag)} ×${ends.length}` : `×${ends.length}`;
 }

@@ -10,6 +10,7 @@ and the details panel for whatever is selected.
 	import DetailsPanel from '#lib/DetailsPanel.svelte';
 	import GeoView from '#lib/geo/GeoView.svelte';
 	import HierarchyView from '#lib/hierarchy/HierarchyView.svelte';
+	import TopologyView from '#lib/topo/TopologyView.svelte';
 	import Legend from '#lib/Legend.svelte';
 	import SearchBox from '#lib/SearchBox.svelte';
 	import { expandedSites, select, ui, type View } from '#lib/state.svelte.ts';
@@ -19,7 +20,8 @@ and the details panel for whatever is selected.
 	const EXPAND_ALL_UP_TO = 400;
 	const VIEWS: { id: View; label: string }[] = [
 		{ id: 'geo', label: 'Geographic' },
-		{ id: 'hierarchy', label: 'Hierarchy' }
+		{ id: 'hierarchy', label: 'Hierarchy' },
+		{ id: 'topology', label: 'Topology' }
 	];
 
 	let index = $state.raw<TopologyIndex | null>(null);
@@ -47,7 +49,7 @@ and the details panel for whatever is selected.
 <div class="app">
 	<header>
 		<h1><img src="/favicon.svg" alt="" width="22" height="22" />Sunstone</h1>
-		<div class="views" role="group" aria-label="View">
+		<div class="segmented" role="group" aria-label="View">
 			{#each VIEWS as view (view.id)}
 				<button aria-pressed={ui.view === view.id} onclick={() => (ui.view = view.id)}>
 					{view.label}
@@ -72,8 +74,10 @@ and the details panel for whatever is selected.
 				{#key ui.view}
 					{#if ui.view === 'geo'}
 						<GeoView {index} />
-					{:else}
+					{:else if ui.view === 'hierarchy'}
 						<HierarchyView {index} />
+					{:else}
+						<TopologyView {index} />
 					{/if}
 				{/key}
 				<Legend />
@@ -105,24 +109,6 @@ and the details panel for whatever is selected.
 		font-size: 17px;
 		font-weight: 600;
 		letter-spacing: 0.02em;
-	}
-	.views {
-		display: flex;
-	}
-	.views button {
-		border-radius: 0;
-	}
-	.views button:first-child {
-		border-radius: 6px 0 0 6px;
-	}
-	.views button:last-child {
-		border-radius: 0 6px 6px 0;
-		border-left: none;
-	}
-	.views button[aria-pressed='true'] {
-		background: var(--accent);
-		border-color: var(--accent);
-		color: #1a1300;
 	}
 	.stats {
 		margin-left: auto;
