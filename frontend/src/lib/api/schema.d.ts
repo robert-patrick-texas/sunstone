@@ -111,6 +111,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/discovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Discovery
+         * @description Return the latest discovery run compared with the documented links.
+         *
+         *     Runs come every 15 minutes, and each is compared once for every viewer.
+         */
+        get: operations["get_discovery_api_discovery_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/history/{device}": {
         parameters: {
             query?: never;
@@ -422,6 +444,29 @@ export interface components {
             circuit_id: string;
         };
         /**
+         * Comparison
+         * @description Discovery against the documented topology, as of one run.
+         */
+        Comparison: {
+            /** Source */
+            source: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Polled */
+            polled: string[];
+            /** Links */
+            links: {
+                [key: string]: "confirmed" | "mismatch" | "not-seen" | "down" | "unchecked";
+            };
+            /** Confirmed */
+            confirmed: number;
+            /** Findings */
+            findings: components["schemas"]["Finding"][];
+        };
+        /**
          * Cover
          * @description A saved cover.
          */
@@ -605,6 +650,37 @@ export interface components {
             devices: string[];
             /** Links */
             links: string[];
+        };
+        /**
+         * Finding
+         * @description One place where the documentation and the network disagree.
+         */
+        Finding: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "wrong-neighbor" | "wrong-port" | "not-seen" | "undocumented" | "unknown-device" | "no-neighbors";
+            /** Title */
+            title: string;
+            /** Detail */
+            detail: string;
+            /** Link */
+            link?: string | null;
+            /**
+             * Documented
+             * @default []
+             */
+            documented: components["schemas"]["Port"][];
+            /**
+             * Seen
+             * @default []
+             */
+            seen: components["schemas"]["Port"][];
+            /** Devices */
+            devices: string[];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -928,6 +1004,16 @@ export interface components {
             name: string;
             /** Phone */
             phone?: string | null;
+        };
+        /**
+         * Port
+         * @description A device's port, as documented or as seen.
+         */
+        Port: {
+            /** Device */
+            device: string;
+            /** Interface */
+            interface: string;
         };
         /**
          * Position
@@ -1382,6 +1468,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventLog"];
+                };
+            };
+        };
+    };
+    get_discovery_api_discovery_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comparison"];
                 };
             };
         };

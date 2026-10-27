@@ -428,7 +428,8 @@ def short_interface(name: str) -> str:
     """Abbreviate an interface name the way IOS does.
 
     Args:
-        name: Full interface name, such as ``TenGigabitEthernet1/0/1``.
+        name: Full interface name, such as ``TenGigabitEthernet1/0/1``, in
+            any case.
 
     Returns:
         The short form, such as ``Te1/0/1``, or the name unchanged.
@@ -437,7 +438,7 @@ def short_interface(name: str) -> str:
         None
     """
     for long, short in _ABBREVIATIONS:
-        if name.startswith(long):
+        if name[: len(long)].lower() == long.lower():
             return short + name[len(long) :]
     return name
 

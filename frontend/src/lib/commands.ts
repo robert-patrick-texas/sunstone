@@ -25,6 +25,7 @@ export type CommandId =
 	| 'events'
 	| 'maintenance'
 	| 'oncall'
+	| 'discovery'
 	| 'next-problem'
 	| 'previous-problem'
 	| 'earlier'
@@ -128,7 +129,7 @@ export const COMMANDS: Command[] = [
 	{
 		id: 'problems',
 		label: 'Problems list',
-		group: 'Live',
+		group: 'Lists',
 		keys: ['p'],
 		also: ['alarms', 'alerts'],
 		needs: ['live']
@@ -136,7 +137,7 @@ export const COMMANDS: Command[] = [
 	{
 		id: 'events',
 		label: 'Events list',
-		group: 'Live',
+		group: 'Lists',
 		keys: ['e'],
 		also: ['log'],
 		needs: ['live']
@@ -144,16 +145,23 @@ export const COMMANDS: Command[] = [
 	{
 		id: 'maintenance',
 		label: 'Maintenance list',
-		group: 'Live',
+		group: 'Lists',
 		keys: ['m'],
 		also: ['planned', 'windows', 'change']
 	},
 	{
 		id: 'oncall',
 		label: 'On-call list',
-		group: 'Live',
+		group: 'Lists',
 		keys: ['o'],
 		also: ['who', 'page', 'pager', 'rota', 'escalation', 'carriers']
+	},
+	{
+		id: 'discovery',
+		label: 'Discovery against the documentation',
+		group: 'Lists',
+		keys: ['d'],
+		also: ['lldp', 'cdp', 'neighbors', 'cabling', 'drift', 'audit']
 	},
 	{
 		id: 'next-problem',

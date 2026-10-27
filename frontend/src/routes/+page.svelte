@@ -15,12 +15,14 @@ place of the controls.
 	import { onMount, untrack } from 'svelte';
 	import { pushState, replaceState } from '$app/navigation';
 	import { fetchProblems, fetchWhatIf, type Problem } from '#lib/api/analysis.ts';
+	import { fetchDiscovery, type Comparison } from '#lib/api/discovery.ts';
 	import { fetchOnCall, fetchOwnership, type OnCall, type Ownership } from '#lib/api/oncall.ts';
 	import { fetchWindows, type Window } from '#lib/api/operations.ts';
 	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
 	import { available, COMMANDS, commandFor, type CommandId } from '#lib/commands.ts';
 	import DetailsPanel from '#lib/DetailsPanel.svelte';
+	import DiscoveryPanel from '#lib/DiscoveryPanel.svelte';
 	import { startPerf, timed, timedAsync } from '#lib/perf.ts';
 	import PerfPanel from '#lib/PerfPanel.svelte';
 	import EventsPanel from '#lib/EventsPanel.svelte';
@@ -74,6 +76,8 @@ place of the controls.
 	const WINDOWS_POLL_MS = 60_000;
 	// Shifts change hands on the hour at most; covers when someone adds one.
 	const ONCALL_POLL_MS = 60_000;
+	// Discovery runs every 15 minutes.
+	const DISCOVERY_POLL_MS = 5 * 60_000;
 	// While the time slider is dragged, wait for it to settle before fetching.
 	const REPLAY_WAIT_MS = 200;
 	// How far back sources keep history, for stepping back before the events arrive.
@@ -89,6 +93,8 @@ place of the controls.
 	let oncall = $state.raw<OnCall | null>(null);
 	let oncallProblem = $state<string | null>(null);
 	let ownership = $state.raw<Ownership | null>(null);
+	let comparison = $state.raw<Comparison | null>(null);
+	let discoveryProblem = $state<string | null>(null);
 	/** Bumped to fetch live state and events again at once, after planned work changes. */
 	let refresh = $state(0);
 	const coming = $derived(windows.filter((w) => phaseOf(w, Date.now()) !== 'ended').length);
@@ -374,6 +380,28 @@ place of the controls.
 		}
 	});
 
+	// The latest discovery run; also after planned work changes what is down.
+	$effect(() => {
+		void refresh;
+		let stopped = false;
+		const load = async () => {
+			try {
+				const found = await fetchDiscovery();
+				if (stopped) return;
+				comparison = found;
+				discoveryProblem = null;
+			} catch (e) {
+				if (!stopped) discoveryProblem = e instanceof Error ? e.message : String(e);
+			}
+		};
+		void load();
+		const timer = setInterval(load, DISCOVERY_POLL_MS);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
+	});
+
 	// Who is on call: now, checked now and then, or at the moment replayed.
 	$effect(() => {
 		const at = ui.at;
@@ -457,6 +485,7 @@ place of the controls.
 		events: () => toggleTab('events'),
 		maintenance: () => toggleTab('maintenance'),
 		oncall: () => toggleTab('oncall'),
+		discovery: () => toggleTab('discovery'),
 		'next-problem': () => stepThrough(1),
 		'previous-problem': () => stepThrough(-1),
 		earlier: () => (ui.at = stepEarlier(ui.at, historySpan())),
@@ -588,8 +617,8 @@ place of the controls.
 		{:else if !index}
 			<p class="message">Loading topology…</p>
 		{:else}
-			{#if !ui.wall.on && ui.problemsOpen && (live || ui.sideTab === 'maintenance' || ui.sideTab === 'oncall')}
-				<aside class="side" aria-label="Problems, events, maintenance, and on call">
+			{#if !ui.wall.on && ui.problemsOpen && (live || (ui.sideTab !== 'problems' && ui.sideTab !== 'events'))}
+				<aside class="side" aria-label="Lists">
 					<div class="segmented tabs" role="tablist" aria-label="List">
 						{#if live}
 							<button
@@ -616,8 +645,17 @@ place of the controls.
 							aria-selected={ui.sideTab === 'oncall'}
 							onclick={() => (ui.sideTab = 'oncall')}>On call</button
 						>
+						<button
+							role="tab"
+							aria-selected={ui.sideTab === 'discovery'}
+							title="Where discovery and the documentation disagree"
+							onclick={() => (ui.sideTab = 'discovery')}
+							>Discovery{comparison ? ` ${comparison.findings.length}` : ''}</button
+						>
 					</div>
-					{#if ui.sideTab === 'oncall'}
+					{#if ui.sideTab === 'discovery'}
+						<DiscoveryPanel {index} {comparison} problem={discoveryProblem} />
+					{:else if ui.sideTab === 'oncall'}
 						<OnCallPanel {oncall} problem={oncallProblem} {problems} onchange={refetch} />
 					{:else if ui.sideTab === 'maintenance'}
 						<MaintenancePanel {index} {windows} problem={windowsProblem} onchange={refetch} />
@@ -658,6 +696,7 @@ place of the controls.
 					{live}
 					{oncall}
 					{ownership}
+					{comparison}
 				/>
 			{/if}
 		{/if}
@@ -736,8 +775,11 @@ place of the controls.
 	.tabs {
 		margin-bottom: 10px;
 	}
+	.tabs {
+		flex-wrap: wrap;
+	}
 	.tabs button {
-		flex: 1;
+		flex: 1 1 auto;
 		padding: 4px 6px;
 		white-space: nowrap;
 	}
