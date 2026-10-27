@@ -383,13 +383,15 @@ place of the controls.
 		}
 	});
 
-	// The latest discovery run; also after planned work changes what is down.
+	// The discovery run in effect now, checked now and then, or at the moment
+	// replayed; and again after planned work changes what is down.
 	$effect(() => {
+		const at = ui.at;
 		void refresh;
 		let stopped = false;
 		const load = async () => {
 			try {
-				const found = await fetchDiscovery();
+				const found = await fetchDiscovery(at ?? undefined);
 				if (stopped) return;
 				comparison = found;
 				discoveryProblem = null;
@@ -397,6 +399,13 @@ place of the controls.
 				if (!stopped) discoveryProblem = e instanceof Error ? e.message : String(e);
 			}
 		};
+		if (at) {
+			const wait = setTimeout(load, REPLAY_WAIT_MS);
+			return () => {
+				stopped = true;
+				clearTimeout(wait);
+			};
+		}
 		void load();
 		const timer = setInterval(load, DISCOVERY_POLL_MS);
 		return () => {

@@ -1,8 +1,9 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from sunstone.cabling import Cabling
+from sunstone.discovery import Visibility
 from sunstone.impact import Network
 from sunstone.mockgen import PRESETS, generate
 from sunstone.model import Topology
@@ -91,3 +92,12 @@ def test_a_device_on_a_rewired_uplink_stays_reachable(
     assert any(
         far == cabling.rewired[link_id][1].device for far, _ in state.adjacent[access]
     )
+
+
+def test_the_simulator_says_who_is_up_as_its_snapshot_would(
+    topology: Topology, cabling: Cabling
+) -> None:
+    state = SimulatedState(topology, cabling=cabling)
+    for hours in range(0, 24, 3):
+        at = AT - timedelta(hours=hours)
+        assert state.visibility(at) == Visibility.of(state.snapshot(at))

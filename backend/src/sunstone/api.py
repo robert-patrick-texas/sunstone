@@ -14,7 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
 from sunstone.cabling import Cabling
-from sunstone.discovery import Comparison, SimulatedDiscovery, compare
+from sunstone.discovery import Comparison, SimulatedDiscovery
+from sunstone.discovery_log import DiscoveryLog
 from sunstone.impact import Network, WhatIf
 from sunstone.layouts import (
     MAX_NAME,
@@ -151,31 +152,21 @@ def create_app(
     cabling = Cabling(topology, watched=set(monitored(topology)))
     state = state_source or SimulatedState(topology, plans=operations, cabling=cabling)
     monitor = Monitor(network, state)
-    discovery = SimulatedDiscovery(topology, cabling, state)
-    # The latest discovery run compared, by run and maintenance plans.
-    compared: dict[tuple[datetime, int], Comparison] = {}
-    comparing = threading.Lock()
+    log = DiscoveryLog(topology, SimulatedDiscovery(topology, cabling, state), state)
 
-    def latest_comparison() -> Comparison:
-        """The latest discovery run compared with the topology, worked out once."""
-        step = discovery.interval.total_seconds()
-        run = datetime.fromtimestamp(datetime.now(UTC).timestamp() // step * step, UTC)
-        key = (run, operations.version)
-        with comparing:
-            if key not in compared:
-                compared.clear()
-                found = discovery.discover(run)
-                compared[key] = compare(topology, found, state.snapshot(run))
-            return compared[key]
+    def warm_up() -> None:
+        """The day's events and the present first, then discovery's day."""
+        monitor.warm()
+        log.warm()
 
     if warm:
-        threading.Thread(target=monitor.warm, name="warm", daemon=True).start()
-        threading.Thread(
-            target=latest_comparison, name="discovery", daemon=True
-        ).start()
+        threading.Thread(target=warm_up, name="warm", daemon=True).start()
         never = threading.Event()
         threading.Thread(
             target=monitor.keep_ahead, args=(never,), name="ahead", daemon=True
+        ).start()
+        threading.Thread(
+            target=log.keep_up, args=(never,), name="discovery", daemon=True
         ).start()
     app = FastAPI(title="Sunstone")
     # Topology and state run to megabytes for large networks and compress well.
@@ -284,12 +275,14 @@ def create_app(
         return EventLog(since=since, until=now, events=events)
 
     @app.get("/api/discovery")
-    def get_discovery() -> Comparison:
-        """Return the latest discovery run compared with the documented links.
+    def get_discovery(at: datetime | None = None) -> Comparison:
+        """Return the discovery run in effect now, or at an earlier moment,
+        compared with the documented links, with when each finding was seen.
 
         Runs come every 15 minutes, and each is compared once for every viewer.
         """
-        return latest_comparison()
+        now = datetime.now(UTC)
+        return log.comparison(now if at is None else in_history(at, now))
 
     @app.get("/api/history/{device}")
     def get_history(device: str) -> DeviceHistory:
@@ -315,6 +308,9 @@ def create_app(
     def changed_plans() -> None:
         """Planned work changes what the simulator shows, so start afresh."""
         monitor.forget()
+        log.forget()
+        if warm:
+            threading.Thread(target=log.warm, name="rewarm", daemon=True).start()
 
     @app.get("/api/maintenance")
     def list_windows() -> list[Window]:

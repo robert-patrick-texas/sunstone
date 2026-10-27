@@ -6,6 +6,7 @@ that other tools' interface references (vakr's, for one) will be matched on.
 """
 
 from collections import Counter
+from functools import cached_property
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
@@ -64,8 +65,9 @@ class Link(_Record):
     kind: LinkKind = "lan"
     circuit: Circuit | None = None
 
+    # Worked out once: links are frozen, and ids are looked up all the time.
     @computed_field
-    @property
+    @cached_property
     def id(self) -> str:
         """Stable identifier that does not depend on which end is listed first.
 

@@ -101,3 +101,19 @@ test('a link down because it is cabled elsewhere says so', async ({ page }) => {
 	await impact.getByRole('button', { name: 'Show on the map' }).click();
 	await expect(page).toHaveURL(/discovery=1/);
 });
+
+test('discovery follows the time slider, and says when each finding was seen', async ({ page }) => {
+	await page.keyboard.press('l');
+	await expect(page.getByText(/simulated · as of/)).toBeVisible();
+	await page.keyboard.press('d');
+	const header = discovery(page).getByText(/LLDP and CDP at/);
+	await expect(header).not.toContainText('replaying');
+	// As far back as history has been worked out, at least.
+	await expect(discovery(page).locator('.when').first()).toHaveText(/^Seen (since|until|.* – )/);
+	const now = await header.textContent();
+	// Half an hour back: two runs earlier.
+	for (let i = 0; i < 6; i++) await page.keyboard.press('[');
+	await expect(header).toContainText('(replaying)');
+	await expect(header).not.toHaveText(now ?? '');
+	await expect(discovery(page).locator('button.finding').first()).toBeVisible();
+});

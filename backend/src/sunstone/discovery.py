@@ -16,8 +16,10 @@ LLDP-MIB and CDP-MIB, or an NMS's neighbor tables; the only one so far is
 simulated, reporting the simulated network as really cabled (``cabling.py``).
 """
 
+import functools
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
@@ -76,17 +78,89 @@ class Discovery(_Record):
     tables: list[NeighborTable]
 
 
+@dataclass(frozen=True)
+class Visibility:
+    """What live state says, at a run, about what discovery can see."""
+
+    up: frozenset[str]
+    """Devices up and reporting, which answer discovery."""
+    down_devices: frozenset[str]
+    down_ports: frozenset[tuple[str, str]]
+    """(device, interface) pairs whose port is down."""
+
+    @classmethod
+    def of(cls, state: NetworkState) -> Visibility:
+        """Read it from a snapshot.
+
+        Args:
+            state: Live state as of the run.
+
+        Returns:
+            Who is up, who is down, and which ports are down.
+
+        Raises:
+            None
+        """
+        return cls(
+            up=frozenset(
+                d.device for d in state.devices if d.status == "up" and not d.stale
+            ),
+            down_devices=frozenset(
+                d.device for d in state.devices if d.status == "down"
+            ),
+            down_ports=frozenset(
+                (i.device, i.interface) for i in state.interfaces if i.oper == "down"
+            ),
+        )
+
+
+@runtime_checkable
+class SeesWhoIsUp(Protocol):
+    """A state source that can say who is up more cheaply than a snapshot."""
+
+    def visibility(self, at: datetime) -> Visibility:
+        """What discovery can see at a moment.
+
+        Args:
+            at: The moment.
+
+        Returns:
+            Who is up, who is down, and which ports are down.
+        """
+        ...
+
+
+def visibility(state: StateSource, at: datetime) -> Visibility:
+    """What discovery can see at a moment, as cheaply as the source allows.
+
+    Args:
+        state: Live state.
+        at: The moment.
+
+    Returns:
+        Who is up, who is down, and which ports are down.
+
+    Raises:
+        None
+    """
+    if isinstance(state, SeesWhoIsUp):
+        return state.visibility(at)
+    return Visibility.of(state.snapshot(at))
+
+
 class DiscoverySource(Protocol):
     """Where neighbor tables come from."""
 
     interval: timedelta
     """How often it runs."""
 
-    def discover(self, at: datetime) -> Discovery:
+    def discover(self, at: datetime, seen: Visibility | None = None) -> Discovery:
         """Neighbor tables as of a run.
 
         Args:
             at: When the run happened.
+            seen: What live state says about who is up then, if the caller
+                has it, so the source need not ask again.
 
         Returns:
             The tables of the devices that answered.
@@ -116,6 +190,11 @@ class Finding(_Record):
     """The ends as discovery saw them."""
     devices: list[str]
     """Devices in the topology it involves, the first the one to look at."""
+    first_seen: datetime | None = None
+    """The first run of the unbroken stretch that shows it; None if that
+    reaches back as far as the history goes."""
+    last_seen: datetime | None = None
+    """The last run of that stretch; None if it is the latest run."""
 
 
 class SeenLink(_Record):
@@ -149,8 +228,13 @@ class Comparison(_Record):
     seen, undocumented links, unknown neighbors, and silent devices."""
     seen: list[SeenLink]
     """Every cable seen that is not documented as it is, for drawing."""
+    gone: list[Finding] = []
+    """Findings of earlier runs not in this one, most recently seen first."""
+    history_from: datetime | None = None
+    """The earliest run history has, unbroken back from this one."""
 
 
+@functools.cache
 def _key(interface: str) -> str:
     """A port name in one form, however a device spells it."""
     return short_interface(interface.replace(" ", "")).lower()
@@ -191,24 +275,21 @@ def _adjacencies(topology: Topology, discovery: Discovery) -> list[_Seen]:
     for table in discovery.tables:
         for n in table.neighbors:
             remote = resolve(n.remote)
-            local = Port(device=table.device, interface=n.interface)
-            other = Port(device=remote or n.remote, interface=n.remote_port)
+            far = remote or n.remote
             key = frozenset(
-                {
-                    (local.device, _key(local.interface)),
-                    (other.device, _key(other.interface)),
-                }
+                {(table.device, _key(n.interface)), (far, _key(n.remote_port))}
             )
+            # Most cables are reported from both ends: keep the first report.
             if key not in found:
+                local = Port(device=table.device, interface=n.interface)
+                other = Port(device=far, interface=n.remote_port)
                 found[key] = _Seen((local, other), remote is not None, n.platform)
-    return sorted(
-        found.values(),
-        key=lambda s: (natural(s.ends[0].device), natural(s.ends[0].interface)),
-    )
+    # In a fixed order, so the same tables always give the same findings.
+    return sorted(found.values(), key=lambda s: (s.ends[0].device, s.ends[0].interface))
 
 
 def compare(
-    topology: Topology, discovery: Discovery, state: NetworkState | None = None
+    topology: Topology, discovery: Discovery, state: Visibility | None = None
 ) -> Comparison:
     """Compare neighbor tables with the documented links.
 
@@ -409,15 +490,14 @@ def _not_seen(link: Link, polled: set[str]) -> Finding:
     )
 
 
-def _down_links(topology: Topology, state: NetworkState) -> set[str]:
+def _down_links(topology: Topology, state: Visibility) -> set[str]:
     """Links live state shows down, or that end at a device that is down."""
-    down_ports = {(i.device, i.interface) for i in state.interfaces if i.oper == "down"}
-    down_devices = {d.device for d in state.devices if d.status == "down"}
     return {
         ln.id
         for ln in topology.links
-        if {(ln.a.device, ln.a.interface), (ln.b.device, ln.b.interface)} & down_ports
-        or {ln.a.device, ln.b.device} & down_devices
+        if {(ln.a.device, ln.a.interface), (ln.b.device, ln.b.interface)}
+        & state.down_ports
+        or {ln.a.device, ln.b.device} & state.down_devices
     }
 
 
@@ -432,7 +512,7 @@ class SimulatedDiscovery:
     media converter hides the far end, and except for switches with LLDP
     and CDP off, which neither report nor are seen. Some devices report
     over CDP with their platform and full port names, others over LLDP with
-    a domain and short port names.
+    a domain and short port names. A cable unplugged at the time is not seen.
     """
 
     interval = timedelta(minutes=15)
@@ -455,11 +535,12 @@ class SimulatedDiscovery:
         self.cabling = cabling
         self.state = state
 
-    def discover(self, at: datetime) -> Discovery:
+    def discover(self, at: datetime, seen: Visibility | None = None) -> Discovery:
         """Neighbor tables as of a run.
 
         Args:
             at: When the run happened.
+            seen: Who is up then, or None to ask the state source.
 
         Returns:
             A table for each watched device that is up.
@@ -467,17 +548,15 @@ class SimulatedDiscovery:
         Raises:
             None
         """
-        snapshot = self.state.snapshot(at)
-        up = {d.device for d in snapshot.devices if d.status == "up" and not d.stale}
-        down = {d.device for d in snapshot.devices if d.status == "down"}
-        down_ports = {
-            (i.device, i.interface) for i in snapshot.interfaces if i.oper == "down"
-        }
+        seen = seen or visibility(self.state, at)
+        up, down, down_ports = seen.up, seen.down_devices, seen.down_ports
         devices = {d.name: d for d in self.topology.devices}
         rows: dict[str, list[Neighbor]] = {d: [] for d in up}
         deaf = self.cabling.silent
         for cable in self.cabling.cables:
             if cable.documented and cable.link.id in self.cabling.hidden:
+                continue
+            if not self.cabling.in_place(cable.link.id, at):
                 continue
             for here, there in ((cable.a, cable.b), (cable.b, cable.a)):
                 if here.device not in rows or {here.device, there.device} & deaf:
@@ -535,6 +614,7 @@ def _row(
     )
 
 
+@functools.cache
 def _hash(text: str) -> int:
     """A small hash that is the same in every process, unlike ``hash``."""
     return sum((i + 1) * ord(c) for i, c in enumerate(text))

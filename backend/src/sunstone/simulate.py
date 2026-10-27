@@ -31,6 +31,7 @@ and tests can fix the clock:
   traffic. Without it, the cabling is as documented.
 """
 
+import functools
 import hashlib
 import math
 from collections.abc import Mapping, Set
@@ -39,6 +40,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal, Protocol
 
 from sunstone.cabling import Cabling
+from sunstone.discovery import Visibility
 from sunstone.impact import Failures
 from sunstone.live import (
     DeviceHistory,
@@ -70,6 +72,10 @@ def _unit(*parts: object) -> float:
     """A stable pseudo-random number in [0, 1) for the given parts."""
     digest = hashlib.blake2b("|".join(map(str, parts)).encode(), digest_size=8)
     return int.from_bytes(digest.digest()) / 2**64
+
+
+# The same parts always give the same number, so per-link ones are kept.
+_fixed = functools.cache(_unit)
 
 
 def _km(a: Site, b: Site) -> float:
@@ -240,6 +246,7 @@ class SimulatedState:
                     site = self.devices[end.device].site
                     self.circuits_of.setdefault(site, set()).add(link.id)
         cabling = cabling or Cabling(topology)
+        self.cabling = cabling
         # Every port a device has a cable in, or a documented one without.
         self.ports = [
             _Port(near, far, cable.link, forward)
@@ -555,11 +562,7 @@ class SimulatedState:
         if near.device not in self.watched or near.device in faults.silent:
             return None
         seen = faults.stale.get(near.device, moment.at)
-        link_down = (
-            port.far is None
-            or link.id in faults.cut
-            or port.far.device in faults.silent
-        )
+        link_down = self._uncabled(port, moment.at, faults)
         in_pct, out_pct = 0.0, 0.0
         if not link_down:
             a_to_b, b_to_a = self._load(link, seen, link.id in moment.hot)
@@ -579,31 +582,70 @@ class SimulatedState:
             stale=near.device in faults.stale,
         )
 
+    def _uncabled(self, port: _Port, at: datetime, faults: _Faults) -> bool:
+        """Whether a port reads as down: no cable, or one that is unplugged,
+        to a device that cannot be polled, or carrying a cut circuit."""
+        return (
+            port.far is None
+            or port.link.id in faults.cut
+            or port.far.device in faults.silent
+            or not self.cabling.in_place(port.link.id, at)
+        )
+
+    def visibility(self, at: datetime) -> Visibility:
+        """What discovery can see at a moment: what a snapshot would say about
+        who is up and which ports are down, without working out any load.
+
+        Args:
+            at: The moment.
+
+        Returns:
+            Watched devices up and reporting, those down, and ports down.
+
+        Raises:
+            None
+        """
+        faults = self._faults(_window(at))
+        polled = [n for n in self.monitored if n not in faults.silent]
+        return Visibility(
+            up=frozenset(n for n in polled if n not in faults.stale),
+            down_devices=frozenset(n for n in self.monitored if n in faults.silent),
+            down_ports=frozenset(
+                (p.near.device, p.near.interface)
+                for p in self.ports
+                if p.near.device in self.watched
+                and p.near.device not in faults.silent
+                and self._uncabled(p, at, faults)
+            ),
+        )
+
     def _load(self, link: Link, at: datetime, hot: bool) -> tuple[float, float]:
         """Percent load each way: A to B, then B to A."""
         t = at.timestamp()
         site = self.sites[self.devices[link.a.device].site]
         local_hour = (t / 3600 + site.lon / 15) % 24
         daily = 0.6 + 0.4 * math.cos(2 * math.pi * (local_hour - 14) / 24)
-        drift = 1 + 0.15 * math.sin(t / 600 + 6 * _unit("drift", link.id))
+        drift = 1 + 0.15 * math.sin(t / 600 + 6 * _fixed("drift", link.id))
         level = 100 * _base(link) * daily * drift
-        a_to_b = level * (0.8 + 0.4 * _unit("ab", link.id))
-        b_to_a = level * (0.5 + 0.5 * _unit("ba", link.id))
+        a_to_b = level * (0.8 + 0.4 * _fixed("ab", link.id))
+        b_to_a = level * (0.5 + 0.5 * _fixed("ba", link.id))
         if hot:
-            a_to_b = 92 + 7 * _unit("heat", link.id)
+            a_to_b = 92 + 7 * _fixed("heat", link.id)
         return a_to_b, b_to_a
 
     def _peak(self, link: Link) -> float:
         """The most load a link can carry, leaving aside hot circuits."""
-        spread = max(0.8 + 0.4 * _unit("ab", link.id), 0.5 + 0.5 * _unit("ba", link.id))
+        spread = max(
+            0.8 + 0.4 * _fixed("ab", link.id), 0.5 + 0.5 * _fixed("ba", link.id)
+        )
         return 100 * _base(link) * 1.15 * spread
 
 
 def _base(link: Link) -> float:
     """A link's typical share of its capacity, before the daily cycle."""
     if link.kind == "wan":
-        return 0.3 + 0.35 * _unit("base", link.id)
-    return 0.08 + 0.35 * _unit("base", link.id)
+        return 0.3 + 0.35 * _fixed("base", link.id)
+    return 0.08 + 0.35 * _fixed("base", link.id)
 
 
 def _band(pct: float) -> int:
