@@ -24,10 +24,18 @@ from sunstone.changes import (
     PortNow,
     Review,
     applied,
+    expected,
     new_change,
     ports,
 )
-from sunstone.discovery import Comparison, Finding, Fix, SimulatedDiscovery
+from sunstone.discovery import (
+    EXPECTABLE,
+    Comparison,
+    Finding,
+    Fix,
+    SimulatedDiscovery,
+    expecting,
+)
 from sunstone.discovery_log import DiscoveryLog
 from sunstone.impact import Failures, Network, WhatIf
 from sunstone.layouts import (
@@ -365,12 +373,13 @@ def create_app(
     @app.get("/api/discovery")
     def get_discovery(at: datetime | None = None) -> Comparison:
         """Return the discovery run in effect now, or at an earlier moment,
-        compared with the documented links, with when each finding was seen.
+        compared with the documented links, with when each finding was seen,
+        and the findings marked expected set aside.
 
         Runs come every 15 minutes, and each is compared once for every viewer.
         """
         now = datetime.now(UTC)
-        return docs.log.comparison(now if at is None else in_history(at, now))
+        return discovered(docs, now if at is None else in_history(at, now))
 
     @app.get("/api/history/{device}")
     def get_history(device: str) -> DeviceHistory:
@@ -527,37 +536,74 @@ def create_app(
         """Return every fix accepted into the documentation, newest first."""
         return ChangeSet(changes=changes.changes()[::-1])
 
-    def offered(d: _Documented, finding: str) -> tuple[Finding, Fix]:
-        """A finding of the latest discovery run, and the fix it offers."""
+    def discovered(d: _Documented, at: datetime) -> Comparison:
+        """The comparison in effect at a moment, with expected findings set aside."""
+        return expecting(d.log.comparison(at), expected(changes.changes()), d.topology)
+
+    def offered(d: _Documented, finding: str, expect: bool) -> tuple[Finding, Fix]:
+        """A finding of the latest discovery run, and the fix it offers, or
+        the change that marks it expected."""
         found = next(
-            (
-                f
-                for f in d.log.comparison(datetime.now(UTC)).findings
-                if f.id == finding
-            ),
+            (f for f in discovered(d, datetime.now(UTC)).findings if f.id == finding),
             None,
         )
         if found is None:
             raise HTTPException(404, f"No finding {finding!r} in the latest run")
+        if expect:
+            if found.kind not in EXPECTABLE:
+                raise HTTPException(
+                    409, f"{found.title}: the documentation is wrong, so fix it"
+                )
+            return found, Fix(kind="expect", summary=f"Expect {found.title}")
         if found.fix is None:
             raise HTTPException(409, f"Discovery offers no fix for {found.title}")
         return found, found.fix
 
     @app.get("/api/review")
-    def get_review(finding: str) -> Review:
+    def get_review(finding: str, expect: bool = False) -> Review:
         """Return what accepting the fix a finding of the latest discovery run
         offers would do now: to the ports involved, to redundancy, and to the
-        problems there are."""
+        problems there are. Or, to mark it expected, what Live reads now on
+        the ports it is about."""
         d = docs
-        found, fix = offered(d, finding)
-        try:
-            would = build(applied(d.topology, [fix]))
-        except ChangeConflict as e:
-            raise HTTPException(409, str(e)) from e
+        found, fix = offered(d, finding, expect)
         now = d.monitor.now()
         readings = {
             (i.device, i.interface): i for i in d.state.snapshot(now).interfaces
         }
+        if expect:
+            about = [(p.device, p.interface) for p in [*found.documented, *found.seen]]
+            if found.kind == "no-neighbors":
+                device = found.devices[0]
+                about = [
+                    (e.device, e.interface)
+                    for ln in d.network.links_of.get(device, [])
+                    for e in (ln.a, ln.b)
+                    if e.device == device
+                ]
+            return Review(
+                finding=found,
+                removes=[],
+                adds=[],
+                exposed={},
+                restored=[],
+                cut_off=[],
+                cleared=[],
+                raised=[],
+                involved=[
+                    PortNow(
+                        device=dev,
+                        interface=ifname,
+                        reading=readings.get((dev, ifname)),
+                    )
+                    for dev, ifname in dict.fromkeys(about)
+                    if dev in d.network.number
+                ],
+            )
+        try:
+            would = build(applied(d.topology, [fix]))
+        except ChangeConflict as e:
+            raise HTTPException(409, str(e)) from e
         old, new = ports(fix.before), ports(fix.after)
         was, will = d.network.reach(Failures()), would.network.reach(Failures())
         before = {p.title for p in d.monitor.moment(now).problems.problems}
@@ -592,10 +638,14 @@ def create_app(
     @app.post("/api/changes", status_code=201)
     def accept_fix(change: ChangeIn) -> Change:
         """Accept the fix a finding of the latest discovery run offers into
-        the documentation, which everything then follows."""
+        the documentation, which everything then follows; or mark the
+        finding expected, which changes no link."""
         with changes.lock:
-            found, fix = offered(docs, change.finding)
+            found, fix = offered(docs, change.finding, change.expect)
             accepted = new_change(found, fix, change, datetime.now(UTC))
+            if fix.kind == "expect":
+                changes.save([*changes.changes(), accepted])
+                return accepted
             try:
                 document([*changes.changes(), accepted])
             except ChangeConflict as e:
@@ -604,11 +654,15 @@ def create_app(
 
     @app.delete("/api/changes/{change_id}", status_code=204)
     def revert_change(change_id: str) -> None:
-        """Take a fix back out of the documentation."""
+        """Take a fix back out of the documentation, or withdraw an expectation."""
         with changes.lock:
             kept = [c for c in changes.changes() if c.id != change_id]
-            if len(kept) == len(changes.changes()):
+            gone = [c for c in changes.changes() if c.id == change_id]
+            if not gone:
                 raise HTTPException(404, f"No change {change_id!r}")
+            if gone[0].fix.kind == "expect":
+                changes.save(kept)
+                return
             try:
                 document(kept)
             except ChangeConflict as e:

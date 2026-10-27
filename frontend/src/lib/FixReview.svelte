@@ -4,7 +4,8 @@ Reviewing the fix a discovery finding offers: the link as documented and as
 it would be, what Live reads on the ports involved now, and what the fix
 would do to redundancy and to the problems there are now, worked out on the
 server. Accepting it, with a note and your name, changes the documentation
-for everyone.
+for everyone. Or reviewing marking the finding expected: what Live reads now
+on the ports it is about, and a note saying why, which it needs.
 -->
 <script lang="ts">
 	import { acceptFix, fetchReview, type Change, type Review } from './api/changes.ts';
@@ -15,10 +16,13 @@ for everyone.
 
 	const {
 		finding,
+		expect,
 		onaccepted
 	}: {
 		finding: Finding;
-		/** Called once the fix is in the documentation. */
+		/** Mark it expected rather than fix it. */
+		expect: boolean;
+		/** Called once the fix is in the documentation, or the finding marked expected. */
 		onaccepted: (change: Change) => void;
 	} = $props();
 
@@ -27,16 +31,16 @@ for everyone.
 	let note = $state('');
 	let saving = $state(false);
 	const fix = $derived(finding.fix);
-	const warning = $derived(review ? reviewWarning(review) : null);
+	const warning = $derived(review && !expect ? reviewWarning(review) : null);
 	const effects = $derived(review ? reviewEffects(review) : []);
 
 	// Worked out again for each finding reviewed.
 	$effect(() => {
-		const id = finding.id;
+		const [id, expecting] = [finding.id, expect];
 		let stopped = false;
 		review = null;
 		problem = null;
-		fetchReview(id).then(
+		fetchReview(id, expecting).then(
 			(found) => {
 				if (!stopped) review = found;
 			},
@@ -55,9 +59,10 @@ for everyone.
 		saving = true;
 		problem = null;
 		try {
-			const change = await acceptFix(finding.id, note, ui.person);
-			ui.fixing = null;
+			const change = await acceptFix(finding.id, note, ui.person, expect);
+			// While the finding is still the one reviewed.
 			onaccepted(change);
+			ui.fixing = null;
 		} catch (err) {
 			problem = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -66,25 +71,32 @@ for everyone.
 	}
 </script>
 
-{#if fix}
-	<form class="review" aria-label="Review fix" onsubmit={accept}>
-		<h3>Review fix</h3>
+{#if expect || fix}
+	<form class="review" aria-label={expect ? 'Mark expected' : 'Review fix'} onsubmit={accept}>
+		<h3>{expect ? 'Mark expected' : 'Review fix'}</h3>
 		<p class="title">{finding.title}</p>
-		<p><b>{fix.summary}</b></p>
-		<dl>
-			{#if fix.before}
-				<dt>Documented</dt>
-				<dd>{linkEnds(fix.before)}</dd>
-			{/if}
-			<dt>{fix.before ? 'Becomes' : 'Adds'}</dt>
-			<dd>
-				{#if fix.after}{linkEnds(fix.after)} · {formatSpeed(fix.after.speed_mbps)}{:else}Retired: no
-					longer documented{/if}
-			</dd>
-		</dl>
+		{#if expect}
+			<p class="muted">{finding.detail}</p>
+		{:else if fix}
+			<p><b>{fix.summary}</b></p>
+			<dl>
+				{#if fix.before}
+					<dt>Documented</dt>
+					<dd>{linkEnds(fix.before)}</dd>
+				{/if}
+				<dt>{fix.before ? 'Becomes' : 'Adds'}</dt>
+				<dd>
+					{#if fix.after}{linkEnds(fix.after)} · {formatSpeed(fix.after.speed_mbps)}{:else}Retired:
+						no longer documented{/if}
+				</dd>
+			</dl>
+		{/if}
 		{#if review}
 			<h4>Live now</h4>
 			<ul>
+				{#each review.involved as port (port.device + port.interface)}
+					<li>{portNow(port)}</li>
+				{/each}
 				{#each review.removes as port (port.device + port.interface)}
 					<li><span class="tag">documented</span>{portNow(port)}</li>
 				{/each}
@@ -94,7 +106,12 @@ for everyone.
 			</ul>
 			{#if warning}<p class="warning" role="note">{warning}</p>{/if}
 			<h4>What it changes</h4>
-			{#if effects.length}
+			{#if expect}
+				<p class="muted">
+					Discovery stops listing it{finding.fix ? ' and offering to fix it' : ''}, and the
+					documentation stays as it is. It is listed under Expected, where it can be withdrawn.
+				</p>
+			{:else if effects.length}
 				<ul>
 					{#each effects as line (line)}<li>{line}</li>{/each}
 				</ul>
@@ -105,7 +122,13 @@ for everyone.
 			<p class="muted">Working out what it would do…</p>
 		{/if}
 		{#if problem}<p class="error" role="alert">{problem}</p>{/if}
-		<input bind:value={note} maxlength="1000" placeholder="How it was checked" aria-label="Note" />
+		<input
+			bind:value={note}
+			required={expect}
+			maxlength="1000"
+			placeholder={expect ? 'Why it is expected' : 'How it was checked'}
+			aria-label="Note"
+		/>
 		<input
 			bind:value={ui.person}
 			required
@@ -115,7 +138,9 @@ for everyone.
 			autocomplete="name"
 		/>
 		<p class="actions">
-			<button type="submit" disabled={saving || !review}>Accept fix</button>
+			<button type="submit" disabled={saving || !review}
+				>{expect ? 'Mark expected' : 'Accept fix'}</button
+			>
 			<button type="button" onclick={() => (ui.fixing = null)}>Cancel</button>
 		</p>
 	</form>

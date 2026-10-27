@@ -91,7 +91,7 @@ links that select and bring that item into view.
 		ownership: Ownership | null;
 		/** The latest discovery run, against the documentation. */
 		comparison: Comparison | null;
-		/** Fixes accepted into the documentation, newest first. */
+		/** Fixes accepted into the documentation, and findings marked expected, newest first. */
 		changes: Change[];
 	} = $props();
 

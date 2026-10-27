@@ -12,6 +12,11 @@ problem, and discovery run follows the fixed documentation. The file is
 left as it is; the changes are kept beside it in a JSON file, rewritten
 whole on each change, until there is a real source of truth to send them
 to. A change can be reverted, unless a later one depends on it.
+
+A finding can be marked expected instead, with a note saying why: a link
+LLDP cannot see across a media converter, a lab port. That changes no
+link, so it is kept in the change set as a change of kind ``expect``, and
+discovery sets the finding aside (``discovery.expecting``).
 """
 
 import json
@@ -20,8 +25,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from sunstone.discovery import Finding, Fix
 from sunstone.live import InterfaceState
@@ -47,6 +53,14 @@ class ChangeIn(_Record):
     finding: str
     note: Note = ""
     by: PersonName
+    expect: bool = False
+    """Mark the finding expected rather than fix it; that needs a note."""
+
+    @model_validator(mode="after")
+    def _explained(self) -> Self:
+        if self.expect and not self.note:
+            raise ValueError("Say why it is expected")
+        return self
 
 
 class Change(_Record):
@@ -101,6 +115,9 @@ class Review(_Record):
     """Problems there are now that it would clear, by title."""
     raised: list[str]
     """Problems it would raise now, by title."""
+    involved: list[PortNow] = []
+    """For marking it expected, which changes no link: the ports the
+    finding is about, as Live reads them now."""
 
 
 def applied(topology: Topology, fixes: list[Fix]) -> Topology:
@@ -142,6 +159,21 @@ def applied(topology: Topology, fixes: list[Fix]) -> Topology:
                 str(err["msg"]).removeprefix("Value error, ") for err in e.errors()
             )
         ) from e
+
+
+def expected(changes: list[Change]) -> set[str]:
+    """The findings marked expected.
+
+    Args:
+        changes: The change set.
+
+    Returns:
+        Their ids.
+
+    Raises:
+        None
+    """
+    return {c.finding for c in changes if c.fix.kind == "expect"}
 
 
 def ports(link: Link | None) -> list[tuple[str, str]]:

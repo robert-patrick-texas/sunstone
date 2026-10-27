@@ -4,7 +4,8 @@ What discovery says about a device or links: for a device, whether it
 answered the latest run, how many of its documented links devices confirm,
 and the findings that involve it; for links, each one's check, with the
 finding about it if there is one. A finding of the latest run that offers
-a fix can be reviewed from here, and a link fixed in Sunstone says so.
+a fix can be reviewed from here, or marked expected, and a link fixed in
+Sunstone, or expected not to be seen, says so.
 -->
 <script lang="ts">
 	import type { Change } from './api/changes.ts';
@@ -13,6 +14,8 @@ a fix can be reviewed from here, and a link fixed in Sunstone says so.
 		changeOf,
 		CHECK_LABEL,
 		deviceCheck,
+		EXPECTABLE,
+		expectationOf,
 		findingTarget,
 		linkCheck,
 		NO_FIX,
@@ -30,7 +33,7 @@ a fix can be reviewed from here, and a link fixed in Sunstone says so.
 	}: {
 		index: TopologyIndex;
 		comparison: Comparison | null;
-		/** Fixes accepted into the documentation, newest first. */
+		/** Fixes accepted into the documentation, and findings marked expected, newest first. */
 		changes: Change[];
 		item: Selection;
 	} = $props();
@@ -46,6 +49,17 @@ a fix can be reviewed from here, and a link fixed in Sunstone says so.
 		>
 	{:else if NO_FIX[f.kind]}
 		<br /><span class="muted">{NO_FIX[f.kind]}</span>
+	{/if}
+	{#if ui.at === null && EXPECTABLE.has(f.kind)}
+		<br /><button class="link" onclick={() => reviewFix(f.id, findingTarget(f), true)}
+			>Mark expected…</button
+		>
+	{/if}
+{/snippet}
+
+{#snippet expectedBy(change: Change | undefined)}
+	{#if change}
+		<span class="muted">· {change.by} at {clock(change.at)}: {change.note}</span>
 	{/if}
 {/snippet}
 
@@ -71,6 +85,12 @@ a fix can be reviewed from here, and a link fixed in Sunstone says so.
 				{@render fixOf(f)}
 			</p>
 		{/each}
+		{#each comparison.expected.filter((f) => f.devices.includes(item.id)) as f (f.id)}
+			<p class="fixed">
+				Expected: {f.title}
+				{@render expectedBy(changes.find((c) => c.fix.kind === 'expect' && c.finding === f.id))}
+			</p>
+		{/each}
 	{:else}
 		{#each item.ids.slice(0, MAX_LINKS) as id (id)}
 			{@const link = index.links.get(id)}
@@ -88,6 +108,14 @@ a fix can be reviewed from here, and a link fixed in Sunstone says so.
 				</span>
 				{#if finding}{@render fixOf(finding)}{/if}
 			</p>
+			{@const expectation =
+				check === 'expected' && link ? expectationOf(comparison, changes, link) : null}
+			{#if expectation}
+				<p class="fixed">
+					Expected: {expectation.change?.title ?? expectation.finding.title}
+					{@render expectedBy(expectation.change)}
+				</p>
+			{/if}
 			{#if fixed}
 				<p class="fixed">
 					Fixed here by {fixed.by} at {clock(fixed.at)}{fixed.note ? `: ${fixed.note}` : ''}

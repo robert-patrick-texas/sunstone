@@ -24,6 +24,7 @@ export const CHECK_LABEL: Record<LinkCheck, string> = {
 	confirmed: 'Confirmed',
 	mismatch: 'Seen elsewhere',
 	'not-seen': 'Not seen',
+	expected: 'Not seen, expected',
 	down: 'Down, so not seen',
 	unchecked: 'Not checked'
 };
@@ -118,6 +119,17 @@ export function deviceCheck(
 	};
 }
 
+/**
+ * Kinds that can be marked expected: what discovery cannot see, or what is
+ * not meant to be documented (the server's `EXPECTABLE`). A link on another
+ * port or device is fixed instead.
+ */
+export const EXPECTABLE: ReadonlySet<FindingKind> = new Set([
+	'not-seen',
+	'unknown-device',
+	'no-neighbors'
+]);
+
 /** Why discovery offers no fix, for the kinds it never offers one for. */
 export const NO_FIX: Partial<Record<FindingKind, string>> = {
 	'unknown-device': 'Document the device first, or unplug it.',
@@ -140,7 +152,8 @@ export function linkEnds(link: Link): string {
 const DONE: Record<Change['fix']['kind'], string> = {
 	move: 'Moved to',
 	add: 'Added',
-	retire: 'Retired'
+	retire: 'Retired',
+	expect: 'Expected:'
 };
 
 /**
@@ -151,7 +164,38 @@ const DONE: Record<Change['fix']['kind'], string> = {
  */
 export function changeLine(change: Change): string {
 	const link = change.fix.after ?? change.fix.before;
-	return link ? `${DONE[change.fix.kind]} ${linkEnds(link)}` : change.fix.summary;
+	return link
+		? `${DONE[change.fix.kind]} ${linkEnds(link)}`
+		: `${DONE[change.fix.kind]} ${change.title}`;
+}
+
+/**
+ * The expected finding that explains a link discovery does not see, and
+ * the change that marked it, if any.
+ *
+ * @param comparison - The comparison.
+ * @param changes - Changes accepted, newest first.
+ * @param link - The link.
+ * @returns The finding about the link, or about a device at either end
+ *   expected to report no neighbors, with the change that marked it or
+ *   the finding that covers it.
+ */
+export function expectationOf(
+	comparison: Comparison,
+	changes: Change[],
+	link: Link
+): { finding: Finding; change: Change | undefined } | null {
+	const ends = [link.a.device, link.b.device];
+	const finding = comparison.expected.find(
+		(f) => f.link === link.id || (f.kind === 'no-neighbors' && ends.includes(f.devices[0] ?? ''))
+	);
+	if (!finding) return null;
+	return {
+		finding,
+		change: changes.find(
+			(c) => c.fix.kind === 'expect' && c.finding === (finding.covered_by ?? finding.id)
+		)
+	};
 }
 
 /**

@@ -8,7 +8,9 @@ no longer. Clicking one shows discovery on the map, selects the link it
 is about, or the device, and brings it into view; Show on the map turns
 that on and off. A finding of the latest run that the documentation can
 settle offers a fix, reviewed here before it is accepted; the fixes
-accepted are listed with who accepted them, and can be reverted.
+accepted are listed with who accepted them, and can be reverted. What
+discovery cannot see, or is not meant to be documented, can be marked
+expected with a note instead, and is then listed apart, to be withdrawn.
 -->
 <script lang="ts">
 	import { revertChange, type Change } from './api/changes.ts';
@@ -17,6 +19,7 @@ accepted are listed with who accepted them, and can be reverted.
 		changedTarget,
 		changeLine,
 		CHECK_LABEL,
+		EXPECTABLE,
 		findingTarget,
 		groupFindings,
 		seenWhen
@@ -37,7 +40,7 @@ accepted are listed with who accepted them, and can be reverted.
 		comparison: Comparison | null;
 		/** Why discovery could not be loaded, if it could not. */
 		problem: string | null;
-		/** Fixes accepted into the documentation, newest first. */
+		/** Fixes accepted into the documentation, and findings marked expected, newest first. */
 		changes: Change[];
 		/** Called once the documentation has changed, with what to select then. */
 		ondocumented: (target: Selection | null) => void;
@@ -46,8 +49,12 @@ accepted are listed with who accepted them, and can be reverted.
 	// Fixes are offered, and accepted, from the latest run only.
 	const latest = $derived(ui.at === null);
 	const reviewing = $derived(
-		latest && ui.fixing ? (comparison?.findings.find((f) => f.id === ui.fixing) ?? null) : null
+		latest && ui.fixing
+			? (comparison?.findings.find((f) => f.id === ui.fixing?.finding) ?? null)
+			: null
 	);
+	const fixes = $derived(changes.filter((c) => c.fix.kind !== 'expect'));
+	const expectations = $derived(changes.filter((c) => c.fix.kind === 'expect'));
 	let revertProblem = $state<string | null>(null);
 
 	async function revert(change: Change): Promise<void> {
@@ -107,7 +114,13 @@ accepted are listed with who accepted them, and can be reverted.
 		{#if reviewing}
 			<FixReview
 				finding={reviewing}
-				onaccepted={(c) => ondocumented(changedTarget(c.fix.after, c.fix.before))}
+				expect={ui.fixing?.expect ?? false}
+				onaccepted={(c) =>
+					ondocumented(
+						c.fix.kind === 'expect'
+							? findingTarget(reviewing)
+							: changedTarget(c.fix.after, c.fix.before)
+					)}
 			/>
 		{:else if latest && ui.fixing}
 			<p class="muted">
@@ -128,24 +141,61 @@ accepted are listed with who accepted them, and can be reverted.
 							<span class="detail">{finding.detail}</span>
 							{@render when(finding)}
 						</button>
-						{#if latest && finding.fix}
-							<button
-								class="fix"
-								aria-pressed={ui.fixing === finding.id}
-								onclick={() => reviewFix(finding.id, findingTarget(finding))}
-								>Fix: {finding.fix.summary}</button
-							>
+						{#if latest && (finding.fix || EXPECTABLE.has(finding.kind))}
+							<p class="offers">
+								{#if finding.fix}
+									<button
+										class="fix"
+										aria-pressed={ui.fixing?.finding === finding.id && !ui.fixing.expect}
+										onclick={() => reviewFix(finding.id, findingTarget(finding))}
+										>Fix: {finding.fix.summary}</button
+									>
+								{/if}
+								{#if EXPECTABLE.has(finding.kind)}
+									<button
+										class="fix"
+										aria-pressed={ui.fixing?.finding === finding.id && ui.fixing.expect}
+										onclick={() => reviewFix(finding.id, findingTarget(finding), true)}
+										>Mark expected…</button
+									>
+								{/if}
+							</p>
 						{/if}
 					</li>
 				{/each}
 			</ul>
 		{/each}
-		{#if changes.length}
-			<h3>Fixed here ({changes.length})</h3>
-			<p class="muted">In the documentation Sunstone shows, not yet in the source of truth.</p>
-			{#if revertProblem}<p class="error" role="alert">{revertProblem}</p>{/if}
+		{#if revertProblem}<p class="error" role="alert">{revertProblem}</p>{/if}
+		{#if expectations.length}
+			<h3>Expected ({expectations.length})</h3>
 			<ul>
-				{#each changes as change (change.id)}
+				{#each expectations as change (change.id)}
+					{@const finding = comparison.expected.find((f) => f.id === change.finding)}
+					{@const covered = comparison.expected.filter((f) => f.covered_by === change.finding)}
+					{@const target = finding ? findingTarget(finding) : null}
+					<li class="change">
+						<button class="finding gone" onclick={() => target && select(target, true)}>
+							<span class="title">{change.title}</span>
+							<span class="detail"
+								>{finding
+									? finding.detail
+									: covered.length
+										? `Not answering; its ${covered.length} links not seen, as expected`
+										: `Not in the ${ui.at ? 'run then' : 'latest run'}`}</span
+							>
+							{#if finding}{@render when(finding)}{/if}
+							<span class="when">{change.by} · {clock(change.at)} · {change.note}</span>
+						</button>
+						<button class="link" onclick={() => revert(change)}>Withdraw</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if fixes.length}
+			<h3>Fixed here ({fixes.length})</h3>
+			<p class="muted">In the documentation Sunstone shows, not yet in the source of truth.</p>
+			<ul>
+				{#each fixes as change (change.id)}
 					{@const target = changedTarget(change.fix.after, change.fix.before)}
 					<li class="change">
 						<button class="finding" onclick={() => target && select(target, true)}>
@@ -239,11 +289,15 @@ accepted are listed with who accepted them, and can be reverted.
 		cursor: pointer;
 		text-align: left;
 	}
-	.fix {
-		display: block;
-		width: 100%;
+	.offers {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0 12px;
 		margin: -2px 0 6px;
 		padding: 0 8px;
+	}
+	.fix {
+		padding: 0;
 		font-size: 12px;
 	}
 	.fix:hover,
