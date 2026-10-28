@@ -3,7 +3,7 @@
 Release notes, newest first. `tools/release` takes each release's notes from
 its section here.
 
-## Unreleased
+## 0.2.0
 
 - Incidents: a problem becomes an incident, named and numbered, that other
   problems can join, with a timeline worked out from what Sunstone records
