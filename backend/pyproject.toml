@@ -1,6 +1,6 @@
 [project]
 name = "sunstone"
-version = "0.1.0"
+dynamic = ["version"]  # read from the repository's VERSION file only
 description = "Sunstone backend: serves network topology to the map views"
 license = "Apache-2.0"
 authors = [
@@ -17,8 +17,15 @@ dependencies = [
 sunstone = "sunstone.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.13.5,<0.14.0"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.32.4"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "../VERSION"
+pattern = "^(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[0-9]+)?)\\s*$"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sunstone"]
 
 [dependency-groups]
 dev = [

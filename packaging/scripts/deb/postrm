@@ -1,0 +1,43 @@
+#!/bin/sh
+# postrm for sunstone, following vakr's.
+#
+# `apt remove` keeps the configuration (/etc/sunstone), the saved state
+# (/var/lib/sunstone/state), and self-update's cache and backups
+# (/var/lib/sunstone/update). `apt purge` removes the configuration, which
+# includes the topology and on-call directory, self-update's directory (its
+# backups are copies of the configuration), and the operator's enablement
+# link, but keeps saved state that is not empty, and says so. The sunstone
+# account stays, as Debian does for system accounts, so files left keep an owner.
+set -e
+
+reload_systemd() {
+    if [ -d /run/systemd/system ]; then
+        systemctl --system daemon-reload >/dev/null || true
+    fi
+}
+
+case "$1" in
+    remove)
+        reload_systemd
+        ;;
+    purge)
+        rm -rf /etc/sunstone /var/lib/sunstone/update
+        # `systemctl enable` links (and masks) for a unit that no longer exists.
+        find /etc/systemd/system -maxdepth 2 -type l -name 'sunstone*' -delete 2>/dev/null || true
+        reload_systemd
+        rmdir /var/lib/sunstone/state /var/lib/sunstone 2>/dev/null || true
+        if [ -d /var/lib/sunstone/state ]; then
+            echo "sunstone: removed the configuration in /etc/sunstone."
+            echo "sunstone: kept the saved state in /var/lib/sunstone/state: maintenance, notes,"
+            echo "sunstone: fixes, handovers, and layouts. To delete it, remove /var/lib/sunstone."
+        fi
+        ;;
+    upgrade | failed-upgrade | abort-install | abort-upgrade | disappear)
+        ;;
+    *)
+        echo "postrm called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

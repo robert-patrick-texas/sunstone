@@ -2,7 +2,7 @@
 
 TOPOLOGY ?= data/sample/small.yaml
 
-.PHONY: help setup dev-api dev-web build serve test e2e bench data api-types
+.PHONY: help setup dev-api dev-web build serve test e2e bench data api-types deb package-test release-dry-run
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -12,7 +12,7 @@ setup: ## Install backend and frontend dependencies
 	cd frontend && npm ci
 
 dev-api: ## API on :8000, restarting on code or topology changes (TOPOLOGY=file)
-	cd backend && uv run sunstone --topology ../$(TOPOLOGY) --reload
+	cd backend && uv run sunstone serve --topology ../$(TOPOLOGY) --reload
 
 dev-web: ## Vite dev server on :5173, proxying /api to dev-api
 	cd frontend && npm run dev
@@ -21,10 +21,11 @@ build: ## Build the web UI into frontend/build
 	cd frontend && npm run build
 
 serve: build ## Serve the built UI and the API together on :8000 (TOPOLOGY=file)
-	cd backend && uv run sunstone --topology ../$(TOPOLOGY) --web-dir ../frontend/build
+	cd backend && uv run sunstone serve --topology ../$(TOPOLOGY) --web-dir ../frontend/build
 
 test: ## Unit tests, linters, formatters, and type checks
 	cd backend && uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run pytest -q
+	cd backend && uv run pytest -q -p no:cacheprovider ../tools/release
 	cd frontend && npm run check && npm run format:check && npm test
 
 e2e: build ## Browser tests; set PW_WS_ENDPOINT to use the Playwright container
@@ -44,3 +45,12 @@ api-types: ## Regenerate the frontend's API types after changing backend models
 		print(json.dumps(a.create_app(pathlib.Path('../data/sample/small.yaml')).openapi(), indent=1))" \
 		> ../frontend/openapi.json
 	cd frontend && npm run gen:api
+
+deb: ## Build dist/sunstone_<version>_amd64.deb in a clean container (needs docker)
+	packaging/build-deb.sh dist
+
+package-test: ## Install, update, roll back, and remove test builds in containers (needs docker)
+	packaging/package-test.sh
+
+release-dry-run: ## Every release step except tag, push, and publish (see README)
+	uv run --project backend tools/release/release.py --dry-run

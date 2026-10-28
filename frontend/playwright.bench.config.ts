@@ -38,7 +38,7 @@ export default defineConfig({
 	],
 	webServer: {
 		command:
-			'uv run sunstone --topology ../data/sample/large.yaml --web-dir ../frontend/build ' +
+			'uv run sunstone serve --topology ../data/sample/large.yaml --web-dir ../frontend/build ' +
 			`--layouts ${LAYOUTS} --operations ${OPERATIONS} --port ${PORT}`,
 		cwd: '../backend',
 		url: `http://127.0.0.1:${PORT}/api/topology`,

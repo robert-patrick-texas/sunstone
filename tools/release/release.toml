@@ -1,0 +1,39 @@
+# Configuration for tools/release, copied from vakr (its README: "To reuse the
+# tool in another project, copy this directory and edit release.toml"). Every
+# value specific to Sunstone lives here. Relative paths are relative to the
+# repository root, which is the directory the tool runs from.
+
+# GitHub repository (OWNER/NAME) that receives tags and releases.
+repo = "robert-patrick-texas/sunstone"
+# Package name, used in artifact patterns as {package}.
+package = "sunstone"
+version_file = "VERSION"
+# Release notes come from this file's "## <version>" section.
+changelog = "CHANGELOG.md"
+# Releases are cut only from this branch, after CI is green for its HEAD.
+branch = "main"
+remote = "origin"
+
+# Release trust: Sunstone's own key, beside vakr's. The private key stays on
+# the development host, passphrase-protected, and is never stored in GitHub.
+signing_key = "~/.config/sunstone-release/release_ed25519"
+# ssh-keygen -Y sign/verify namespace, and the principal in allowed_signers.
+namespace = "sunstone-release"
+identity = "sunstone-release"
+# The trusted signers file the package ships as
+# /opt/sunstone/share/release-signers; signatures are checked against it
+# before anything is published.
+allowed_signers = "packaging/release-signers"
+
+# Builds the package in a clean container, which brings its own Node for the
+# web UI, so the release host needs no build tools beyond docker and uv.
+build_command = ["make", "deb"]
+# Artifacts to checksum, sign, and attach. Placeholders: {package}, {version}
+# (as in VERSION), {pep440}, {deb_version}, {tag}.
+artifacts = ["dist/{package}_{deb_version}_amd64.deb"]
+optional_artifacts = []
+# Where SHA256SUMS, SHA256SUMS.sig, the notes, and copies of the artifacts go.
+output_dir = "dist/release/{tag}"
+
+# GitHub pre-release marking, as vakr's: every -rc and every 0.x release.
+prerelease = "rc-or-major-zero"

@@ -1,0 +1,27 @@
+# Sunstone's settings, read by the service, `sunstone check`, and
+# `sunstone self-update`. Anything left out keeps its default.
+#
+# After a change, check it, then restart the service:
+#   sudo sunstone check
+#   sudo systemctl restart sunstone
+
+# The network to show, and who is on call for it. The package put the small
+# sample here, since there was no topology yet. Replace both with your own:
+# an on-call directory that names sites the topology lacks stops the service,
+# and `sunstone check` says which.
+topology = "/etc/sunstone/topology.yaml"
+oncall = "/etc/sunstone/oncall.yaml"
+
+# Where maintenance, acknowledgements, notes, fixes, handovers, and saved
+# layouts are kept, one JSON file each.
+state_dir = "/var/lib/sunstone/state"
+
+# Where to listen. 127.0.0.1 serves only this host, for a reverse proxy in
+# front; 0.0.0.0 serves everyone who can reach the port. Ports below 1024
+# need privileges the service does not have.
+host = "127.0.0.1"
+port = 8000
+
+[update]
+# The GitHub repository `sunstone self-update` takes releases from.
+repository = "robert-patrick-texas/sunstone"

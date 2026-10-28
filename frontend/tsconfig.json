@@ -7,6 +7,6 @@
 		"noFallthroughCasesInSwitch": true,
 		"types": ["$app/types", "node"]
 	},
-	"include": ["src", "e2e", "bench", "*.ts"],
+	"include": ["src", "e2e", "bench", "scripts", "*.ts"],
 	"exclude": ["build", "node_modules"]
 }

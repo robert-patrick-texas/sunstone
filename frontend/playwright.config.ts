@@ -47,7 +47,7 @@ export default defineConfig({
 	],
 	webServer: {
 		command:
-			'uv run sunstone --topology ../data/sample/small.yaml --web-dir ../frontend/build ' +
+			'uv run sunstone serve --topology ../data/sample/small.yaml --web-dir ../frontend/build ' +
 			`--layouts ${LAYOUTS} --operations ${OPERATIONS} --changes ${CHANGES} ` +
 			`--handovers ${HANDOVERS} --port ${PORT}`,
 		cwd: '../backend',

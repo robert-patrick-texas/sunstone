@@ -1,0 +1,145 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: sunstone
+Upstream-Contact: https://github.com/robert-patrick-texas/sunstone/issues
+Source: https://github.com/robert-patrick-texas/sunstone
+Comment:
+ The package bundles its own Python runtime under /opt/sunstone. Each
+ bundled component's full license text ships beside it; the paragraphs below
+ say where. The sample networks in /opt/sunstone/share/samples are made up.
+
+Files: *
+Copyright: 2026 Robert Patrick
+License: Apache-2.0
+
+Files: opt/sunstone/python/*
+Copyright: 2001-2026 Python Software Foundation and contributors
+License: PSF-2.0
+Comment:
+ CPython built by the python-build-standalone project
+ (https://github.com/astral-sh/python-build-standalone), which links several
+ libraries into the interpreter (among them OpenSSL, SQLite, zlib, bzip2, xz,
+ zstd, libffi, expat, ncurses, and mpdecimal), each under its own permissive
+ license as documented by that project.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/fastapi*
+Copyright: 2018 Sebastián Ramírez and contributors
+License: MIT
+Comment: The web framework of the API. The full text is in the
+ fastapi-*.dist-info/licenses directory.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/starlette* opt/sunstone/venv/lib/python3.*/site-packages/uvicorn*
+Copyright: 2017-present Encode OSS Ltd
+License: BSD-3-Clause
+Comment: The ASGI toolkit and server. The full texts are in the
+ starlette-*.dist-info and uvicorn-*.dist-info licenses directories.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/pydantic* opt/sunstone/venv/lib/python3.*/site-packages/annotated_types* opt/sunstone/venv/lib/python3.*/site-packages/typing_inspection*
+Copyright: Samuel Colvin and other contributors
+License: MIT
+Comment: pydantic, pydantic-core, annotated-types, and typing-inspection. The
+ full texts are in their dist-info/licenses directories.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/annotated_doc*
+Copyright: Sebastián Ramírez and contributors
+License: MIT
+Comment: The full text is in the annotated_doc-*.dist-info/licenses directory.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/yaml* opt/sunstone/venv/lib/python3.*/site-packages/_yaml*
+Copyright: 2017-2021 Ingy döt Net; 2006-2016 Kirill Simonov
+License: MIT
+Comment: PyYAML. The full text is in the PyYAML-*.dist-info/licenses directory.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/h11*
+Copyright: Nathaniel J. Smith and contributors
+License: MIT
+Comment: The HTTP/1.1 protocol implementation uvicorn uses. The full text is in
+ the h11-*.dist-info/licenses directory.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/anyio*
+Copyright: Alex Grönholm and contributors
+License: MIT
+Comment: The full text is in the anyio-*.dist-info/licenses directory.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/idna* opt/sunstone/venv/lib/python3.*/site-packages/click*
+Copyright: Kim Davies and contributors (idna); Pallets (click)
+License: BSD-3-Clause
+Comment: The full texts are in the idna-*.dist-info and click-*.dist-info
+ licenses directories.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/typing_extensions*
+Copyright: Python Software Foundation and contributors
+License: PSF-2.0
+Comment: The full text is in the typing_extensions-*.dist-info/licenses directory.
+
+Files: opt/sunstone/venv/lib/python3.*/site-packages/opentelemetry*
+Copyright: The OpenTelemetry Authors
+License: Apache-2.0
+Comment: opentelemetry-api, a dependency of fastapi. The full text is in the
+ opentelemetry_api-*.dist-info/licenses directory.
+
+Files: opt/sunstone/share/web/*
+Copyright: 2026 Robert Patrick; and the authors of the bundled packages below
+License: Apache-2.0 and MIT and BSD-3-Clause
+Comment:
+ The web UI, built from frontend/ with Vite. The minified files bundle
+ Sunstone's own code (Apache-2.0) with these npm packages, whose licence
+ files are in /opt/sunstone/share/doc/web-licenses/:
+ .
+ MIT: svelte, @sveltejs/kit, devalue, cytoscape, cytoscape-fcose, cose-base,
+ layout-base.
+ BSD-3-Clause: maplibre-gl.
+ .
+ frontend/scripts/collect-licenses.js fails the package build when a bundled
+ package has no licence file or is missing from this list.
+
+License: Apache-2.0
+ On Debian systems, the full text of the Apache License 2.0 is in
+ /usr/share/common-licenses/Apache-2.0.
+
+License: MIT
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+
+License: BSD-3-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
+ .
+ 1. Redistributions of source code must retain the above copyright notice,
+    this list of conditions and the following disclaimer.
+ 2. Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+ 3. Neither the name of the copyright holder nor the names of its
+    contributors may be used to endorse or promote products derived from this
+    software without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+
+License: PSF-2.0
+ The full text of the Python Software Foundation License Version 2 is in
+ /opt/sunstone/python/lib/python3.15/LICENSE.txt.

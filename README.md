@@ -18,7 +18,78 @@ $ make serve TOPOLOGY=data/sample/large.yaml    # about 3,000 devices
 
 For development, run `make dev-api` and `make dev-web` in two terminals and open http://127.0.0.1:5173. `make help` lists the other tasks.
 
-Sunstone has no sign-in: anyone who can reach it can save and delete layouts, plan and delete maintenance, acknowledge and page problems, cover shifts, and fix the documentation, under whatever name they type. It listens on 127.0.0.1 by default; give it `--host` only on a network you trust.
+Sunstone has no sign-in: anyone who can reach it can save and delete layouts, plan and delete maintenance, acknowledge and page problems, cover shifts, and fix the documentation, under whatever name they type. It listens on 127.0.0.1 by default; give `sunstone serve` `--host`, or set `host` in its settings file, only on a network you trust.
+
+`sunstone serve` takes the topology and where saved files go on the command line (`--topology`, `--oncall`, `--state-dir`, and one option per kind of saved file), or from a settings file with `--config`; the command line wins. `sunstone check` loads everything as the server would and says what it found or what is wrong, and `sunstone --version` says which release this is.
+
+## Installing
+
+Sunstone ships as one `.deb` for Ubuntu 26.04 LTS on amd64, built the way vakr's is. It is self-contained: it brings its own Python 3.15 and a locked virtual environment under `/opt/sunstone`, so the host's Python and its upgrades do not affect it. Each release at <https://github.com/robert-patrick-texas/sunstone/releases> has the package, `SHA256SUMS`, and its signature, `SHA256SUMS.sig`.
+
+```sh
+repo=robert-patrick-texas/sunstone
+version=0.1.0                                             # the release to install
+debver=$(printf '%s\n' "$version" | sed 's/-rc\./~rc./')    # the package's form: 0.2.0~rc.1
+base=https://github.com/$repo/releases/download/v$version
+curl -fL -O "$base/sunstone_${debver}_amd64.deb" -O "$base/SHA256SUMS" -O "$base/SHA256SUMS.sig"
+curl -fLO "https://raw.githubusercontent.com/$repo/v$version/packaging/release-signers"
+grep -v '^#' release-signers | awk 'NF {print $3, $4}' | ssh-keygen -lf -
+ssh-keygen -Y verify -f release-signers -I sunstone-release -n sunstone-release \
+    -s SHA256SUMS.sig < SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+sudo apt install ./sunstone_${debver}_amd64.deb
+```
+
+The first `ssh-keygen` must print the release key's fingerprint, `SHA256:8WUCE9gHrarTMP6hv8LpAeTHv04rWlzWYLNuxC3Q1Lk`; the second, `Good "sunstone-release" signature`; and `sha256sum`, `OK` for the package. If any of them does not, do not install. `apt` brings `ca-certificates`, `openssh-client` (whose `ssh-keygen` checks later releases), `systemd`, and `tzdata`.
+
+| Path | What | Owned by |
+|---|---|---|
+| `/opt/sunstone/python/`, `/opt/sunstone/venv/` | The bundled CPython 3.15, and the locked environment holding Sunstone | package |
+| `/opt/sunstone/share/web/` | The web UI the service serves at `/` | package |
+| `/opt/sunstone/share/samples/` | The small and large sample networks and their on-call directories | package |
+| `/opt/sunstone/share/release-signers` | The release keys self-update trusts | package |
+| `/opt/sunstone/share/templates/`, `/opt/sunstone/share/doc/` | The settings template; the licence, notice, README, changelog, and the web UI's bundled licences | package |
+| `/usr/bin/sunstone` | A link to `/opt/sunstone/venv/bin/sunstone` | package |
+| `/usr/lib/systemd/system/sunstone.service`, `/usr/lib/sysusers.d/sunstone.conf`, `/usr/lib/tmpfiles.d/sunstone.conf` | The service, its account, and its directories | package |
+| `/etc/sunstone/config.toml`, `topology.yaml`, `oncall.yaml` | Your settings, network, and on-call directory, mode 0640, `root:sunstone`; created only when missing, never overwritten | you |
+| `/var/lib/sunstone/state/` | Maintenance, acknowledgements, pages, covers, notes, fixes, handovers, and layouts | the service |
+| `/var/lib/sunstone/update/` | Self-update's cached packages, backups, record, and lock; only root may open it | root |
+
+Nothing starts on installation. The package puts the small sample network and its on-call directory in `/etc/sunstone` when there is no topology there yet, so the service has something to show. To start it:
+
+```sh
+sudo sunstone check                       # loads everything as the service would
+sudo systemctl enable --now sunstone      # http://127.0.0.1:8000 on this host
+```
+
+To show your own network, replace `topology.yaml` and `oncall.yaml`, run `sudo sunstone check`, and `sudo systemctl restart sunstone`. An on-call directory that names sites the topology lacks stops the service, and `sunstone check` says which. `/etc/sunstone/config.toml` holds the same choices as the command line: `topology`, `oncall`, `state_dir`, `host`, `port`, and under `[update]`, the `repository` releases come from. The service listens on 127.0.0.1:8000 for a reverse proxy in front; `host = "0.0.0.0"` serves everyone who can reach the port, which, without sign-in, only suits a network you trust.
+
+**Updating.** `sunstone self-update` installs a newer signed release in place:
+
+| Command | What it does |
+|---|---|
+| `sudo sunstone self-update --check` | Says whether a newer release exists, and changes nothing. It reads the settings, so it needs `sudo` or membership of the `sunstone` group, but not root. |
+| `sudo sunstone self-update` | Installs the newest release if it is newer than this one, after asking. `--yes` does not ask; without a terminal and without `--yes`, nothing is installed. |
+| `sudo sunstone self-update --version 0.2.0` | Installs that release, even if it is older or the same. |
+| `sudo sunstone self-update --file sunstone_0.2.0_amd64.deb --sums SHA256SUMS --sig SHA256SUMS.sig` | Installs a release copied by hand to a host without GitHub access. |
+| `sudo sunstone self-update --rollback` | Goes back to the version the last update came from, with the configuration and state as they were before that update; today's are saved first. |
+
+An update:
+
+1. Lists the 30 newest releases on GitHub, release candidates included, and takes the newest, or the one asked for.
+2. Downloads its package, `SHA256SUMS`, and `SHA256SUMS.sig` into `/var/lib/sunstone/update/cache/<version>/`, then checks the signature against the keys the installed package trusts, and the package against its checksum. If either check fails, nothing changes.
+3. Makes sure a verified package of the installed version is at hand to roll back to, downloading it if need be.
+4. Backs up `/etc/sunstone` and the state directory to `/var/lib/sunstone/update/backups/`, mode 0600, keeping five.
+5. Installs the package with `apt-get`, whose `postinst` restarts the service if it was running.
+6. Runs the new version's `sunstone check`, and, if the service was running, waits up to 90 s for it to answer as the new version at `/api/version`.
+7. If installing or checking fails, reinstalls the previous version, restores the backup, restarts the service, and says whether it answers again.
+
+It exits 0 when it updated or found nothing newer; 1 when a release was refused, the update was declined or failed and was rolled back, or GitHub could not be reached; and 2 for a usage error. It goes through `HTTPS_PROXY` when that is set, and verifies certificates against the system's CA bundle. The last result is in `/var/lib/sunstone/update/last-update.json`; the installed version, the one it replaced, and the newest other stay cached, so a rollback has a package to go back to even after a downgrade.
+
+| Command | What happens |
+|---|---|
+| `sudo apt remove sunstone` | Stops the service and removes `/opt/sunstone` and the integration files. Keeps `/etc/sunstone` and `/var/lib/sunstone`. |
+| `sudo apt purge sunstone` | Also removes `/etc/sunstone`, which holds the topology and on-call directory, and self-update's directory. Keeps saved state in `/var/lib/sunstone/state` and says so; remove it yourself to delete it. |
 
 ## Using it
 
@@ -107,9 +178,13 @@ Discovery comes from `GET /api/discovery?at=<time>`: the run in effect at a mome
 
 Fixes accepted into the documentation go in a JSON file beside the topology (`small.changes.json`), or wherever `--changes` says, also ignored by git. The topology file is left as it is: `GET /api/topology` serves it with the changes applied in turn, and everything else follows that. Each finding that discovery can fix carries a `fix`: its `kind` (`move`, `add`, or `retire`), a `summary`, and the link `before` and `after`. `GET /api/review?finding=<id>` works out what accepting the fix of a finding in the latest run would do now: the ports it takes out of the documentation and puts in, with what Live reads on each (`removes`, `adds`); the devices it would leave depending on a single device (`exposed`), give a second way to the core again (`restored`), or leave with no documented way to the core at all (`cut_off`); and the problems it would clear and raise, by title. `POST /api/changes` accepts it, with `by` and an optional `note`; `GET /api/changes` lists the change set, newest first; `DELETE /api/changes/{id}` reverts a change, or answers 409 if a later one depends on it. With `expect: true` and a `note`, `POST /api/changes` marks a finding expected instead (a link not seen, a neighbor not in the topology, or a device reporting no neighbors; others answer 409), kept in the change set as a change of kind `expect` and withdrawn the same way; `GET /api/review?finding=<id>&expect=true` returns what Live reads now on the ports it is about (`involved`). `GET /api/discovery` sets expected findings aside: they move from `findings` to `expected`, their cables are not in `seen`, and the links not seen that they explain are checked `expected`. A not-seen link of a switch expected to report no neighbors is set aside too, with the switch's finding as its `covered_by`. A change that no longer applies to the topology file, as when the file is replaced, stops the server starting, naming the change and the file.
 
+`GET /api/version` says which release is serving; self-update waits for it after a restart.
+
 `GET /api/handover?hours=<1–24>` (12 if left out) returns the shift handover for the span ending now: the problems now, routed as `GET /api/problems` routes them; the outages that began or ended in the span (`title`, `target`, `devices`, `links`, `start` and `end`, null for before history and still down, and `planned`); the pages and acknowledgements made in it, newest first; maintenance that ended in the span, is open, or opens within as long again; the changes recorded in it; the discovery findings first seen in it and still seen; and who is on call now. Acknowledgements and pages keep their problem's `title` from when they were made. It also carries the `notes` written since the last shift change, the shifts' `timezone`, and the `message` (`subject` and `text`). `GET /api/handovers` lists the handovers saved at shift changes, latest first, each in a line (`id`, `since`, `until`, and how many `problems`, `unhandled`, `outages`, `still_down`, and `notes`), with the `next` shift change; `GET /api/handovers/{id}` returns one as it was saved, with its `id` and the notes written during its shift. `POST /api/shift-notes` (`text`, `by`) writes a note for the next shift, and `DELETE /api/shift-notes/{id}` withdraws one, or answers 409 once it has been handed over. Notes go in the operations file. Saved handovers go in a JSON file beside the topology (`small.handovers.json`), or wherever `--handovers` says, also ignored by git; the latest 60 are kept, a month of 12-hour shifts, at about 80 KB each on the 3,000-device sample.
 
 Saved layouts go in a JSON file beside the topology (`small.yaml` → `small.layouts.json`), or wherever `--layouts` says. They are listed, fetched, saved, and deleted at `GET /api/layouts` and `GET`/`PUT`/`DELETE /api/layouts/{name}`. The file is rewritten whole on each change, by writing a new file and moving it into place, and holds at most 200 layouts. Layout files are ignored by git, since they are each user's own arrangements.
+
+With `--state-dir`, or `state_dir` in a settings file, saved files all go in that directory instead, one per kind: `layouts.json`, `operations.json`, `changes.json`, and `handovers.json`. The package puts them in `/var/lib/sunstone/state`.
 
 ## Layout
 
@@ -118,6 +193,9 @@ Saved layouts go in a JSON file beside the topology (`small.yaml` → `small.lay
 | `backend/` | Python, FastAPI, managed with uv. Model and validation (`model.py`), YAML loader, API, CLI, mock generator. |
 | `frontend/` | SvelteKit single-page app (Svelte 5, TypeScript), built static and served by the backend. MapLibre GL for the map; Cytoscape.js with fcose for the graph views. `src/lib/graph/` is shared by the graph views, `hierarchy/` and `topo/` are the two views. |
 | `data/sample/` | Mock topologies. |
+| `packaging/` | The Debian package: its spec (`nfpm.yaml`), the clean-container build, the service unit, account, directories, maintainer scripts, settings template, release keys, and the package tests. |
+| `tools/release/` | The release tool, copied from vakr, with Sunstone's `release.toml`. |
+| `VERSION`, `CHANGELOG.md` | The one version everything takes, and each release's notes. |
 
 ## Decisions so far
 
@@ -152,6 +230,13 @@ Saved layouts go in a JSON file beside the topology (`small.yaml` → `small.lay
 - **Handover outages come from events, grouped as the events list groups them.** Each device and link is down from one event to the next; devices at one site that went down at the same step are one outage, with the links at that site that went down then, so a branch losing its circuits reads as one line. As with problems, nothing is said about why. A device or link that came back with no event saying it went down was down before history begins. On the 3,000-device sample a 12-hour handover has about 190 outages: about 13 at whole sites, 36 circuits, and 140 single devices, so single devices come last and are folded after the first 10.
 - **The handover is worked out on the server, for everyone alike,** from what it already keeps: about 0.1 s on the 3,000-device sample once the day's events are worked out at startup (about 3 s before then). It applies the same rule as live state, that acknowledgements and pages end when their problem clears, so a handover never shows one standing for a problem that is gone.
 - **Acknowledgements and pages keep their problem's title.** Once a problem clears, its id ("down:dal-acc-05:TenGigabitEthernet1/0/1--dal-dist-01:TenGigabitEthernet1/0/7") is all that is left to say what it was, and working the title out again from the moment fails when the documentation has changed since. So each keeps the title it had when it was made.
+- **Packaged as vakr is.** One `.deb` for Ubuntu 26.04 on amd64, built with nfpm in a clean container from the lockfiles, with everything installed under `/opt/sunstone`: its own Python 3.15 from python-build-standalone, a locked virtual environment, and the built web UI. Settings live in `/etc/sunstone` and saved state in `/var/lib/sunstone/state`. `/var/lib/sunstone` itself is root's, so the service account, which writes `state/`, cannot plant a package or backup in `update/` for root to install or restore, nor replace that directory. The package is 28 MB and takes 85 MB installed; it builds in about 70 s, and two builds of one commit are byte-identical (checked; SvelteKit's build stamp is the commit time, as vakr's). Nothing in it needs glibc newer than 2.17, and the build fails if that changes without the package saying so.
+- **Self-update is Sunstone's own, modelled on vakr's.** It keeps vakr's order (verify before changing anything, back up, install with `apt-get` so dpkg's records stay right, check, roll back) without its daily timer, proxy settings, or trusted-CA commands. A release counts as working when the new version passes `sunstone check` and, if the service was running, answers as the new version within 90 s. A broken release that fails to start uses up systemd's start limit (five starts in ten minutes), which would also refuse the rollback's restart, so the update clears it before restarting; the package tests found this.
+- **Releases are signed with Sunstone's own key**, in its own namespace, `sunstone-release`, so a vakr release signature can never pass for a Sunstone one, and the release tool is vakr's, copied with its own configuration. It refuses to release until CI has passed for the commit, so Sunstone now has a CI workflow running `make test`.
+- **One version, in `VERSION`.** The Python package reads it (hatchling, as vakr), and the package, tag, and `sunstone --version` follow; `0.2.0-rc.1` becomes `0.2.0~rc.1` in the package so that it sorts before `0.2.0`.
+- **PyYAML is built from source in the package build.** It publishes no wheel for Python 3.15 yet, so the build compiles its hash-checked source with hash-pinned build tools and without its optional C extension: pure Python, as development already uses. Everything else is a hash-checked wheel.
+- **The package depends on `tzdata`.** The bundled interpreter reads time zones from `/usr/share/zoneinfo`, which minimal Ubuntu systems lack; without it the on-call directory's rotations fail to load and the service does not start. The package tests found this.
+- **Nothing starts on installation, and the sample shows until replaced.** The package puts the small sample in `/etc/sunstone` only when there is no topology there, and its on-call directory only with it, since it names the sample's sites. Files in `/etc/sunstone` are never dpkg conffiles, so upgrades never stop to ask about them.
 - **The handover lies over everything, which stays as it is.** Closing it returns to the same view, selection, and map, and clicking an item in it steers the views underneath. Printing leaves out all but the handover.
 - **Shifts are the NOC's own, not the rotations'.** Rotations say who is paged, and hand over daily or weekly; the room works in shifts, usually two of 12 hours or three of 8, so the directory says when they change. Like rotations they change at local time, so the 07:00 handover stays at 07:00 across summer time and that night's shift is an hour longer or shorter.
 - **A handover is saved at its shift change, worked out from history as of that moment.** A background thread saves each one as its shift changes. One missed while Sunstone was not running is saved when it starts again, or when someone next lists them, as long as history still covers that whole shift, and comes out the same: the problems, pages, acknowledgements, and who was on call as they stood at the change, so a page cleared since shows as open. Once saved it stays as it was, whatever the documentation or maintenance does later. On the 3,000-device sample saving one takes about 3.4 s before the day's events are worked out, and a saved one is served in about 0.01 s.
@@ -169,7 +254,7 @@ Saved layouts go in a JSON file beside the topology (`small.yaml` → `small.lay
 
 ## Testing
 
-`make test` runs backend tests (pytest), ruff, ty, svelte-check, prettier, and frontend unit tests (Vitest). `make e2e` builds the UI and runs Playwright tests against the real backend.
+`make test` runs backend tests (pytest), ruff, ty, svelte-check, prettier, frontend unit tests (Vitest), and the release tool's tests. CI runs it for every push to `main`. `make e2e` builds the UI and runs Playwright tests against the real backend. `make package-test` builds two test releases signed with a throwaway key, one that fails to start, and two that must be refused, then installs, runs, updates, rolls back, and removes them in a container booted with systemd.
 
 Where Chromium's system libraries are missing, run the browser in the Playwright container and point the tests at it:
 
@@ -178,6 +263,17 @@ $ docker run --rm --network host --init mcr.microsoft.com/playwright:v1.64.1-nob
     /bin/sh -c "cd /tmp && npx -y playwright@1.64.1 run-server --port 3124 --host 127.0.0.1" &
 $ PW_WS_ENDPOINT=ws://127.0.0.1:3124/ make e2e
 ```
+
+## Releasing
+
+A release is a GitHub release holding the `.deb`, `SHA256SUMS`, and `SHA256SUMS.sig`, cut with `tools/release` on the development host. The signing key is Sunstone's own, `~/.config/sunstone-release/release_ed25519` beside vakr's: passphrase-protected, never copied to GitHub or CI. `packaging/release-signers` lists its public half, which every package ships for self-update to check against; its fingerprint is `SHA256:8WUCE9gHrarTMP6hv8LpAeTHv04rWlzWYLNuxC3Q1Lk`.
+
+1. Set `VERSION` (`MAJOR.MINOR.PATCH`, or `-rc.N` for a release candidate) and add its section to `CHANGELOG.md`.
+2. Merge to `main` and push. CI must pass for that commit.
+3. `make release-dry-run` runs every step except tag, push, and publish: the checks, `make deb`, `SHA256SUMS`, and the signature, verified against `packaging/release-signers`.
+4. `uv run --project backend tools/release/release.py` does it for real, asking for the key's passphrase: it tags `v<version>`, pushes the tag, and creates the release with the changelog's notes, marked pre-release for 0.x and release candidates. It needs an authenticated `gh`.
+
+`make deb` builds a package from the work tree in a clean `ubuntu:26.04` container. Test builds, with `VERSION_OVERRIDE` (and `RELEASE_SIGNERS` to trust a test key), are for `make package-test` only; the release tool refuses them. To rotate the key, add the new one to `packaging/release-signers`, release that signed with the old key, and remove the old key in a later release.
 
 ## Measuring speed
 
@@ -203,6 +299,7 @@ The Playwright container draws without a GPU, so its frame rates say little abou
 - Discovery for real: a collector reading LLDP-MIB and CDP-MIB, or an NMS's neighbor tables, as a `DiscoverySource`.
 - The change set to the source of truth: sent to NetBox or Nautobot once there is one, each change dropped once the source has it.
 - Live state from real sources: vakr first (it needs the read-only integration role its design calls for), then other monitoring tools, each as a `StateSource`. Each needs history: from the tool, or recorded by Sunstone.
+- Updates on a timer: a daily `sunstone-update.timer` as vakr has, once Sunstone runs somewhere it should update unattended; and, behind an enterprise proxy that inspects TLS, trusting its CA for self-update.
 - Frame rates on real GPUs: run `make bench` on the hardware the NOC uses. The map and the fully expanded graphs are the ones to watch; the container's software rendering gives 6 to 12 fps zooming the map.
 
 ## License

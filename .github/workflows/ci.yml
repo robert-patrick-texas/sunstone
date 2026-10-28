@@ -1,0 +1,38 @@
+# Quality gates for every push and pull request, following vakr's CI:
+# `make test`, the same command developers run locally. tools/release will
+# not cut a release until these checks pass for the commit.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # setup-uv publishes no floating major tag; pinned to a commit, as vakr's.
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.node-version
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked environments (Python from backend/.python-version)
+        run: |
+          cd backend && uv sync --locked
+          cd ../frontend && npm ci --ignore-scripts --no-audit --no-fund
+      - name: Tests, linters, formatters, and type checks
+        run: make test

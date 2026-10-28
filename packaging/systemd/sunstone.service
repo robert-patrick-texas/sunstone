@@ -1,0 +1,49 @@
+# The Sunstone server: the web UI at / and its API, for everyone who can
+# reach the address in /etc/sunstone/config.toml (127.0.0.1:8000 unless
+# changed, for a reverse proxy on the same host).
+#
+# Shipped disabled. Enable it with
+#   sudo systemctl enable --now sunstone.service
+[Unit]
+Description=Sunstone network map
+Documentation=https://github.com/robert-patrick-texas/sunstone#installing
+After=network.target
+# At most five failed starts in ten minutes, then systemd stops trying.
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=exec
+ExecStart=/opt/sunstone/venv/bin/sunstone serve --config /etc/sunstone/config.toml --web-dir /opt/sunstone/share/web
+User=sunstone
+Group=sunstone
+SyslogIdentifier=sunstone
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+
+# Hardening: no capability at all; the whole system is read-only except the
+# state directory, where maintenance, notes, fixes, and handovers are saved.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sunstone/state
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

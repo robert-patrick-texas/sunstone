@@ -1,0 +1,13 @@
+# Trusted Sunstone release signing keys, in ssh-keygen "allowed signers"
+# format (see ssh-keygen(1), ALLOWED SIGNERS). The package installs this file
+# as /opt/sunstone/share/release-signers, and `sunstone self-update` checks
+# SHA256SUMS.sig against it before installing anything.
+#
+# Both the principal and the namespace are "sunstone-release", so a vakr
+# release signature can never pass for a Sunstone one. To rotate, add the new
+# key here and publish that release signed with the old key; remove the old
+# key in a later release.
+#
+# Release key added 2026-10-27.
+# Fingerprint: SHA256:8WUCE9gHrarTMP6hv8LpAeTHv04rWlzWYLNuxC3Q1Lk (ED25519)
+sunstone-release namespaces="sunstone-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPKOT2ofxcu2dOoAopi3InucCPUIy0YT8CNbb2Xerks+ sunstone-release
