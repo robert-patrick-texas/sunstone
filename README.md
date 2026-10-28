@@ -51,7 +51,9 @@ The first `ssh-keygen` must print the release key's fingerprint, `SHA256:8WUCE9g
 | `/opt/sunstone/share/templates/`, `/opt/sunstone/share/doc/` | The settings template; the licence, notice, README, changelog, and the web UI's bundled licences | package |
 | `/usr/bin/sunstone` | A link to `/opt/sunstone/venv/bin/sunstone` | package |
 | `/usr/lib/systemd/system/sunstone.service`, `/usr/lib/sysusers.d/sunstone.conf`, `/usr/lib/tmpfiles.d/sunstone.conf` | The service, its account, and its directories | package |
+| `/usr/lib/systemd/system/sunstone-update.timer`, `sunstone-update.service` | The daily self-update, disabled until you enable it | package |
 | `/etc/sunstone/config.toml`, `topology.yaml`, `oncall.yaml` | Your settings, network, and on-call directory, mode 0640, `root:sunstone`; created only when missing, never overwritten | you |
+| `/etc/sunstone/ca.d/` | CA certificates self-update trusts besides the system's, for a proxy that inspects TLS | you |
 | `/var/lib/sunstone/state/` | Maintenance, acknowledgements, pages, covers, notes, fixes, handovers, and layouts | the service |
 | `/var/lib/sunstone/update/` | Self-update's cached packages, backups, record, and lock; only root may open it | root |
 
@@ -62,7 +64,7 @@ sudo sunstone check                       # loads everything as the service woul
 sudo systemctl enable --now sunstone      # http://127.0.0.1:8000 on this host
 ```
 
-To show your own network, replace `topology.yaml` and `oncall.yaml`, run `sudo sunstone check`, and `sudo systemctl restart sunstone`. An on-call directory that names sites the topology lacks stops the service, and `sunstone check` says which. `/etc/sunstone/config.toml` holds the same choices as the command line: `topology`, `oncall`, `state_dir`, `host`, `port`, and under `[update]`, the `repository` releases come from. The service listens on 127.0.0.1:8000 for a reverse proxy in front; `host = "0.0.0.0"` serves everyone who can reach the port, which, without sign-in, only suits a network you trust.
+To show your own network, replace `topology.yaml` and `oncall.yaml`, run `sudo sunstone check`, and `sudo systemctl restart sunstone`. An on-call directory that names sites the topology lacks stops the service, and `sunstone check` says which. `/etc/sunstone/config.toml` holds the same choices as the command line: `topology`, `oncall`, `state_dir`, `host`, `port`, and under `[update]`, the `repository` releases come from, `hold_version`, `https_proxy`, `tls_strict_x509`, and `api` (see Updating). The service listens on 127.0.0.1:8000 for a reverse proxy in front; `host = "0.0.0.0"` serves everyone who can reach the port, which, without sign-in, only suits a network you trust.
 
 **Updating.** `sunstone self-update` installs a newer signed release in place:
 
@@ -76,7 +78,7 @@ To show your own network, replace `topology.yaml` and `oncall.yaml`, run `sudo s
 
 An update:
 
-1. Lists the 30 newest releases on GitHub, release candidates included, and takes the newest, or the one asked for.
+1. Lists the 30 newest releases on GitHub, release candidates included, and takes the newest one newer than the installed version and no newer than `hold_version`, if that is set; or the one asked for, whatever the hold.
 2. Downloads its package, `SHA256SUMS`, and `SHA256SUMS.sig` into `/var/lib/sunstone/update/cache/<version>/`, then checks the signature against the keys the installed package trusts, and the package against its checksum. If either check fails, nothing changes.
 3. Makes sure a verified package of the installed version is at hand to roll back to, downloading it if need be.
 4. Backs up `/etc/sunstone` and the state directory to `/var/lib/sunstone/update/backups/`, mode 0600, keeping five.
@@ -84,12 +86,20 @@ An update:
 6. Runs the new version's `sunstone check`, and, if the service was running, waits up to 90 s for it to answer as the new version at `/api/version`.
 7. If installing or checking fails, reinstalls the previous version, restores the backup, restarts the service, and says whether it answers again.
 
-It exits 0 when it updated or found nothing newer; 1 when a release was refused, the update was declined or failed and was rolled back, or GitHub could not be reached; and 2 for a usage error. It goes through `HTTPS_PROXY` when that is set, and verifies certificates against the system's CA bundle. The last result is in `/var/lib/sunstone/update/last-update.json`; the installed version, the one it replaced, and the newest other stay cached, so a rollback has a package to go back to even after a downgrade.
+It exits 0 when it updated or found nothing newer; 1 when a release was refused, the update was declined or failed and was rolled back, or GitHub could not be reached; and 2 for a usage error. The last result is in `/var/lib/sunstone/update/last-update.json`; the installed version, the one it replaced, and the newest other stay cached, so a rollback has a package to go back to even after a downgrade.
 
 | Command | What happens |
 |---|---|
-| `sudo apt remove sunstone` | Stops the service and removes `/opt/sunstone` and the integration files. Keeps `/etc/sunstone` and `/var/lib/sunstone`. |
-| `sudo apt purge sunstone` | Also removes `/etc/sunstone`, which holds the topology and on-call directory, and self-update's directory. Keeps saved state in `/var/lib/sunstone/state` and says so; remove it yourself to delete it. |
+**The daily timer.** `sudo systemctl enable --now sunstone-update.timer` updates every day, at a random moment in the four hours after midnight, catching up after downtime; `journalctl -u sunstone-update` shows what each run did, and `systemctl list-timers sunstone-update.timer` when the next is. Each run is `sunstone self-update --unattended`: the same update, without asking, with two rules of its own. It installs only a release newer than this one, no further than `hold_version`. And it leaves out a release whose install failed last time, until a newer one comes, so a broken release is not installed and rolled back every day; `sudo sunstone self-update --version X` tries it by hand. A run that fails and rolls back fails the unit, so `systemctl --failed` shows it. The timer ships disabled, as the service does.
+
+**Holding a version.** `hold_version = "0.2.0"` under `[update]` keeps updates that pick the release themselves, the timer's among them, at or below 0.2.0; `--check` says what the hold keeps back. Naming a newer release with `--version` at the console still installs it.
+
+**Behind a proxy.** `https_proxy = "http://proxy.example.com:3128"` under `[update]` sends self-update through a proxy that supports `CONNECT`; without it, `HTTPS_PROXY` from the environment, which the timer's service does not have. Credentials in the URL are refused, since settings end up in backups and support requests. Certificates are verified against the system's CA bundle and the CA certificates in `/etc/sunstone/ca.d/`, never the bundled interpreter's own paths. A proxy that inspects TLS presents certificates its own CA issued, which self-update refuses, naming `/etc/sunstone/ca.d/`: get the CA certificate from your security team, compare its fingerprint with theirs (`openssl x509 -noout -fingerprint -sha256 -in corp-ca.pem`), copy it there as a `.pem` or `.crt` file, and run `sudo sunstone self-update --check`. It changes trust for Sunstone only, not the rest of the host. A file there that is not a PEM certificate stops self-update, naming the file, rather than being skipped. Python checks certificates against OpenSSL's strict X.509 profile, which many inspection CAs issued before clients enforced it fail ("CA cert does not include key usage extension"): if yours does and cannot be reissued, `tls_strict_x509 = false` relaxes only that profile, still checking chains, validity, and host names. `api = "https://HOST/api/v3"` takes releases from a GitHub Enterprise server instead.
+
+| Command | What happens |
+|---|---|
+| `sudo apt remove sunstone` | Stops the service and the update timer, and removes `/opt/sunstone` and the integration files. Keeps `/etc/sunstone` and `/var/lib/sunstone`. |
+| `sudo apt purge sunstone` | Also removes `/etc/sunstone`, which holds the topology, on-call directory, and trusted CAs, self-update's directory, and the links that enabled the service and timer. Keeps saved state in `/var/lib/sunstone/state` and says so; remove it yourself to delete it. |
 
 ## Using it
 
@@ -233,6 +243,8 @@ With `--state-dir`, or `state_dir` in a settings file, saved files all go in tha
 - **Acknowledgements and pages keep their problem's title.** Once a problem clears, its id ("down:dal-acc-05:TenGigabitEthernet1/0/1--dal-dist-01:TenGigabitEthernet1/0/7") is all that is left to say what it was, and working the title out again from the moment fails when the documentation has changed since. So each keeps the title it had when it was made.
 - **Packaged as vakr is.** One `.deb` for Ubuntu 26.04 on amd64, built with nfpm in a clean container from the lockfiles, with everything installed under `/opt/sunstone`: its own Python 3.15 from python-build-standalone, a locked virtual environment, and the built web UI. Settings live in `/etc/sunstone` and saved state in `/var/lib/sunstone/state`. `/var/lib/sunstone` itself is root's, so the service account, which writes `state/`, cannot plant a package or backup in `update/` for root to install or restore, nor replace that directory. The package is 28 MB and takes 85 MB installed; it builds in about 70 s, and two builds of one commit are byte-identical (checked; SvelteKit's build stamp is the commit time, as vakr's). Nothing in it needs glibc newer than 2.17, and the build fails if that changes without the package saying so.
 - **Self-update is Sunstone's own, modelled on vakr's.** It keeps vakr's order (verify before changing anything, back up, install with `apt-get` so dpkg's records stay right, check, roll back) without its daily timer, proxy settings, or trusted-CA commands. A release counts as working when the new version passes `sunstone check` and, if the service was running, answers as the new version within 90 s. A broken release that fails to start uses up systemd's start limit (five starts in ten minutes), which would also refuse the rollback's restart, so the update clears it before restarting; the package tests found this.
+- **The daily update is opt-in, and never retries a failed release by itself.** The timer ships disabled, as vakr's does, since updating a NOC tool unattended is the operator's call. Left on, a broken release would otherwise be installed, fail its check, and be rolled back every day, restarting the service each time; so the timer leaves out the release the last update failed to install, judging by the record of the last update alone, until a newer one comes. Unlike vakr, it has no marker for releases that need an operator: nothing in Sunstone's updates needs one yet.
+- **An inspecting proxy's CA is trusted by Sunstone, not the whole host.** CA certificates in `/etc/sunstone/ca.d/` are added to the system's bundle for self-update alone, as vakr does with its own directory; changing what every program on the host trusts is left to the host's administrators. Trust there only lets self-update reach GitHub: what it installs must still carry a signature from a key in the installed package, so a CA trusted by mistake cannot slip in a release. The strict X.509 profile stays on unless relaxed, since relaxing it accepts certificates Python otherwise refuses.
 - **Releases are signed with Sunstone's own key**, in its own namespace, `sunstone-release`, so a vakr release signature can never pass for a Sunstone one, and the release tool is vakr's, copied with its own configuration. It refuses to release until CI has passed for the commit, so Sunstone now has a CI workflow running `make test`.
 - **One version, in `VERSION`.** The Python package reads it (hatchling, as vakr), and the package, tag, and `sunstone --version` follow; `0.2.0-rc.1` becomes `0.2.0~rc.1` in the package so that it sorts before `0.2.0`.
 - **PyYAML is built from source in the package build.** It publishes no wheel for Python 3.15 yet, so the build compiles its hash-checked source with hash-pinned build tools and without its optional C extension: pure Python, as development already uses. Everything else is a hash-checked wheel.
@@ -256,7 +268,7 @@ With `--state-dir`, or `state_dir` in a settings file, saved files all go in tha
 
 ## Testing
 
-`make test` runs backend tests (pytest), ruff, ty, svelte-check, prettier, frontend unit tests (Vitest), and the release tool's tests. CI runs it for every push to `main`. `make e2e` builds the UI and runs Playwright tests against the real backend. `make package-test` builds two test releases signed with a throwaway key, one that fails to start, and two that must be refused, then installs, runs, updates, rolls back, and removes them in a container booted with systemd.
+`make test` runs backend tests (pytest), ruff, ty, svelte-check, prettier, frontend unit tests (Vitest), and the release tool's tests. CI runs it for every push to `main`. `make e2e` builds the UI and runs Playwright tests against the real backend. `make package-test` builds three test releases signed with a throwaway key, one that fails to start, and two that must be refused, then installs, runs, updates, rolls back, and removes them in a container booted with systemd; and runs the daily timer's update against a stand-in for GitHub whose certificate only a test CA in `/etc/sunstone/ca.d` vouches for, as behind an inspecting proxy: the broken release rolls back and is not tried again, the hold keeps the next back, and lifting it installs it.
 
 Where Chromium's system libraries are missing, run the browser in the Playwright container and point the tests at it:
 
@@ -300,7 +312,7 @@ The Playwright container draws without a GPU, so its frame rates say little abou
 - Discovery for real: a collector reading LLDP-MIB and CDP-MIB, or an NMS's neighbor tables, as a `DiscoverySource`.
 - The change set to the source of truth: sent to NetBox or Nautobot once there is one, each change dropped once the source has it.
 - Live state from real sources: vakr first (it needs the read-only integration role its design calls for), then other monitoring tools, each as a `StateSource`. Each needs history: from the tool, or recorded by Sunstone.
-- Updates on a timer: a daily `sunstone-update.timer` as vakr has, once Sunstone runs somewhere it should update unattended; and, behind an enterprise proxy that inspects TLS, trusting its CA for self-update.
+- The wall display saying when no one has signed for the handover of the shift on now, as the header does.
 - Frame rates on real GPUs: run `make bench` on the hardware the NOC uses. The map and the fully expanded graphs are the ones to watch; the container's software rendering gives 6 to 12 fps zooming the map.
 
 ## License

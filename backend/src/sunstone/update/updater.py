@@ -7,6 +7,11 @@ must pass ``sunstone check`` and, if the service was running, answer as the
 new version. If any of that fails, the previous package (cached and
 verified beforehand) goes back in, with the backup.
 
+Updates that pick the release themselves never go past the version held
+at, if any. The daily timer's are stricter still: only a newer release,
+never one whose install failed last time, so a broken release is not
+installed and rolled back again every day.
+
 Everything lives in the update directory, ``/var/lib/sunstone/update``,
 which only root may write, so the service account cannot plant a backup or
 package for root to restore: ``cache/<version>/`` (the installed version,
@@ -24,7 +29,7 @@ import time
 import urllib.request
 from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -36,11 +41,12 @@ from sunstone.update.backup import (
 )
 from sunstone.update.process import Runner, run_command
 from sunstone.update.releases import (
+    GITHUB_API,
     Getter,
     Release,
     ReleaseError,
     asset_url,
-    https_get,
+    https_getter,
     list_releases,
     package_name,
 )
@@ -126,8 +132,11 @@ class Updater:
     installed: Version
     health_url: str
     """The service's ``/api/version``."""
+    api: str = GITHUB_API
+    hold: Version | None = None
+    """Updates that pick the release go no further than this one."""
     run: Runner = run_command
-    get: Getter = https_get
+    get: Getter = field(default_factory=https_getter)
     probe: Getter = local_get
     say: Callable[[str], None] = print
     now: Callable[[], datetime] = _now
@@ -145,48 +154,73 @@ class Updater:
             None
         """
         try:
-            releases = list_releases(self.get, self.repository)
+            releases = list_releases(self.get, self.repository, self.api)
         except ReleaseError as e:
             self.say(f"sunstone self-update: cannot list releases: {e}")
             return 1
+        newer = self._newer(releases)
         if not releases:
             self.say(f"sunstone self-update: {self.repository} has no releases yet")
-        elif releases[0].version > self.installed:
-            newest = releases[0].version
+        elif newer:
             self.say(
-                f"sunstone self-update: {newest} is available "
-                f"(installed {self.installed})"
+                f"sunstone self-update: {newer[0].version} is available "
+                f"(installed {self.installed}){self._held(releases)}"
             )
         else:
-            self.say(f"sunstone self-update: up to date: {self.installed}")
+            self.say(
+                f"sunstone self-update: up to date: {self.installed}"
+                f"{self._held(releases)}"
+            )
         return 0
 
-    def update(self, target: Version | None, confirm: Callable[[str], bool]) -> int:
+    def update(
+        self,
+        target: Version | None,
+        confirm: Callable[[str], bool],
+        unattended: bool = False,
+    ) -> int:
         """Install the newest release if it is newer, or a given one.
 
         Args:
             target: A release to install even if older or the same, or None
-                for the newest, only if newer.
+                for the newest newer one, no further than the hold.
             confirm: Asks whether to go ahead.
+            unattended: For the daily timer: leave out a release whose
+                install failed last time.
 
         Returns:
-            0 when updated or already up to date; 1 when declined, refused,
-            failed and rolled back, or releases could not be fetched.
+            0 when updated or already up to date, or when the only newer
+            release failed last time and is left out; 1 when declined,
+            refused, failed and rolled back, or releases could not be
+            fetched.
 
         Raises:
             UpdateError: If another update is running, or the update
                 directory is not safe.
         """
         try:
-            releases = list_releases(self.get, self.repository)
+            releases = list_releases(self.get, self.repository, self.api)
         except ReleaseError as e:
             self.say(f"sunstone self-update: cannot list releases: {e}")
             return 1
         if target is None:
-            if not releases or releases[0].version <= self.installed:
-                self.say(f"sunstone self-update: up to date: {self.installed}")
+            newer = self._newer(releases)
+            failed = self._failed() if unattended else None
+            chosen = [r for r in newer if r.version != failed]
+            if not chosen and newer:
+                self.say(
+                    f"sunstone self-update: {failed} failed to install last time, "
+                    "so it is not tried again until a newer release comes; "
+                    f"sudo sunstone self-update --version {failed} tries it now"
+                )
                 return 0
-            release = releases[0]
+            if not chosen:
+                self.say(
+                    f"sunstone self-update: up to date: {self.installed}"
+                    f"{self._held(releases)}"
+                )
+                return 0
+            release = chosen[0]
         else:
             found = [r for r in releases if r.version == target]
             if not found:
@@ -336,6 +370,33 @@ class Updater:
             for line in excerpt:
                 self.say(f"  {line}")
         return 0
+
+    def _newer(self, releases: Sequence[Release]) -> list[Release]:
+        """Releases newer than the installed one, no further than the hold."""
+        return [
+            r
+            for r in releases
+            if r.version > self.installed
+            and (self.hold is None or r.version <= self.hold)
+        ]
+
+    def _held(self, releases: Sequence[Release]) -> str:
+        """What the hold keeps back, for the end of a line."""
+        if self.hold is None or not releases or releases[0].version <= self.hold:
+            return ""
+        return f"; {releases[0].version} is out, but updates are held at {self.hold}"
+
+    def _failed(self) -> Version | None:
+        """The release the last update failed to install, if it failed."""
+        try:
+            record = json.loads(
+                (self.paths.update_dir / "last-update.json").read_text()
+            )
+            if record.get("result") == "failed":
+                return Version.parse(record["to"])
+        except OSError, ValueError, KeyError, TypeError:
+            pass
+        return None
 
     def _previous(self, releases: Sequence[Release] | None) -> Artifacts | None:
         """A verified package of the installed version, to roll back to."""

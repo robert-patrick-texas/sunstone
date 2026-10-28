@@ -1,0 +1,26 @@
+# Unattended self-update from signed releases, started by sunstone-update.timer.
+# `sunstone self-update --unattended` verifies the release against
+# /opt/sunstone/share/release-signers before changing anything, installs only
+# a release newer than this one and no further than [update] hold_version,
+# leaves out one whose install failed last time, and rolls back if the new
+# version fails. Its output goes to the journal:
+#   journalctl -u sunstone-update
+[Unit]
+Description=Sunstone self-update from signed releases
+Documentation=https://github.com/robert-patrick-texas/sunstone#updating
+Wants=network-online.target
+After=network-online.target
+# Deliberately not PartOf=sunstone.service: the update restarts the service,
+# and must not stop itself in the middle of apt-get install.
+
+[Service]
+Type=oneshot
+ExecStart=/opt/sunstone/venv/bin/sunstone self-update --unattended
+# apt-get, dpkg, and restarting the service need root.
+User=root
+SyslogIdentifier=sunstone-update
+# Bounded, so a download stalled behind a proxy cannot block tomorrow's run.
+TimeoutStartSec=1h
+# Background work: the service keeps priority on CPU and disk.
+Nice=10
+IOSchedulingClass=idle

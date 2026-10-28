@@ -192,7 +192,8 @@ verify_units() {
     log "systemd-analyze verify"
     local out
     out=$(systemd-analyze verify --man=no --recursive-errors=no \
-        "$SRC"/packaging/systemd/sunstone.service 2>&1) ||
+        "$SRC"/packaging/systemd/sunstone{,-update}.service \
+        "$SRC"/packaging/systemd/sunstone-update.timer 2>&1) ||
         die "systemd-analyze verify failed: $out"
     [ -z "$out" ] || die "systemd-analyze verify reported: $out"
 }

@@ -1,13 +1,17 @@
 #!/bin/sh
 # prerm for sunstone, following vakr's.
 #
-# On removal, stop the service before its files disappear. On upgrade nothing
-# is stopped: the service keeps running and the new postinst restarts it.
+# On removal, stop the service before its files disappear, and the update
+# timer and its service first, so no update starts meanwhile. On upgrade
+# nothing is stopped: the service keeps running and the new postinst restarts
+# it, and the upgrade may itself be run by sunstone-update.service.
 set -e
 
 case "$1" in
     remove)
         if [ -d /run/systemd/system ]; then
+            deb-systemd-invoke stop sunstone-update.timer sunstone-update.service \
+                >/dev/null || true
             deb-systemd-invoke stop sunstone.service >/dev/null || true
         fi
         ;;

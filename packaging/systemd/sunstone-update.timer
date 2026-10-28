@@ -1,0 +1,16 @@
+# Daily self-update, as vakr has: installs a newer signed release unattended.
+# Shipped disabled. Enable it with
+#   sudo systemctl enable --now sunstone-update.timer
+[Unit]
+Description=Daily Sunstone self-update
+Documentation=https://github.com/robert-patrick-texas/sunstone#updating
+
+[Timer]
+OnCalendar=daily
+# Spread a fleet's downloads over four hours.
+RandomizedDelaySec=4h
+# Catch up after downtime instead of skipping that day.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

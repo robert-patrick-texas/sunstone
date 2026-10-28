@@ -1,9 +1,10 @@
 #!/bin/bash
-# Package tests, following vakr's: build two test releases signed with a
+# Package tests, following vakr's: build three test releases signed with a
 # throwaway key, a broken one, and two that must be refused, then install,
-# run, update, roll back, and remove them inside a container booted with
+# run, update, roll back, update daily from a stand-in for GitHub behind a CA
+# the host does not trust, and remove them inside a container booted with
 # systemd (container/systemd-test.sh). `make package-test` runs this; it
-# needs docker, git, uv, and ssh-keygen.
+# needs docker, git, uv, ssh-keygen, and openssl.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -21,7 +22,7 @@ sign() {
     ssh-keygen -q -Y sign -f "$2" -n sunstone-release "$1/SHA256SUMS"
 }
 
-for version in 0.1.1 0.1.2; do
+for version in 0.1.1 0.1.2 0.1.4; do
     VERSION_OVERRIDE=$version RELEASE_SIGNERS=$work/keys/signers \
         packaging/build-deb.sh "$work/$version"
     sign "$work/$version" "$work/keys/release"
@@ -45,6 +46,23 @@ cp "$work"/0.1.2/* "$work/tampered/"
 printf x >>"$work/tampered/sunstone_0.1.2_amd64.deb"
 cp "$work/0.1.2/sunstone_0.1.2_amd64.deb" "$work/untrusted/"
 sign "$work/untrusted" "$work/keys/untrusted"
+
+# A CA the host does not trust, as an inspecting proxy's would be, and the
+# certificate it issues for the stand-in for GitHub (container/fake-github.py).
+mkdir -p "$work/pki"
+ec=(-newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes)
+printf '%s\n' '[req]' 'distinguished_name = dn' 'prompt = no' '[dn]' 'CN = Test Inspection CA' \
+    '[ext]' 'basicConstraints = critical,CA:TRUE' 'subjectKeyIdentifier = hash' \
+    'keyUsage = critical,keyCertSign,cRLSign' >"$work/pki/ca.cnf"
+openssl req -x509 -config "$work/pki/ca.cnf" -extensions ext "${ec[@]}" -days 2 \
+    -keyout "$work/pki/ca.key" -out "$work/pki/ca.pem" 2>/dev/null
+openssl req -new "${ec[@]}" -subj /CN=localhost \
+    -keyout "$work/pki/server.key" -out "$work/pki/server.csr" 2>/dev/null
+printf '%s\n' 'subjectAltName = DNS:localhost' 'basicConstraints = CA:FALSE' \
+    'keyUsage = critical,digitalSignature' 'extendedKeyUsage = serverAuth' \
+    'authorityKeyIdentifier = keyid' 'subjectKeyIdentifier = hash' >"$work/pki/server.ext"
+openssl x509 -req -in "$work/pki/server.csr" -CA "$work/pki/ca.pem" -CAkey "$work/pki/ca.key" \
+    -set_serial 2 -days 2 -extfile "$work/pki/server.ext" -out "$work/pki/server.pem" 2>/dev/null
 
 image=sunstone-systemd-test
 docker build --quiet --tag "$image" - <packaging/container/Dockerfile.systemd >/dev/null

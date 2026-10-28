@@ -25,3 +25,16 @@ port = 8000
 [update]
 # The GitHub repository `sunstone self-update` takes releases from.
 repository = "robert-patrick-texas/sunstone"
+# Updates that pick the release themselves, the daily timer's among them, go
+# no further than this version; naming a newer one at the console still can.
+#hold_version = "0.2.0"
+# A proxy to reach GitHub through, as http://HOST:PORT: one that supports
+# CONNECT, without credentials. Without it, HTTPS_PROXY from the environment,
+# which the daily timer does not have.
+#https_proxy = "http://proxy.example.com:3128"
+# A proxy that inspects TLS needs its CA certificate in /etc/sunstone/ca.d/.
+# If that CA was issued before clients enforced OpenSSL's strict X.509
+# profile, false accepts it; chains, validity, and host names are still checked.
+#tls_strict_x509 = true
+# A GitHub Enterprise server's API instead: https://HOST/api/v3.
+#api = "https://api.github.com"

@@ -1,10 +1,17 @@
 import fcntl
 import hashlib
+import http.server
 import json
 import os
 import re
+import socket
+import socketserver
+import ssl
 import subprocess
-from collections.abc import Mapping, Sequence
+import threading
+from collections.abc import Generator, Mapping, Sequence
+from contextlib import suppress
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,7 +19,13 @@ import pytest
 
 from sunstone.update.backup import create_backup, list_backups, restore_backup
 from sunstone.update.process import RunResult, run_command
-from sunstone.update.releases import asset_url, list_releases, package_name
+from sunstone.update.releases import (
+    ReleaseError,
+    asset_url,
+    https_getter,
+    list_releases,
+    package_name,
+)
 from sunstone.update.updater import Paths, UpdateError, Updater
 from sunstone.update.verify import SIGNER, Artifacts, VerificationError, verify
 from sunstone.update.versions import Version
@@ -86,7 +99,14 @@ def test_releases_are_listed_newest_first_without_drafts_or_other_tags() -> None
         {"tag_name": "nightly"},
         {"tag_name": "v0.2.0", "body": "## Changes", "assets": []},
     ]
-    releases = list_releases(lambda url: json.dumps(listed).encode(), "o/sunstone")
+    asked = []
+
+    def get(url: str) -> bytes:
+        asked.append(url)
+        return json.dumps(listed).encode()
+
+    releases = list_releases(get, "o/sunstone", "https://ghe.example/api/v3")
+    assert asked == ["https://ghe.example/api/v3/repos/o/sunstone/releases?per_page=30"]
     assert [str(r.version) for r in releases] == ["0.2.0", "0.2.0-rc.1"]
     # GitHub writes a "~" in a file name as ".".
     rc = releases[1]
@@ -299,6 +319,52 @@ def test_a_failed_update_puts_the_previous_version_and_the_backup_back(
     assert "sunstone self-update: 0.1.0 answers again" in host.said
 
 
+def test_the_timer_installs_newer_releases_but_not_one_that_failed_last_time(
+    host: Host,
+) -> None:
+    host.publish("0.2.0")
+    host.dead.add("0.2.0")
+    assert host.updater("0.1.0").update(None, yes, unattended=True) == 1
+    assert host.current == "0.1.0"
+
+    # Not installed and rolled back again every day.
+    host.calls.clear()
+    assert host.updater("0.1.0").update(None, yes, unattended=True) == 0
+    assert host.installs() == []
+    assert host.said[-1] == (
+        "sunstone self-update: 0.2.0 failed to install last time, so it is not "
+        "tried again until a newer release comes; "
+        "sudo sunstone self-update --version 0.2.0 tries it now"
+    )
+    host.publish("0.2.1")
+    assert host.updater("0.1.0").update(None, yes, unattended=True) == 0
+    assert host.installs() == ["sunstone_0.2.1_amd64.deb"]
+
+
+def test_updates_that_pick_the_release_go_no_further_than_the_hold(
+    host: Host,
+) -> None:
+    for version in ("0.2.0", "0.3.0"):
+        host.publish(version)
+    held = replace(host.updater("0.1.0"), hold=V("0.2.0"))
+    assert held.check() == 0
+    assert host.said[-1] == (
+        "sunstone self-update: 0.2.0 is available (installed 0.1.0); "
+        "0.3.0 is out, but updates are held at 0.2.0"
+    )
+    assert held.update(None, yes, unattended=True) == 0
+    assert host.installs() == ["sunstone_0.2.0_amd64.deb"]
+    held = replace(host.updater("0.2.0"), hold=V("0.2.0"))
+    assert held.update(None, yes, unattended=True) == 0
+    assert host.said[-1] == (
+        "sunstone self-update: up to date: 0.2.0; "
+        "0.3.0 is out, but updates are held at 0.2.0"
+    )
+    # Named at the console, a newer release still installs.
+    assert held.update(V("0.3.0"), yes) == 0
+    assert host.current == "0.3.0"
+
+
 def test_a_service_left_stopped_needs_only_to_pass_its_check(host: Host) -> None:
     host.publish("0.2.0")
     host.running = False
@@ -368,3 +434,195 @@ def test_nothing_happens_when_declined_or_while_another_update_runs(
     finally:
         os.close(fd)
     assert host.installs() == []
+
+
+def openssl(*args: str | Path) -> None:
+    subprocess.run(["openssl", *map(str, args)], check=True, capture_output=True)
+
+
+def make_ca(directory: Path, name: str, strict: bool = True) -> Path:
+    """A test CA, issuing a certificate for 127.0.0.1 kept beside it.
+
+    With ``strict`` False the CA lacks ``keyUsage``, as many inspection
+    CAs issued before clients enforced the strict X.509 profile do.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    usage = "keyUsage = critical,keyCertSign,cRLSign\n" if strict else ""
+    (directory / f"{name}.cnf").write_text(
+        "[req]\ndistinguished_name = dn\nprompt = no\n"
+        f"[dn]\nCN = {name}\n"
+        "[ext]\nbasicConstraints = critical,CA:TRUE\n"
+        f"subjectKeyIdentifier = hash\n{usage}"
+    )
+    (directory / "server.ext").write_text(
+        "subjectAltName = IP:127.0.0.1\nbasicConstraints = CA:FALSE\n"
+        "keyUsage = critical,digitalSignature\nextendedKeyUsage = serverAuth\n"
+        "authorityKeyIdentifier = keyid\nsubjectKeyIdentifier = hash\n"
+    )
+    ca, key = directory / f"{name}.pem", directory / f"{name}.key"
+    ec = ("-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes")
+    openssl(
+        "req",
+        "-x509",
+        "-config",
+        directory / f"{name}.cnf",
+        "-extensions",
+        "ext",
+        *ec,
+        "-keyout",
+        key,
+        "-out",
+        ca,
+        "-days",
+        "2",
+    )
+    csr = directory / f"{name}-server.csr"
+    openssl(
+        "req",
+        "-new",
+        *ec,
+        "-keyout",
+        directory / f"{name}-server.key",
+        "-out",
+        csr,
+        "-subj",
+        "/CN=127.0.0.1",
+    )
+    openssl(
+        "x509",
+        "-req",
+        "-in",
+        csr,
+        "-CA",
+        ca,
+        "-CAkey",
+        key,
+        "-set_serial",
+        "2",
+        "-days",
+        "2",
+        "-out",
+        directory / f"{name}-server.pem",
+        "-extfile",
+        directory / "server.ext",
+    )
+    return ca
+
+
+@pytest.fixture
+def served(tmp_path: Path) -> Generator[tuple[Path, str]]:
+    """An HTTPS server whose certificate only the CA ``strict-ca`` vouches for."""
+    ca = make_ca(tmp_path / "pki", "strict-ca")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(
+        ca.with_name("strict-ca-server.pem"), ca.with_name("strict-ca-server.key")
+    )
+
+    class Releases(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"[]")
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Releases)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield ca, f"https://127.0.0.1:{server.server_port}/releases"
+    server.shutdown()
+
+
+def test_releases_come_over_https_trusting_the_ca_directory_too(
+    served: tuple[Path, str], tmp_path: Path
+) -> None:
+    ca, url = served
+    trusted = tmp_path / "ca.d"
+    trusted.mkdir()
+    with pytest.raises(ReleaseError) as refused:
+        https_getter(trusted)(url)
+    assert str(refused.value) == (
+        f"{url}: certificate not trusted: unable to get local issuer certificate; "
+        f"behind a proxy that inspects TLS, put its CA certificate in {trusted}"
+    )
+    (trusted / "corp-inspection.pem").write_bytes(ca.read_bytes())
+    assert https_getter(trusted)(url) == b"[]"
+
+    (trusted / "README").write_text("only .pem and .crt files are read\n")
+    (trusted / "broken.crt").write_text("not a certificate\n")
+    with pytest.raises(ReleaseError, match=f"^{trusted / 'broken.crt'}: not a PEM"):
+        https_getter(trusted)
+
+
+def test_an_older_inspection_ca_needs_the_strict_profile_relaxed(
+    tmp_path: Path,
+) -> None:
+    ca = make_ca(tmp_path / "pki", "legacy-ca", strict=False)
+    trusted = tmp_path / "ca.d"
+    trusted.mkdir()
+    (trusted / "legacy.pem").write_bytes(ca.read_bytes())
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(
+        ca.with_name("legacy-ca-server.pem"), ca.with_name("legacy-ca-server.key")
+    )
+    server = http.server.ThreadingHTTPServer(
+        ("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler
+    )
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"https://127.0.0.1:{server.server_port}/missing"
+    try:
+        with pytest.raises(ReleaseError) as refused:
+            https_getter(trusted)(url)
+        assert str(refused.value) == (
+            f"{url}: certificate not trusted: CA cert does not include key usage "
+            "extension; if legacy.pem is the inspecting proxy's CA, it may not meet "
+            "the strict X.509 profile: tls_strict_x509 = false in [update] accepts it"
+        )
+        # Relaxed, the certificate is trusted, and the server answers.
+        with pytest.raises(ReleaseError, match="HTTP 404"):
+            https_getter(trusted, strict=False)(url)
+    finally:
+        server.shutdown()
+
+
+def test_releases_come_through_the_configured_proxy(
+    served: tuple[Path, str], tmp_path: Path
+) -> None:
+    ca, url = served
+    trusted = tmp_path / "ca.d"
+    trusted.mkdir()
+    (trusted / "ca.pem").write_bytes(ca.read_bytes())
+    asked: list[bytes] = []
+
+    def pump(source: socket.socket, sink: socket.socket) -> None:
+        with suppress(OSError):
+            while data := source.recv(65536):
+                sink.sendall(data)
+        with suppress(OSError):
+            sink.shutdown(socket.SHUT_WR)
+
+    class Tunnel(socketserver.StreamRequestHandler):
+        def handle(self) -> None:
+            request = self.rfile.readline()
+            asked.append(request)
+            while self.rfile.readline() not in (b"\r\n", b""):
+                pass
+            host, port = request.split()[1].decode().rsplit(":", 1)
+            with socket.create_connection((host, int(port))) as upstream:
+                self.connection.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                back = threading.Thread(target=pump, args=(upstream, self.connection))
+                back.start()
+                pump(self.connection, upstream)
+                back.join()
+
+    proxy = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Tunnel)
+    threading.Thread(target=proxy.serve_forever, daemon=True).start()
+    try:
+        get = https_getter(trusted, proxy=f"http://127.0.0.1:{proxy.server_address[1]}")
+        assert get(url) == b"[]"
+        port = url.split(":")[2].split("/")[0]
+        assert asked == [f"CONNECT 127.0.0.1:{port} HTTP/1.1\r\n".encode()]
+    finally:
+        proxy.shutdown()
