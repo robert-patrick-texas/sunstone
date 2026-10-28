@@ -46,7 +46,7 @@ def test_shipped_config_is_valid_and_uses_sunstone_release_namespace() -> None:
     assert cfg.allowed_signers == root / "packaging/release-signers"
     key = Path("~/.config/sunstone-release/release_ed25519").expanduser()
     assert cfg.signing_key == key
-    assert cfg.prerelease == "rc-or-major-zero"
+    assert cfg.prerelease == "never"
     assert cfg.build_command == ("make", "deb")
     assert cfg.ci_ignore_checks == ()
     assert ReleaseConfig.from_mapping(EXAMPLE, root).ci_ignore_checks == ()

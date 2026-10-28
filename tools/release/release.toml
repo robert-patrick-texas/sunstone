@@ -35,5 +35,6 @@ optional_artifacts = []
 # Where SHA256SUMS, SHA256SUMS.sig, the notes, and copies of the artifacts go.
 output_dir = "dist/release/{tag}"
 
-# GitHub pre-release marking, as vakr's: every -rc and every 0.x release.
-prerelease = "rc-or-major-zero"
+# GitHub pre-release marking: none. Every release, release candidates and 0.x
+# included, is a normal release that others download and test.
+prerelease = "never"
