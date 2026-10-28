@@ -2,7 +2,8 @@
 
 A handover covers a span ending now, 12 hours unless asked otherwise: the
 problems there are now, who is on them and whom they have paged; the
-outages that began or ended in the span, and how long they lasted; the
+incidents open or dealt with in the span; the outages that began or ended
+in it, and how long they lasted; the
 pages and acknowledgements made in it; maintenance done in it, open now,
 or coming in as long again; fixes and expectations recorded in it;
 discovery findings first seen in it; who is on call now; and the notes the
@@ -28,6 +29,7 @@ from datetime import UTC, datetime, time, timedelta
 from functools import cached_property
 from pathlib import Path
 from threading import Lock
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, ValidationError, computed_field
@@ -79,6 +81,17 @@ class Message(_Record):
     text: str
 
 
+class IncidentLine(_Record):
+    """An incident, as a handover lists it."""
+
+    number: int
+    title: str
+    status: Literal["open", "cleared", "closed"]
+    """Where it stood at the end of the handover's span."""
+    began: datetime | None
+    opened_at: datetime
+
+
 class SignOffIn(_Record):
     """Someone from the incoming shift taking over with a handover."""
 
@@ -107,6 +120,9 @@ class Handover(_Record):
     worked out now, the notes written since the last shift change."""
     problems: list[RoutedProblem]
     """Everything wrong now, most urgent first, with who is on it."""
+    incidents: list[IncidentLine] = []
+    """Incidents open at the end of the span, or opened, cleared, or closed
+    in it, newest first."""
     outages: list[Outage]
     """Those that began or ended in the span, latest first."""
     pages: list[Page]
@@ -559,6 +575,15 @@ def _message(h: Handover) -> Message:
         text += [f"- {n.text} ({n.by}, {clock(n.at)})" for n in h.notes]
     else:
         text.append("No notes from the outgoing shift.")
+    if h.incidents:
+        text += ["", f"Incidents ({len(h.incidents)})"]
+        for i in h.incidents:
+            where = {
+                "open": f"open since {clock(i.began or i.opened_at)}",
+                "cleared": "cleared, postmortem to write",
+                "closed": "closed",
+            }[i.status]
+            text.append(f"- {i.number} {i.title}: {where}")
     text += ["", f"Open now ({len(h.problems)}, {unhandled} no one is on)"]
     lines = []
     for p in h.problems[:LISTED]:

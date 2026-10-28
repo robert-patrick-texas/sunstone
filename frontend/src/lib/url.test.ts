@@ -26,7 +26,8 @@ const OPENING: Shared = {
 	camera: null,
 	wall: null,
 	discovery: false,
-	handover: null
+	handover: null,
+	incident: null
 };
 
 describe('toQuery and fromQuery', () => {
@@ -180,6 +181,17 @@ describe('movesOn', () => {
 		expect(fromQuery(new URLSearchParams('handover=yesterday'), index)).toEqual({
 			handover: 12
 		});
+	});
+
+	it('opens an incident from a link, by its number, going somewhere new', () => {
+		const index = fixtureIndex();
+		const on = { ...OPENING, incident: 12 };
+		expect(movesOn(OPENING, on)).toBe(true);
+		expect(movesOn(on, { ...on, incident: 3 })).toBe(true);
+		expect(movesOn(on, OPENING)).toBe(false);
+		expect(toQuery(on, index).toString()).toBe('incident=12');
+		expect(fromQuery(new URLSearchParams('incident=12'), index)).toEqual({ incident: 12 });
+		expect(fromQuery(new URLSearchParams('incident=twelve'), index)).toEqual({});
 	});
 
 	it('stays in place when the same place changes how it looks, or is cleared', () => {

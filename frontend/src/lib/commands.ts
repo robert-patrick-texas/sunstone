@@ -34,7 +34,8 @@ export type CommandId =
 	| 'now'
 	| 'copy-link'
 	| 'wall'
-	| 'handover';
+	| 'handover'
+	| 'incidents';
 
 /** What a command needs before it can run. */
 export type Need = 'selection' | 'device' | 'live' | 'problems' | 'replay';
@@ -224,6 +225,13 @@ export const COMMANDS: Command[] = [
 		group: 'Share',
 		keys: ['h'],
 		also: ['shift', 'report', 'summary', 'print', 'notes', 'message']
+	},
+	{
+		id: 'incidents',
+		label: 'Incidents',
+		group: 'Share',
+		keys: ['i'],
+		also: ['incident', 'outage', 'postmortem', 'timeline', 'major']
 	}
 ];
 

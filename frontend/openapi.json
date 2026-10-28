@@ -349,6 +349,252 @@
     }
    }
   },
+  "/api/incidents": {
+   "get": {
+    "summary": "List Incidents",
+    "description": "Return every incident in a line, newest first.",
+    "operationId": "list_incidents_api_incidents_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IncidentList"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Open Incident",
+    "description": "Open an incident from a problem there is now.",
+    "operationId": "open_incident_api_incidents_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IncidentIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IncidentReport"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/incidents/{number}": {
+   "get": {
+    "summary": "Get Incident",
+    "description": "Return an incident with its timeline, and its postmortem as a message.",
+    "operationId": "get_incident_api_incidents__number__get",
+    "parameters": [
+     {
+      "name": "number",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Number"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IncidentReport"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/incidents/{number}/problems": {
+   "post": {
+    "summary": "Join Incident",
+    "description": "Add a problem there is now to an incident not yet closed.",
+    "operationId": "join_incident_api_incidents__number__problems_post",
+    "parameters": [
+     {
+      "name": "number",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Number"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/JoinIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IncidentReport"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/incidents/{number}/notes": {
+   "post": {
+    "summary": "Note Incident",
+    "description": "Write a note on an incident not yet closed.",
+    "operationId": "note_incident_api_incidents__number__notes_post",
+    "parameters": [
+     {
+      "name": "number",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Number"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IncidentNoteIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IncidentNote"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/incidents/{number}/close": {
+   "post": {
+    "summary": "Close Incident",
+    "description": "Close an incident with its postmortem summary.",
+    "operationId": "close_incident_api_incidents__number__close_post",
+    "parameters": [
+     {
+      "name": "number",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Number"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CloseIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IncidentReport"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/shift-notes": {
    "post": {
     "summary": "Add Note",
@@ -1460,6 +1706,60 @@
     "title": "Circuit",
     "description": "A carrier circuit carrying a WAN link."
    },
+   "CloseIn": {
+    "properties": {
+     "summary": {
+      "type": "string",
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Summary"
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "summary",
+     "by"
+    ],
+    "title": "CloseIn",
+    "description": "Someone closing an incident with its postmortem summary."
+   },
+   "Closure": {
+    "properties": {
+     "summary": {
+      "type": "string",
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Summary"
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "summary",
+     "by",
+     "at"
+    ],
+    "title": "Closure",
+    "description": "How an incident was closed."
+   },
    "Comparison": {
     "properties": {
      "source": {
@@ -1890,6 +2190,90 @@
     "title": "Endpoint",
     "description": "One end of a link: a device's interface, optionally a LAG member."
    },
+   "Entry": {
+    "properties": {
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "event",
+       "maintenance",
+       "fix",
+       "opened",
+       "joined",
+       "ack",
+       "page",
+       "notice",
+       "note",
+       "cleared",
+       "closed"
+      ],
+      "title": "Kind"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "By"
+     },
+     "target": {
+      "anyOf": [
+       {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/DeviceCenter"
+         },
+         {
+          "$ref": "#/components/schemas/SiteCenter"
+         },
+         {
+          "$ref": "#/components/schemas/LinksCenter"
+         }
+        ],
+        "discriminator": {
+         "propertyName": "kind",
+         "mapping": {
+          "device": "#/components/schemas/DeviceCenter",
+          "links": "#/components/schemas/LinksCenter",
+          "site": "#/components/schemas/SiteCenter"
+         }
+        }
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target"
+     },
+     "planned": {
+      "type": "boolean",
+      "title": "Planned",
+      "default": false
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "at",
+     "kind",
+     "text"
+    ],
+    "title": "Entry",
+    "description": "One line of an incident's timeline."
+   },
    "EventLog": {
     "properties": {
      "since": {
@@ -2166,6 +2550,14 @@
       "type": "array",
       "title": "Problems"
      },
+     "incidents": {
+      "items": {
+       "$ref": "#/components/schemas/IncidentLine"
+      },
+      "type": "array",
+      "title": "Incidents",
+      "default": []
+     },
      "outages": {
       "items": {
        "$ref": "#/components/schemas/Outage"
@@ -2403,6 +2795,390 @@
     "title": "Impact",
     "description": "What some failures do to the network."
    },
+   "IncidentIn": {
+    "properties": {
+     "problem": {
+      "type": "string",
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Problem"
+     },
+     "title": {
+      "type": "string",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Title"
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "problem",
+     "title",
+     "by"
+    ],
+    "title": "IncidentIn",
+    "description": "Someone opening an incident from a problem."
+   },
+   "IncidentLine": {
+    "properties": {
+     "number": {
+      "type": "integer",
+      "title": "Number"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "cleared",
+       "closed"
+      ],
+      "title": "Status"
+     },
+     "began": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Began"
+     },
+     "opened_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Opened At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "number",
+     "title",
+     "status",
+     "began",
+     "opened_at"
+    ],
+    "title": "IncidentLine",
+    "description": "An incident, as a handover lists it."
+   },
+   "IncidentList": {
+    "properties": {
+     "incidents": {
+      "items": {
+       "$ref": "#/components/schemas/IncidentSummary"
+      },
+      "type": "array",
+      "title": "Incidents"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "incidents"
+    ],
+    "title": "IncidentList",
+    "description": "Every incident, newest first."
+   },
+   "IncidentNote": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "text",
+     "by",
+     "id",
+     "at"
+    ],
+    "title": "IncidentNote",
+    "description": "A note on an incident, as written."
+   },
+   "IncidentNoteIn": {
+    "properties": {
+     "text": {
+      "type": "string",
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Text"
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "text",
+     "by"
+    ],
+    "title": "IncidentNoteIn",
+    "description": "Something someone wants the incident to record."
+   },
+   "IncidentReport": {
+    "properties": {
+     "number": {
+      "type": "integer",
+      "title": "Number"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "opened_by": {
+      "type": "string",
+      "title": "Opened By"
+     },
+     "opened_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Opened At"
+     },
+     "problems": {
+      "items": {
+       "$ref": "#/components/schemas/Member"
+      },
+      "type": "array",
+      "title": "Problems"
+     },
+     "notes": {
+      "items": {
+       "$ref": "#/components/schemas/IncidentNote"
+      },
+      "type": "array",
+      "title": "Notes",
+      "default": []
+     },
+     "closed": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Closure"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "timeline": {
+      "items": {
+       "$ref": "#/components/schemas/Entry"
+      },
+      "type": "array",
+      "title": "Timeline"
+     },
+     "acknowledged": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Entry"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "paged": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Entry"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "$ref": "#/components/schemas/Message"
+     },
+     "cleared_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleared At",
+      "description": "When the last of its problems cleared, once they all have.\n\nReturns:\n    The time, or None while any lasts.",
+      "readOnly": true
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "cleared",
+       "closed"
+      ],
+      "title": "Status",
+      "description": "Closed, once someone closed it; cleared, once its problems have.\n\nReturns:\n    ``open``, ``cleared``, or ``closed``.",
+      "readOnly": true
+     },
+     "began": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Began",
+      "description": "When the first of its problems began.\n\nReturns:\n    The time, or None if one began before history does.",
+      "readOnly": true
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "number",
+     "title",
+     "opened_by",
+     "opened_at",
+     "problems",
+     "timeline",
+     "acknowledged",
+     "paged",
+     "message",
+     "cleared_at",
+     "status",
+     "began"
+    ],
+    "title": "IncidentReport",
+    "description": "An incident with its timeline, and the postmortem written from it."
+   },
+   "IncidentSummary": {
+    "properties": {
+     "number": {
+      "type": "integer",
+      "title": "Number"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "open",
+       "cleared",
+       "closed"
+      ],
+      "title": "Status"
+     },
+     "began": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Began"
+     },
+     "opened_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Opened At"
+     },
+     "opened_by": {
+      "type": "string",
+      "title": "Opened By"
+     },
+     "cleared_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleared At"
+     },
+     "closed_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Closed At"
+     },
+     "problems": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Problems"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "number",
+     "title",
+     "status",
+     "began",
+     "opened_at",
+     "opened_by",
+     "cleared_at",
+     "closed_at",
+     "problems"
+    ],
+    "title": "IncidentSummary",
+    "description": "An incident, in a line."
+   },
    "InterfaceHistory": {
     "properties": {
      "interface": {
@@ -2530,6 +3306,30 @@
     ],
     "title": "InterfaceState",
     "description": "A monitored interface's status and load, as a share of its speed."
+   },
+   "JoinIn": {
+    "properties": {
+     "problem": {
+      "type": "string",
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Problem"
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "problem",
+     "by"
+    ],
+    "title": "JoinIn",
+    "description": "Someone adding a problem to an incident."
    },
    "LayoutIn": {
     "properties": {
@@ -2746,6 +3546,124 @@
     ],
     "title": "LinksCenter",
     "description": "A neighborhood built around the ends of some links."
+   },
+   "Member": {
+    "properties": {
+     "problem": {
+      "type": "string",
+      "title": "Problem"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "outage",
+       "link-down",
+       "congested",
+       "loss",
+       "busy",
+       "nodata"
+      ],
+      "title": "Kind"
+     },
+     "target": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/DeviceCenter"
+       },
+       {
+        "$ref": "#/components/schemas/SiteCenter"
+       },
+       {
+        "$ref": "#/components/schemas/LinksCenter"
+       }
+      ],
+      "title": "Target",
+      "discriminator": {
+       "propertyName": "kind",
+       "mapping": {
+        "device": "#/components/schemas/DeviceCenter",
+        "links": "#/components/schemas/LinksCenter",
+        "site": "#/components/schemas/SiteCenter"
+       }
+      }
+     },
+     "devices": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Devices"
+     },
+     "links": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Links"
+     },
+     "lost": {
+      "type": "integer",
+      "title": "Lost"
+     },
+     "exposed": {
+      "type": "integer",
+      "title": "Exposed"
+     },
+     "began": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Began"
+     },
+     "joined_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Joined At"
+     },
+     "joined_by": {
+      "type": "string",
+      "title": "Joined By"
+     },
+     "cleared_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cleared At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "problem",
+     "title",
+     "kind",
+     "target",
+     "devices",
+     "links",
+     "lost",
+     "exposed",
+     "began",
+     "joined_at",
+     "joined_by"
+    ],
+    "title": "Member",
+    "description": "One problem in an incident, as it was when it joined."
    },
    "Message": {
     "properties": {
@@ -3571,6 +4489,17 @@
         "type": "null"
        }
       ]
+     },
+     "incident": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Incident"
      }
     },
     "additionalProperties": false,

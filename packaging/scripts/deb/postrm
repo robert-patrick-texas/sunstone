@@ -29,7 +29,8 @@ case "$1" in
         if [ -d /var/lib/sunstone/state ]; then
             echo "sunstone: removed the configuration in /etc/sunstone."
             echo "sunstone: kept the saved state in /var/lib/sunstone/state: maintenance, notes,"
-            echo "sunstone: fixes, handovers, and layouts. To delete it, remove /var/lib/sunstone."
+            echo "sunstone: fixes, handovers, incidents, and layouts. To delete it, remove"
+            echo "sunstone: /var/lib/sunstone."
         fi
         ;;
     upgrade | failed-upgrade | abort-install | abort-upgrade | disappear)

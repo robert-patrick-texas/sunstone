@@ -42,6 +42,7 @@ from sunstone.handover import (
     Handover,
     HandoverList,
     HandoverStore,
+    IncidentLine,
     SignOff,
     SignOffIn,
     handover_id,
@@ -52,6 +53,23 @@ from sunstone.handover import (
     summary,
 )
 from sunstone.impact import Failures, Network, WhatIf
+from sunstone.incidents import (
+    CloseIn,
+    Incident,
+    IncidentIn,
+    IncidentList,
+    IncidentNote,
+    IncidentNoteIn,
+    IncidentRefused,
+    IncidentReport,
+    IncidentStore,
+    JoinIn,
+    Recorded,
+    member,
+    report,
+    summary_of,
+    timeline,
+)
 from sunstone.layouts import (
     MAX_NAME,
     Center,
@@ -98,7 +116,7 @@ from sunstone.operations import (
     accounted_for,
     event_planned,
 )
-from sunstone.problems import Ack, AckIn
+from sunstone.problems import Ack, AckIn, Problem
 from sunstone.simulate import SimulatedState, monitored
 
 NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
@@ -134,6 +152,8 @@ class Files:
     """Fixes accepted into the documentation."""
     handovers: Path | None = None
     """Handovers saved at shift changes."""
+    incidents: Path | None = None
+    """Incidents, their notes, and their postmortems."""
     oncall: Path | None = None
     """Teams, rotations, and what they own. Beside the topology
     (``small.oncall.yaml``) it is optional; named here, it must exist."""
@@ -143,8 +163,8 @@ class Files:
 
         Args:
             topology_path: The topology file.
-            kind: ``layouts``, ``operations``, ``changes``, ``handovers``, or
-                ``oncall``.
+            kind: ``layouts``, ``operations``, ``changes``, ``handovers``,
+                ``incidents``, or ``oncall``.
 
         Returns:
             The file given for it, or one beside the topology.
@@ -157,6 +177,7 @@ class Files:
             "operations": self.operations,
             "changes": self.changes,
             "handovers": self.handovers,
+            "incidents": self.incidents,
         }.get(kind, self.oncall)
         suffix = "yaml" if kind == "oncall" else "json"
         return given or topology_path.with_name(f"{topology_path.stem}.{kind}.{suffix}")
@@ -217,6 +238,7 @@ def create_app(
         ChangesError: If the changes file exists but cannot be read, or its
             changes no longer apply to the topology file.
         HandoverError: If the saved handovers file exists but cannot be read.
+        IncidentError: If the incidents file exists but cannot be read.
         DirectoryError: If the on-call directory is invalid, or was named
             and is missing.
     """
@@ -230,6 +252,7 @@ def create_app(
     )
     times = directory.handovers if directory else None
     handovers = HandoverStore(files.path(topology_path, "handovers"))
+    incidents = IncidentStore(files.path(topology_path, "incidents"))
     store = LayoutStore(files.path(topology_path, "layouts"))
     changes = ChangeStore(files.path(topology_path, "changes"))
     try:
@@ -353,9 +376,7 @@ def create_app(
         when = moment_at(d, at)
         moment = d.monitor.moment(when)
         if at is None:
-            # Acknowledgements last until their problem clears.
-            present = {p.id for p in moment.problems.problems}
-            operations.clear(present, when)
+            clear(d, {p.id for p in moment.problems.problems}, when)
         if "gzip" in request.headers.get("accept-encoding", ""):
             return Response(
                 moment.gzipped,
@@ -403,6 +424,9 @@ def create_app(
                 ),
                 "paging": escalation(page, team, ack, covers, as_of)
                 if page and team
+                else None,
+                "incident": in_incident.number
+                if (in_incident := incidents.containing(p.id))
                 else None,
             }
             problems.append(RoutedProblem.model_validate({**dict(p), **routed}))
@@ -454,8 +478,7 @@ def create_app(
         when = d.monitor.now() if live else until
         problems = routed(d, when).problems
         if live:
-            # Acknowledgements and pages last until their problem clears.
-            operations.clear({p.id for p in problems}, when)
+            clear(d, {p.id for p in problems}, when)
 
         def made[T: (Ack, Page)](records: list[T]) -> list[T]:
             """Those made in the span, newest first, as they stood at its end."""
@@ -477,6 +500,11 @@ def create_app(
             timezone=times.timezone if times else "UTC",
             notes=[n for n in operations.notes() if start <= n.at < until],
             problems=problems,
+            incidents=[
+                line
+                for i in incidents.incidents()
+                if (line := incident_line(i, since, until))
+            ],
             outages=outages(events, d.topology, since),
             pages=made(operations.pages()),
             acks=made(operations.acks()),
@@ -492,6 +520,27 @@ def create_app(
             oncall=on_call(directory, until, operations.covers())
             if directory
             else None,
+        )
+
+    def incident_line(
+        incident: Incident, since: datetime, until: datetime
+    ) -> IncidentLine | None:
+        """An incident as a handover of a span lists it: open at its end, or
+        dealt with in it; None otherwise."""
+        closed = incident.closed.at if incident.closed else None
+        if incident.opened_at > until or (closed and closed < since):
+            return None
+        cleared = incident.cleared_at
+        return IncidentLine(
+            number=incident.number,
+            title=incident.title,
+            status="closed"
+            if closed and closed <= until
+            else "cleared"
+            if cleared and cleared <= until
+            else "open",
+            began=incident.began,
+            opened_at=incident.opened_at,
         )
 
     def hand_over() -> None:
@@ -557,6 +606,123 @@ def create_app(
                     409, "Only the handover of the shift on now can be signed for"
                 )
             return handovers.sign(handover_id, SignOff(**sign.model_dump(), at=now))
+
+    def clear(d: _Documented, present: set[str], when: datetime) -> None:
+        """End acknowledgements and pages whose problems have cleared, and
+        follow incidents' problems, keeping the timeline of each incident
+        that just cleared while its record is still there."""
+        operations.clear(present, when)
+        for number in incidents.clear(present, when):
+            cleared = incidents.get(number)
+            if cleared:
+                incident_report(d, cleared)
+
+    def incident_report(d: _Documented, incident: Incident) -> IncidentReport:
+        """An incident with its timeline, which is kept with it."""
+        now = datetime.now(UTC)
+        until = incident.cleared_at or now
+        acks, pages, covers = operations.acks(), operations.pages(), operations.covers()
+        notified = {}
+        for pg in pages:
+            team = directory.team(pg.team) if directory else None
+            if team:
+                ack = next(
+                    (a for a in acks if a.problem == pg.problem and a.at >= pg.at),
+                    None,
+                )
+                notified[pg.id] = escalation(pg, team, ack, covers, until).notified
+        recorded = Recorded(
+            events=events_of(d, now - d.state.retention, now),
+            acks=acks,
+            pages=pages,
+            notified=notified,
+            windows=[
+                (w, f.devices, f.links)
+                for w in operations.windows()
+                for f in [d.network.failures_of(w.targets)]
+            ],
+            changes=changes.changes(),
+            people={p.id: p.name for p in directory.people} if directory else {},
+            teams={t.id: t.name for t in directory.teams} if directory else {},
+        )
+        entries = timeline(
+            incident, recorded, incidents.kept(incident.number), d.topology, now
+        )
+        incidents.keep(incident.number, entries)
+        return report(incident, entries, times.timezone if times else "UTC", now)
+
+    def problem_now(d: _Documented, problem_id: str) -> Problem:
+        """A problem there is now, or 404."""
+        found = d.monitor.moment(d.monitor.now()).problems.problems
+        problem = next((p for p in found if p.id == problem_id), None)
+        if problem is None:
+            raise HTTPException(404, f"No problem {problem_id!r} now")
+        return problem
+
+    def an_incident(number: int) -> Incident:
+        """An incident, or 404."""
+        found = incidents.get(number)
+        if found is None:
+            raise HTTPException(404, f"No incident {number}")
+        return found
+
+    @app.get("/api/incidents")
+    def list_incidents() -> IncidentList:
+        """Return every incident in a line, newest first."""
+        return IncidentList(incidents=[summary_of(i) for i in incidents.incidents()])
+
+    @app.post("/api/incidents", status_code=201)
+    def open_incident(incoming: IncidentIn) -> IncidentReport:
+        """Open an incident from a problem there is now."""
+        d = docs
+        now = datetime.now(UTC)
+        problem = problem_now(d, incoming.problem)
+        events = events_of(d, now - d.state.retention, now)
+        try:
+            made = incidents.open(
+                incoming, member(problem, incoming.by, now, events), now
+            )
+        except IncidentRefused as e:
+            raise HTTPException(409, str(e)) from e
+        return incident_report(d, made)
+
+    @app.get("/api/incidents/{number}")
+    def get_incident(number: int) -> IncidentReport:
+        """Return an incident with its timeline, and its postmortem as a message."""
+        return incident_report(docs, an_incident(number))
+
+    @app.post("/api/incidents/{number}/problems")
+    def join_incident(number: int, joining: JoinIn) -> IncidentReport:
+        """Add a problem there is now to an incident not yet closed."""
+        d = docs
+        an_incident(number)
+        now = datetime.now(UTC)
+        problem = problem_now(d, joining.problem)
+        events = events_of(d, now - d.state.retention, now)
+        try:
+            joined = incidents.join(number, member(problem, joining.by, now, events))
+        except IncidentRefused as e:
+            raise HTTPException(409, str(e)) from e
+        return incident_report(d, joined)
+
+    @app.post("/api/incidents/{number}/notes", status_code=201)
+    def note_incident(number: int, note: IncidentNoteIn) -> IncidentNote:
+        """Write a note on an incident not yet closed."""
+        an_incident(number)
+        try:
+            return incidents.add_note(number, note, datetime.now(UTC))
+        except IncidentRefused as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.post("/api/incidents/{number}/close")
+    def close_incident(number: int, closing: CloseIn) -> IncidentReport:
+        """Close an incident with its postmortem summary."""
+        an_incident(number)
+        try:
+            closed = incidents.close(number, closing, datetime.now(UTC))
+        except IncidentRefused as e:
+            raise HTTPException(409, str(e)) from e
+        return incident_report(docs, closed)
 
     @app.post("/api/shift-notes", status_code=201)
     def add_note(note: ShiftNoteIn) -> ShiftNote:
@@ -917,7 +1083,8 @@ def app_from_env() -> FastAPI:
     Uvicorn's reloader re-imports the app in a fresh process, so settings
     travel in ``SUNSTONE_TOPOLOGY``, ``SUNSTONE_WEB_DIR``,
     ``SUNSTONE_LAYOUTS``, ``SUNSTONE_OPERATIONS``, ``SUNSTONE_CHANGES``,
-    ``SUNSTONE_HANDOVERS``, and ``SUNSTONE_ONCALL`` rather than as arguments.
+    ``SUNSTONE_HANDOVERS``, ``SUNSTONE_INCIDENTS``, and ``SUNSTONE_ONCALL``
+    rather than as arguments.
 
     Returns:
         The FastAPI application.
@@ -927,6 +1094,7 @@ def app_from_env() -> FastAPI:
         TopologyError: If the topology file is missing or invalid.
         ChangesError: If the changes no longer apply to the topology file.
         HandoverError: If the saved handovers file cannot be read.
+        IncidentError: If the incidents file cannot be read.
         DirectoryError: If the on-call directory is invalid, or was named
             and is missing.
     """
@@ -935,6 +1103,7 @@ def app_from_env() -> FastAPI:
     operations = os.environ.get("SUNSTONE_OPERATIONS")
     changes = os.environ.get("SUNSTONE_CHANGES")
     handovers = os.environ.get("SUNSTONE_HANDOVERS")
+    incidents = os.environ.get("SUNSTONE_INCIDENTS")
     oncall = os.environ.get("SUNSTONE_ONCALL")
     return create_app(
         Path(os.environ["SUNSTONE_TOPOLOGY"]),
@@ -944,6 +1113,7 @@ def app_from_env() -> FastAPI:
             operations=Path(operations) if operations else None,
             changes=Path(changes) if changes else None,
             handovers=Path(handovers) if handovers else None,
+            incidents=Path(incidents) if incidents else None,
             oncall=Path(oncall) if oncall else None,
         ),
     )

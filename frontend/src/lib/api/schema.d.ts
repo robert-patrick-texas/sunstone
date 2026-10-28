@@ -218,6 +218,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Incidents
+         * @description Return every incident in a line, newest first.
+         */
+        get: operations["list_incidents_api_incidents_get"];
+        put?: never;
+        /**
+         * Open Incident
+         * @description Open an incident from a problem there is now.
+         */
+        post: operations["open_incident_api_incidents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/incidents/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Incident
+         * @description Return an incident with its timeline, and its postmortem as a message.
+         */
+        get: operations["get_incident_api_incidents__number__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/incidents/{number}/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join Incident
+         * @description Add a problem there is now to an incident not yet closed.
+         */
+        post: operations["join_incident_api_incidents__number__problems_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/incidents/{number}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Note Incident
+         * @description Write a note on an incident not yet closed.
+         */
+        post: operations["note_incident_api_incidents__number__notes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/incidents/{number}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close Incident
+         * @description Close an incident with its postmortem summary.
+         */
+        post: operations["close_incident_api_incidents__number__close_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shift-notes": {
         parameters: {
             query?: never;
@@ -714,6 +818,31 @@ export interface components {
             circuit_id: string;
         };
         /**
+         * CloseIn
+         * @description Someone closing an incident with its postmortem summary.
+         */
+        CloseIn: {
+            /** Summary */
+            summary: string;
+            /** By */
+            by: string;
+        };
+        /**
+         * Closure
+         * @description How an incident was closed.
+         */
+        Closure: {
+            /** Summary */
+            summary: string;
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
+        /**
          * Comparison
          * @description Discovery against the documented topology, as of one run.
          */
@@ -908,6 +1037,33 @@ export interface components {
             lag?: string | null;
         };
         /**
+         * Entry
+         * @description One line of an incident's timeline.
+         */
+        Entry: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "event" | "maintenance" | "fix" | "opened" | "joined" | "ack" | "page" | "notice" | "note" | "cleared" | "closed";
+            /** Text */
+            text: string;
+            /** By */
+            by?: string | null;
+            /** Target */
+            target?: (components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"]) | null;
+            /**
+             * Planned
+             * @default false
+             */
+            planned: boolean;
+        };
+        /**
          * EventLog
          * @description The changes seen between two moments, oldest first.
          */
@@ -1023,6 +1179,11 @@ export interface components {
             notes: components["schemas"]["ShiftNote"][];
             /** Problems */
             problems: components["schemas"]["RoutedProblem"][];
+            /**
+             * Incidents
+             * @default []
+             */
+            incidents: components["schemas"]["IncidentLine"][];
             /** Outages */
             outages: components["schemas"]["Outage"][];
             /** Pages */
@@ -1103,6 +1264,165 @@ export interface components {
             };
         };
         /**
+         * IncidentIn
+         * @description Someone opening an incident from a problem.
+         */
+        IncidentIn: {
+            /** Problem */
+            problem: string;
+            /** Title */
+            title: string;
+            /** By */
+            by: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
+         * IncidentLine
+         * @description An incident, as a handover lists it.
+         */
+        IncidentLine: {
+            /** Number */
+            number: number;
+            /** Title */
+            title: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "cleared" | "closed";
+            /** Began */
+            began: string | null;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+        };
+        /**
+         * IncidentList
+         * @description Every incident, newest first.
+         */
+        IncidentList: {
+            /** Incidents */
+            incidents: components["schemas"]["IncidentSummary"][];
+        };
+        /**
+         * IncidentNote
+         * @description A note on an incident, as written.
+         */
+        IncidentNote: {
+            /** Text */
+            text: string;
+            /** By */
+            by: string;
+            /** Id */
+            id: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
+        /**
+         * IncidentNoteIn
+         * @description Something someone wants the incident to record.
+         */
+        IncidentNoteIn: {
+            /** Text */
+            text: string;
+            /** By */
+            by: string;
+        };
+        /**
+         * IncidentReport
+         * @description An incident with its timeline, and the postmortem written from it.
+         */
+        IncidentReport: {
+            /** Number */
+            number: number;
+            /** Title */
+            title: string;
+            /** Opened By */
+            opened_by: string;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Problems */
+            problems: components["schemas"]["Member"][];
+            /**
+             * Notes
+             * @default []
+             */
+            notes: components["schemas"]["IncidentNote"][];
+            closed?: components["schemas"]["Closure"] | null;
+            /** Timeline */
+            timeline: components["schemas"]["Entry"][];
+            acknowledged: components["schemas"]["Entry"] | null;
+            paged: components["schemas"]["Entry"] | null;
+            message: components["schemas"]["Message"];
+            /**
+             * Cleared At
+             * @description When the last of its problems cleared, once they all have.
+             *
+             *     Returns:
+             *         The time, or None while any lasts.
+             */
+            readonly cleared_at: string | null;
+            /**
+             * Status
+             * @description Closed, once someone closed it; cleared, once its problems have.
+             *
+             *     Returns:
+             *         ``open``, ``cleared``, or ``closed``.
+             * @enum {string}
+             */
+            readonly status: "open" | "cleared" | "closed";
+            /**
+             * Began
+             * @description When the first of its problems began.
+             *
+             *     Returns:
+             *         The time, or None if one began before history does.
+             */
+            readonly began: string | null;
+        };
+        /**
+         * IncidentSummary
+         * @description An incident, in a line.
+         */
+        IncidentSummary: {
+            /** Number */
+            number: number;
+            /** Title */
+            title: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "cleared" | "closed";
+            /** Began */
+            began: string | null;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Opened By */
+            opened_by: string;
+            /** Cleared At */
+            cleared_at: string | null;
+            /** Closed At */
+            closed_at: string | null;
+            /** Problems */
+            problems: string[];
+        };
+        /**
          * InterfaceHistory
          * @description One interface's readings at each step of a device history.
          */
@@ -1141,6 +1461,16 @@ export interface components {
             observed_at: string;
             /** Stale */
             stale: boolean;
+        };
+        /**
+         * JoinIn
+         * @description Someone adding a problem to an incident.
+         */
+        JoinIn: {
+            /** Problem */
+            problem: string;
+            /** By */
+            by: string;
         };
         /**
          * LayoutIn
@@ -1232,6 +1562,42 @@ export interface components {
             kind: "links";
             /** Ids */
             ids: string[];
+        };
+        /**
+         * Member
+         * @description One problem in an incident, as it was when it joined.
+         */
+        Member: {
+            /** Problem */
+            problem: string;
+            /** Title */
+            title: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "outage" | "link-down" | "congested" | "loss" | "busy" | "nodata";
+            /** Target */
+            target: components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"];
+            /** Devices */
+            devices: string[];
+            /** Links */
+            links: string[];
+            /** Lost */
+            lost: number;
+            /** Exposed */
+            exposed: number;
+            /** Began */
+            began: string | null;
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+            /** Joined By */
+            joined_by: string;
+            /** Cleared At */
+            cleared_at?: string | null;
         };
         /**
          * Message
@@ -1548,6 +1914,8 @@ export interface components {
              */
             urgency: "high" | "low";
             paging?: components["schemas"]["Paging"] | null;
+            /** Incident */
+            incident?: number | null;
         };
         /**
          * RoutedProblemList
@@ -2153,6 +2521,195 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Handover"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_incidents_api_incidents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentList"];
+                };
+            };
+        };
+    };
+    open_incident_api_incidents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_incident_api_incidents__number__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    join_incident_api_incidents__number__problems_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    note_incident_api_incidents__number__notes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentNoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentNote"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_incident_api_incidents__number__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentReport"];
                 };
             };
             /** @description Validation Error */

@@ -47,6 +47,8 @@ export interface Shared {
 	 * saved one's id; null when not shown.
 	 */
 	handover: number | string | null;
+	/** The incident shown, by number, 0 for none chosen yet; null when not shown. */
+	incident: number | null;
 }
 
 export const DEFAULT_DWELL_S = 20;
@@ -97,6 +99,7 @@ export function toQuery(shared: Shared, index: TopologyIndex): URLSearchParams {
 		if (shared.wall.dwell !== DEFAULT_DWELL_S) q.set('dwell', String(shared.wall.dwell));
 	}
 	if (shared.handover !== null) q.set('handover', String(shared.handover));
+	if (shared.incident !== null) q.set('incident', String(shared.incident));
 	if (shared.view !== 'geo') q.set('view', shared.view);
 	if (shared.selection) q.set('select', writeItem(shared.selection));
 	if (shared.live) {
@@ -201,6 +204,8 @@ export function fromQuery(q: URLSearchParams, index: TopologyIndex): Partial<Sha
 				? hours
 				: DEFAULT_HANDOVER_H;
 	}
+	const incident = q.get('incident');
+	if (incident !== null && /^\d{1,6}$/.test(incident)) found.incident = Number(incident);
 	return found;
 }
 
@@ -231,13 +236,14 @@ export const OPENING = {
 	problem: null,
 	wall: null,
 	discovery: false,
-	handover: null
+	handover: null,
+	incident: null
 } satisfies Partial<Shared>;
 
 /**
  * Whether going from one screen to another goes somewhere new, so that Back
  * should return from it: another view, neighborhood, selection, path,
- * problem, "what if", discovery on the map, or the shift handover. Moving the map, Live, the time, and expanded sites
+ * problem, "what if", discovery on the map, the shift handover, or an incident. Moving the map, Live, the time, and expanded sites
  * change how the same place looks, and clearing something stays in place.
  *
  * @param before - What was on screen.
@@ -258,6 +264,7 @@ export function movesOn(before: Shared, after: Shared): boolean {
 		(after.problem !== null && before.problem !== after.problem) ||
 		(after.whatIf.length > 0 && differs(before.whatIf, after.whatIf)) ||
 		(after.discovery && !before.discovery) ||
-		(after.handover !== null && before.handover !== after.handover)
+		(after.handover !== null && before.handover !== after.handover) ||
+		(after.incident !== null && before.incident !== after.incident)
 	);
 }
