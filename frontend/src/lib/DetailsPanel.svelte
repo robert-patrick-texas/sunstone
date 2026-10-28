@@ -16,6 +16,7 @@ links that select and bring that item into view.
 	import type { Comparison } from './api/discovery.ts';
 	import type { OnCall, Ownership } from './api/oncall.ts';
 	import { acknowledge, unacknowledge, type Window } from './api/operations.ts';
+	import { joinIncident, openIncident, type IncidentSummary } from './api/incidents.ts';
 	import { fetchHistory, type DeviceHistory, type InterfaceHistory } from './api/state.ts';
 	import type { Endpoint, Link } from './api/topology.ts';
 	import { clock, linkHistory } from './history.ts';
@@ -74,7 +75,8 @@ links that select and bring that item into view.
 		oncall,
 		ownership,
 		comparison,
-		changes
+		changes,
+		incidents
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
@@ -93,6 +95,8 @@ links that select and bring that item into view.
 		comparison: Comparison | null;
 		/** Fixes accepted into the documentation, and findings marked expected, newest first. */
 		changes: Change[];
+		/** Every incident, newest first, for adding a problem to one. */
+		incidents: IncidentSummary[];
 	} = $props();
 
 	const HEALTHS: DeviceHealth[] = ['down', 'degraded', 'nodata', 'up', 'unmonitored'];
@@ -107,6 +111,10 @@ links that select and bring that item into view.
 
 	let ackNote = $state('');
 	let ackProblem = $state<string | null>(null);
+	/** What to call an incident opened from the problem shown: its title, unless changed. */
+	let incidentTitle = $derived(problem?.title ?? '');
+	let incidentProblem = $state<string | null>(null);
+	const openIncidents = $derived(incidents.filter((i) => i.status !== 'closed'));
 	const RECENT_MS = 24 * 60 * 60_000;
 
 	async function ack(e: SubmitEvent, id: string): Promise<void> {
@@ -119,6 +127,22 @@ links that select and bring that item into view.
 			onchange();
 		} catch (err) {
 			ackProblem = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	/** Open an incident from a problem, or add it to one, then show the incident. */
+	async function toIncident(e: SubmitEvent | null, id: string, number?: number): Promise<void> {
+		e?.preventDefault();
+		rememberName(ui.person.trim());
+		try {
+			const made = number
+				? await joinIncident(number, id, ui.person)
+				: await openIncident(id, incidentTitle, ui.person);
+			incidentProblem = null;
+			onchange();
+			ui.incident = made.number;
+		} catch (err) {
+			incidentProblem = err instanceof Error ? err.message : String(err);
 		}
 	}
 
@@ -529,6 +553,41 @@ links that select and bring that item into view.
 							</form>
 						{/if}
 						{#if ackProblem}<p class="muted" role="alert">{ackProblem}</p>{/if}
+						{#if problem.incident}
+							{@const number = problem.incident}
+							<p class="handled">
+								<span class="phase incident">Incident {number}</span>
+								{incidents.find((i) => i.number === number)?.title ?? ''}
+								<button class="link" onclick={() => (ui.incident = number)}>Show it</button>
+							</p>
+						{:else}
+							<form class="ack-form" onsubmit={(e) => toIncident(e, problem.id)}>
+								<input
+									bind:value={incidentTitle}
+									required
+									maxlength="120"
+									placeholder="What to call the incident"
+									aria-label="Incident title"
+								/>
+								<input
+									bind:value={ui.person}
+									required
+									maxlength="64"
+									placeholder="Your name"
+									aria-label="Opened by"
+									autocomplete="name"
+								/>
+								<button type="submit">Open incident</button>
+							</form>
+							{#each openIncidents.slice(0, 3) as i (i.number)}
+								<p class="muted">
+									<button class="link" onclick={() => toIncident(null, problem.id, i.number)}
+										>Add to incident {i.number}</button
+									>: {i.title}
+								</p>
+							{/each}
+						{/if}
+						{#if incidentProblem}<p class="muted" role="alert">{incidentProblem}</p>{/if}
 					{:else if problem.ack}
 						<p class="handled">
 							<span class="phase ack">On it</span>
@@ -896,6 +955,10 @@ links that select and bring that item into view.
 	}
 	.phase.ack {
 		border-color: var(--selected);
+		color: var(--text);
+	}
+	.phase.incident {
+		border-color: var(--down);
 		color: var(--text);
 	}
 	.handled {

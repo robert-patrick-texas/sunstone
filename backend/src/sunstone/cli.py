@@ -13,6 +13,7 @@ import uvicorn
 from sunstone.api import Files, create_app
 from sunstone.changes import ChangesError
 from sunstone.handover import HandoverError
+from sunstone.incidents import IncidentError
 from sunstone.layouts import LayoutStoreError
 from sunstone.loader import TopologyError, load_topology
 from sunstone.oncall import DirectoryError, load_directory
@@ -22,7 +23,7 @@ from sunstone.update.releases import ReleaseError, https_getter
 from sunstone.update.updater import INSTALLED, UpdateError, Updater
 from sunstone.update.versions import Version
 
-KINDS = ("layouts", "operations", "changes", "handovers")
+KINDS = ("layouts", "operations", "changes", "handovers", "incidents")
 
 
 def main() -> None:
@@ -211,6 +212,7 @@ def _check(args: argparse.Namespace) -> int:
         ChangesError,
         OperationsError,
         HandoverError,
+        IncidentError,
         LayoutStoreError,
     ) as e:
         print(f"sunstone check: {e}", file=sys.stderr)

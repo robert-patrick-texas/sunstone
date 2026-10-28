@@ -283,6 +283,11 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		showDiscovery(findingTarget(f));
 	}
 
+	function goIncident(number: number): void {
+		close();
+		ui.incident = number;
+	}
+
 	function goTeam(team: string): void {
 		close();
 		showTeam(team);
@@ -481,6 +486,32 @@ and shows it: a problem with its impact, an outage at the moment it began.
 					{/if}
 					{#if noteProblem}<p class="error" role="alert">{noteProblem}</p>{/if}
 				</section>
+
+				{#if handover.incidents?.length}
+					<section aria-label="Incidents">
+						<h2>Incidents ({handover.incidents.length})</h2>
+						<ul class="rows">
+							{#each handover.incidents as i (i.number)}
+								<li>
+									<button
+										class="row"
+										class:open={i.status === 'open'}
+										onclick={() => goIncident(i.number)}
+									>
+										<span class="what">{i.number} · {i.title}</span>
+										<span class="when"
+											>{i.status === 'open'
+												? `open since ${clock(i.began ?? i.opened_at)}`
+												: i.status === 'cleared'
+													? 'cleared, postmortem to write'
+													: 'closed'}</span
+										>
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</section>
+				{/if}
 
 				<section aria-label={saved ? 'Open at handover' : 'Open now'}>
 					<h2>

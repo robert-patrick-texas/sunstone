@@ -5,6 +5,13 @@ its section here.
 
 ## Unreleased
 
+- Incidents: a problem becomes an incident, named and numbered, that other
+  problems can join, with a timeline worked out from what Sunstone records
+  about its devices and links (the source's events, acknowledgements, pages
+  and whom they reached, maintenance, fixes) and people's notes, kept with
+  it; it clears with its problems, and a postmortem summary closes it. The
+  `i` key, `?incident=12`, a copyable postmortem, and the handover lists
+  incidents.
 - A daily update, off until enabled: `sunstone-update.timer` runs
   `sunstone self-update --unattended`, which installs only a newer release,
   leaves out one whose install failed last time, and logs to the journal.

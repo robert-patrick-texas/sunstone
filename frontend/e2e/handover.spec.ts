@@ -29,7 +29,7 @@ test('the shift handover opens with h, covers 12 or 8 hours, and closes again', 
 	// A link opens it again, and so does search.
 	await page.goto('/?handover=12');
 	await expect(report.getByRole('heading', { name: 'Shift handover' })).toBeVisible();
-	await report.getByRole('button', { name: 'Close' }).click();
+	await report.getByRole('button', { name: 'Close', exact: true }).click();
 	await page.getByRole('combobox', { name: 'Search' }).fill('handover');
 	await expect(page.getByRole('option').first()).toContainText('Shift handover');
 	await page.keyboard.press('Enter');
@@ -125,6 +125,6 @@ test('the incoming shift signs for its handover, which stands out until someone 
 	await which.selectOption('');
 	await expect(report.getByRole('region', { name: 'Notes for the next shift' })).toBeVisible();
 	await expect(report.getByRole('region', { name: 'Not signed for' })).toHaveCount(0);
-	await report.getByRole('button', { name: 'Close' }).click();
+	await report.getByRole('button', { name: 'Close', exact: true }).click();
 	await expect(button).toHaveText('Handover');
 });

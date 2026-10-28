@@ -656,6 +656,8 @@ class RoutedProblem(Problem):
     urgency: Urgency = "high"
     paging: Paging | None = None
     """Its page as it stands, if it has been paged."""
+    incident: int | None = None
+    """The incident not yet closed it is in, if any."""
 
 
 class RoutedProblemList(_Record):

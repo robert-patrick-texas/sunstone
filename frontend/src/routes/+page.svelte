@@ -21,6 +21,7 @@ open, and leaves it as it was when it closes.
 	import { fetchOnCall, fetchOwnership, type OnCall, type Ownership } from '#lib/api/oncall.ts';
 	import { fetchWindows, type Window } from '#lib/api/operations.ts';
 	import { fetchHandovers, type HandoverSummary } from '#lib/api/handover.ts';
+	import { fetchIncidents, type IncidentSummary } from '#lib/api/incidents.ts';
 	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
 	import { available, COMMANDS, commandFor, type CommandId } from '#lib/commands.ts';
@@ -33,6 +34,7 @@ open, and leaves it as it was when it closes.
 	import { toSign } from '#lib/handover.ts';
 	import HandoverReport from '#lib/HandoverReport.svelte';
 	import HierarchyView from '#lib/hierarchy/HierarchyView.svelte';
+	import IncidentReport from '#lib/IncidentReport.svelte';
 	import type { Impact } from '#lib/impact.ts';
 	import TopologyView from '#lib/topo/TopologyView.svelte';
 	import Legend from '#lib/Legend.svelte';
@@ -95,6 +97,8 @@ open, and leaves it as it was when it closes.
 	const CHANGES_POLL_MS = 60_000;
 	// Handovers are saved when shifts change, and signed for once.
 	const HANDOVERS_POLL_MS = 60_000;
+	// Incidents change when someone opens one or adds to it.
+	const INCIDENTS_POLL_MS = 60_000;
 	// While the time slider is dragged, wait for it to settle before fetching.
 	const REPLAY_WAIT_MS = 200;
 	// How far back sources keep history, for stepping back before the events arrive.
@@ -110,6 +114,7 @@ open, and leaves it as it was when it closes.
 	let oncall = $state.raw<OnCall | null>(null);
 	/** The handover the shift on now took over with, while no one has signed for it. */
 	let unsigned = $state.raw<HandoverSummary | null>(null);
+	let incidents = $state.raw<IncidentSummary[]>([]);
 	let oncallProblem = $state<string | null>(null);
 	let ownership = $state.raw<Ownership | null>(null);
 	let comparison = $state.raw<Comparison | null>(null);
@@ -189,6 +194,7 @@ open, and leaves it as it was when it closes.
 		if (found.camera) fromLink.camera = found.camera;
 		if (found.discovery !== undefined) ui.discovery = found.discovery;
 		if (found.handover !== undefined) ui.handover = found.handover;
+		if (found.incident !== undefined) ui.incident = found.incident;
 		if (found.wall !== undefined) {
 			ui.wall.on = found.wall !== null;
 			if (found.wall) ui.wall.dwell = found.wall.dwell;
@@ -210,7 +216,8 @@ open, and leaves it as it was when it closes.
 			camera: ui.camera,
 			wall: ui.wall.on ? { dwell: ui.wall.dwell } : null,
 			discovery: ui.discovery,
-			handover: ui.handover
+			handover: ui.handover,
+			incident: ui.incident
 		};
 	}
 
@@ -499,6 +506,27 @@ open, and leaves it as it was when it closes.
 		};
 	});
 
+	// Every incident, for adding a problem to one; again after a change, and
+	// when the incident report closes.
+	$effect(() => {
+		void refresh;
+		void ui.incident;
+		let stopped = false;
+		const load = () =>
+			fetchIncidents().then(
+				(list) => {
+					if (!stopped) incidents = list.incidents;
+				},
+				(e: unknown) => console.warn('Incidents unavailable', e)
+			);
+		void load();
+		const timer = setInterval(load, INCIDENTS_POLL_MS);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
+	});
+
 	// Who is on call: now, checked now and then, or at the moment replayed.
 	$effect(() => {
 		const at = ui.at;
@@ -591,7 +619,8 @@ open, and leaves it as it was when it closes.
 		now: () => (ui.at = null),
 		'copy-link': () => void copyLink(),
 		wall: enterWall,
-		handover: () => (ui.handover = ui.handover === null ? DEFAULT_HANDOVER_H : null)
+		handover: () => (ui.handover = ui.handover === null ? DEFAULT_HANDOVER_H : null),
+		incidents: () => (ui.incident = ui.incident === null ? 0 : null)
 	};
 
 	function run(id: CommandId): void {
@@ -599,8 +628,15 @@ open, and leaves it as it was when it closes.
 	}
 
 	function onKeydown(e: KeyboardEvent): void {
-		// The wall display and the handover have keys of their own, and the help is modal.
-		if (ui.wall.on || ui.handover !== null || helpOpen || e.defaultPrevented) return;
+		// The wall display, the handover, and incidents have keys of their own, and the help is modal.
+		if (
+			ui.wall.on ||
+			ui.handover !== null ||
+			ui.incident !== null ||
+			helpOpen ||
+			e.defaultPrevented
+		)
+			return;
 		// Keys are for typing while in a box, except Ctrl+K and the like.
 		const target = e.target;
 		const typing =
@@ -814,12 +850,16 @@ open, and leaves it as it was when it closes.
 					{ownership}
 					{comparison}
 					{changes}
+					{incidents}
 				/>
 			{/if}
 		{/if}
 	</main>
 	{#if ui.handover !== null && !ui.wall.on && index}
 		<HandoverReport shown={ui.handover} {copied} oncopy={copyLink} />
+	{/if}
+	{#if ui.incident !== null && !ui.wall.on && index}
+		<IncidentReport shown={ui.incident} {copied} oncopy={copyLink} />
 	{/if}
 </div>
 

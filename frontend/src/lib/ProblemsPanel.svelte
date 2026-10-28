@@ -66,6 +66,9 @@ view; clicking it again stops showing the impact.
 								{@const last = problem.paging.notified.at(-1)}
 								<span class="tag paged">Paged{last ? `: ${name(last.person)}` : ''}</span>
 							{/if}
+							{#if problem.incident}
+								<span class="tag incident">Incident {problem.incident}</span>
+							{/if}
 							{#if problem.ack}
 								<span class="tag ack"
 									>On it: {problem.ack.by}{problem.ack.note ? ` · ${problem.ack.note}` : ''}</span
@@ -155,6 +158,9 @@ view; clicking it again stops showing the impact.
 	}
 	.tag.paged::before {
 		background: var(--path);
+	}
+	.tag.incident::before {
+		background: var(--down);
 	}
 	.detail {
 		display: block;

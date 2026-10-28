@@ -88,6 +88,8 @@ export const ui = $state({
 	 * saved one's id; null when not shown.
 	 */
 	handover: null as number | string | null,
+	/** The incident shown, by number, 0 for none chosen yet; null when not shown. */
+	incident: null as number | null,
 	/** The discovery finding whose fix is being reviewed, by id, or that is being marked expected. */
 	fixing: null as { finding: string; expect: boolean } | null
 });
