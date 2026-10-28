@@ -1,0 +1,42 @@
+# lintian overrides for the sunstone binary package, following vakr's. Each
+# override is justified below. Every other lintian error fails the build
+# (build.sh runs `lintian --fail-on error`). Installed as
+# /usr/share/lintian/overrides/sunstone.
+
+# The owner decided that Sunstone installs everything under /opt/sunstone: a
+# self-contained runtime with its own interpreter and locked virtual
+# environment, independent of the system Python and its upgrades. Only OS
+# integration points (the unit, sysusers.d, tmpfiles.d, /usr/bin/sunstone,
+# and Debian's copyright, changelog, and lintian files) live elsewhere.
+sunstone: dir-or-file-in-opt [opt/sunstone/*]
+
+# Bundled interpreter: python-build-standalone links bzip2, expat, ncurses,
+# zlib, and zstd statically so the interpreter is relocatable and does not
+# depend on system library versions. It is updated with Sunstone's
+# releases, not by the distribution's security updates.
+sunstone: embedded-library * [opt/sunstone/python/*]
+
+# Bundled interpreter: these ELF files ship exactly as python-build-standalone
+# built them; binutils `strip` corrupts its executable ("undefined symbol").
+sunstone: unstripped-binary-or-object [opt/sunstone/python/*]
+
+# Bundled interpreter: python-build-standalone builds the interpreter
+# executable without PIE; this is its upstream build configuration.
+sunstone: hardening-no-pie [opt/sunstone/python/bin/python3.*]
+
+# Bundled interpreter: entry points in the private venv must run the bundled
+# /opt/sunstone interpreter, never /usr/bin/python3, so they need no python3
+# dependency and their interpreter path is intentionally not /usr/bin/python3.
+sunstone: python3-script-but-no-python3-dep /opt/sunstone/venv/bin/python3 * [opt/sunstone/venv/bin/*]
+sunstone: wrong-path-for-interpreter /opt/sunstone/venv/bin/python3 != /usr/bin/python3 [opt/sunstone/venv/bin/*]
+
+# Bundled interpreter: the standard library and venv ship bytecode compiled
+# at build time with hash-based invalidation. It is reproducible, covered by
+# dpkg's checksums, and means nothing under /opt/sunstone is written at run
+# time, so removal and upgrades leave no unowned files. Debian's py3compile
+# mechanism only serves /usr/bin/python3 packages.
+sunstone: package-installs-python-pycache-dir [opt/sunstone/*/__pycache__/]
+
+# Bundled interpreter: an upstream CPython standard-library module that still
+# carries a historical "#!/usr/bin/env python" line; it is never executed.
+sunstone: unusual-interpreter python [opt/sunstone/python/lib/python3.*/encodings/rot_13.py]

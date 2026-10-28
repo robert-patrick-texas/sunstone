@@ -1,0 +1,85 @@
+# nfpm spec for the Sunstone package, following vakr's.
+#
+# packaging/container/build.sh runs nfpm from the repository root inside the
+# build container, after it has assembled /opt/sunstone. It sets:
+#   SUNSTONE_DEB_VERSION  Debian form of VERSION, e.g. 0.2.0~rc.1
+#   SOURCE_DATE_EPOCH     commit time; nfpm stamps it on generated archive members
+name: sunstone
+arch: amd64
+platform: linux
+version: ${SUNSTONE_DEB_VERSION}
+# The version is already in package form; nfpm must not re-parse it as SemVer.
+version_schema: none
+section: net
+priority: optional
+maintainer: Robert Patrick <193846785+robert-patrick-texas@users.noreply.github.com>
+vendor: sunstone
+homepage: https://github.com/robert-patrick-texas/sunstone
+license: Apache-2.0
+description: |-
+  interactive map of a network for the NOC
+  Sunstone shows a network topology as a geographic map and as graphs, with
+  live state, problems and their impact, maintenance, on-call routing,
+  discovery against the documentation, and shift handovers.
+  .
+  The package is self-contained under /opt/sunstone, with its own Python
+  interpreter and locked virtual environment, independent of the system
+  Python.
+umask: 0o022
+
+contents:
+  # Interpreter, venv, web UI, samples, signers, config template, docs.
+  - src: /opt/sunstone
+    dst: /opt/sunstone
+    type: tree
+
+  # OS integration points, the only files outside /opt/sunstone.
+  - src: packaging/systemd/sunstone.service
+    dst: /usr/lib/systemd/system/sunstone.service
+    file_info: {mode: 0o644}
+  - src: packaging/sysusers.d/sunstone.conf
+    dst: /usr/lib/sysusers.d/sunstone.conf
+    file_info: {mode: 0o644}
+  - src: packaging/tmpfiles.d/sunstone.conf
+    dst: /usr/lib/tmpfiles.d/sunstone.conf
+    file_info: {mode: 0o644}
+  - src: /opt/sunstone/venv/bin/sunstone
+    dst: /usr/bin/sunstone
+    type: symlink
+
+  # Debian policy files: lintian overrides with their justifications, and
+  # the copyright file and changelog every Debian package must carry.
+  # build.sh writes changelog.gz from CHANGELOG.md.
+  - src: packaging/lintian/sunstone
+    dst: /usr/share/lintian/overrides/sunstone
+    packager: deb
+    file_info: {mode: 0o644}
+  - src: packaging/copyright
+    dst: /usr/share/doc/sunstone/copyright
+    packager: deb
+    file_info: {mode: 0o644}
+  - src: /build/doc/changelog.gz
+    dst: /usr/share/doc/sunstone/changelog.gz
+    packager: deb
+    file_info: {mode: 0o644}
+
+overrides:
+  deb:
+    depends:
+      - ca-certificates
+      # ssh-keygen verifies release signatures for self-update.
+      - openssh-client
+      - systemd
+      # The bundled interpreter reads time zones (on-call rotations, shift
+      # changes) from /usr/share/zoneinfo, which minimal systems lack.
+      - tzdata
+      # Bundled interpreter and wheels need at least this glibc; build.sh
+      # fails if any packaged ELF file needs a newer symbol version.
+      - libc6 (>= 2.17)
+    scripts:
+      postinstall: packaging/scripts/deb/postinst
+      preremove: packaging/scripts/deb/prerm
+      postremove: packaging/scripts/deb/postrm
+
+deb:
+  compression: zstd

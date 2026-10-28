@@ -4,6 +4,7 @@ import os
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
 
@@ -100,6 +101,12 @@ from sunstone.simulate import SimulatedState, monitored
 
 NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
 HANDOVER_GRACE = timedelta(minutes=1)
+
+
+class VersionInfo(BaseModel):
+    """Which release of Sunstone is serving."""
+
+    version: str
 
 
 class WhatIfQuestion(BaseModel):
@@ -304,6 +311,11 @@ def create_app(
     app = FastAPI(title="Sunstone")
     # Topology and state run to megabytes for large networks and compress well.
     app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+    @app.get("/api/version")
+    def get_version() -> VersionInfo:
+        """Return the version serving, which self-update waits for after a restart."""
+        return VersionInfo(version=version("sunstone"))
 
     @app.get("/api/topology")
     def get_topology() -> Topology:

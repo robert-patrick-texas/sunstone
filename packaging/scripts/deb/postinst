@@ -1,0 +1,64 @@
+#!/bin/sh
+# postinst for sunstone, following vakr's.
+#
+# Creates the sunstone account and the directories in tmpfiles.d. When
+# /etc/sunstone has no topology yet, puts the small sample network there, so
+# the service has something to show. Writes /etc/sunstone/config.toml only
+# when it does not exist: it is never a dpkg conffile, so upgrades never
+# stop to ask about it. On upgrade, restarts sunstone.service only if it was
+# running. Nothing is enabled or started on a first install.
+set -e
+
+ETC=/etc/sunstone
+SHARE=/opt/sunstone/share
+
+install_file() {
+    # Copy $1 to $2, readable by the service, unless $2 exists already.
+    [ -e "$2" ] && return 1
+    tmp=$(mktemp "$2.XXXXXX")
+    cp "$1" "$tmp"
+    if [ "$3" = no-oncall ]; then
+        # Without an on-call directory, the setting naming one stays a comment.
+        sed -i 's|^oncall = |# oncall = |' "$tmp"
+    fi
+    chown root:sunstone "$tmp"
+    chmod 0640 "$tmp"
+    mv "$tmp" "$2"
+    echo "sunstone: created $2"
+}
+
+case "$1" in
+    configure)
+        systemd-sysusers sunstone.conf
+        systemd-tmpfiles --create sunstone.conf
+        # The sample's on-call directory names the sample's sites, so it comes
+        # only with the sample topology.
+        if install_file "$SHARE/samples/small.yaml" "$ETC/topology.yaml"; then
+            install_file "$SHARE/samples/small.oncall.yaml" "$ETC/oncall.yaml" || true
+        fi
+        if [ -e "$ETC/oncall.yaml" ]; then
+            install_file "$SHARE/templates/config.toml" "$ETC/config.toml" || true
+        else
+            install_file "$SHARE/templates/config.toml" "$ETC/config.toml" no-oncall || true
+        fi
+        # Without systemd as PID 1 (containers, chroots) there is nothing to reload.
+        if [ -d /run/systemd/system ]; then
+            systemctl --system daemon-reload >/dev/null || true
+            # $2 is the version configured before: empty on a first install.
+            # try-restart restarts the service only if it is running.
+            if [ -n "$2" ] && ! systemctl try-restart sunstone.service; then
+                # Self-update notices and rolls back; failing here would only
+                # leave dpkg half-configured.
+                echo "sunstone: restarting sunstone.service failed; see 'journalctl -u sunstone'" >&2
+            fi
+        fi
+        ;;
+    abort-upgrade | abort-remove | abort-deconfigure)
+        ;;
+    *)
+        echo "postinst called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

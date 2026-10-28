@@ -1,0 +1,22 @@
+#!/bin/sh
+# prerm for sunstone, following vakr's.
+#
+# On removal, stop the service before its files disappear. On upgrade nothing
+# is stopped: the service keeps running and the new postinst restarts it.
+set -e
+
+case "$1" in
+    remove)
+        if [ -d /run/systemd/system ]; then
+            deb-systemd-invoke stop sunstone.service >/dev/null || true
+        fi
+        ;;
+    upgrade | deconfigure | failed-upgrade)
+        ;;
+    *)
+        echo "prerm called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
