@@ -17,4 +17,5 @@ The first release: Sunstone as a Debian package for Ubuntu 26.04 on amd64.
 - Everything from the workshop prototype: the geographic, hierarchy, and
   topology views, live state and its history, problems and their impact,
   maintenance, on-call routing and paging, discovery against the
-  documentation with fixes and expectations, and shift handovers.
+  documentation with fixes and expectations, and shift handovers, saved at
+  each shift change and signed for by the incoming shift.

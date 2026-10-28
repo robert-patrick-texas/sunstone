@@ -6,7 +6,9 @@ is on it, who is on call, the outages that began or ended and how long they
 lasted, pages and acknowledgements, maintenance done, open, and coming,
 and fixes and new discovery findings, with the notes the outgoing shift
 writes for the next. The handover of each shift change is saved, and can be
-opened again as it was. It fills the window, prints on paper, is written as
+opened again as it was; someone from the incoming shift signs for it once
+they have read it, and until they do, the report for now says so, with the
+outgoing shift's notes. It fills the window, prints on paper, is written as
 a message to post in chat or send by email, and a link opens it again
 (`?handover=12`, or a saved one's id). Clicking something leaves the report
 and shows it: a problem with its impact, an outage at the moment it began.
@@ -18,6 +20,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		fetchHandover,
 		fetchHandovers,
 		fetchSavedHandover,
+		signHandover,
 		withdrawShiftNote,
 		type Handover,
 		type HandoverList,
@@ -33,8 +36,10 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		messageText,
 		outageSections,
 		savedLabel,
+		signedLine,
 		SPANS,
-		standing
+		standing,
+		toSign
 	} from './handover.ts';
 	import { clock } from './history.ts';
 	import { phaseOf, span } from './maintenance.ts';
@@ -80,9 +85,16 @@ and shows it: a problem with its impact, an outage at the moment it began.
 	let noteProblem = $state<string | null>(null);
 	let showMessage = $state(false);
 	let messageCopied = $state<string | null>(null);
+	let signNote = $state('');
+	let signing = $state(false);
+	let signProblem = $state<string | null>(null);
+	/** The handover no one has signed for yet, for its notes, while showing now. */
+	let outgoing = $state.raw<Handover | null>(null);
 	/** Incremented to fetch the handover again, after a note is added or withdrawn. */
 	let reload = $state(0);
 	const saved = $derived(typeof shown === 'string');
+	const pending = $derived(toSign(history));
+	const pendingId = $derived(pending?.id ?? null);
 	const notesTitle = $derived(saved ? 'Notes from the outgoing shift' : 'Notes for the next shift');
 	// Until the one asked for comes, nothing rather than another.
 	const handover = $derived(found?.shown === shown ? found.handover : null);
@@ -147,6 +159,22 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		};
 	});
 
+	// The outgoing shift's notes, while no one has signed for their handover.
+	$effect(() => {
+		const id = saved ? null : pendingId;
+		if (!id) return;
+		let stopped = false;
+		fetchSavedHandover(id).then(
+			(h) => {
+				if (!stopped) outgoing = h;
+			},
+			(e: unknown) => console.warn('Handover to sign for unavailable', e)
+		);
+		return () => {
+			stopped = true;
+		};
+	});
+
 	onMount(() => document.querySelector<HTMLElement>('.handover h1')?.focus());
 
 	function close(): void {
@@ -206,6 +234,23 @@ and shows it: a problem with its impact, an outage at the moment it began.
 			reload++;
 		} catch (err) {
 			noteProblem = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	async function sign(e: SubmitEvent): Promise<void> {
+		e.preventDefault();
+		if (!handover?.id) return;
+		rememberName(ui.person.trim());
+		signing = true;
+		signProblem = null;
+		try {
+			found = { shown, handover: await signHandover(handover.id, ui.person, signNote) };
+			signNote = '';
+			history = await fetchHandovers();
+		} catch (err) {
+			signProblem = err instanceof Error ? err.message : String(err);
+		} finally {
+			signing = false;
 		}
 	}
 
@@ -323,6 +368,30 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		<p class="muted">Working out the handover…</p>
 	{:else}
 		<div class="sheet">
+			{#if !saved && pending}
+				{@const notes = outgoing?.id === pending.id ? outgoing.notes : []}
+				<section class="due" aria-label="Not signed for">
+					<h2>
+						Not signed for <small>the handover at {clock(pending.until)}</small>
+					</h2>
+					<p>
+						No one from this shift has signed for the handover yet: {pending.problems} open at the change,
+						{pending.unhandled} no one was on, and {pending.notes || 'no'}
+						{pending.notes === 1 ? 'note' : 'notes'} from the outgoing shift.
+					</p>
+					<ul class="rows">
+						{#each notes as n (n.id)}
+							<li class="note">
+								<span class="what">{n.text}</span>
+								<span class="when">{n.by} · {clock(n.at)}</span>
+							</li>
+						{/each}
+					</ul>
+					<p class="controls">
+						<button onclick={() => (ui.handover = pending.id)}>Read it and sign for it</button>
+					</p>
+				</section>
+			{/if}
 			{#if showMessage}
 				<section class="message controls" aria-label="Message">
 					<h2>
@@ -333,6 +402,41 @@ and shows it: a problem with its impact, an outage at the moment it began.
 				</section>
 			{/if}
 			<div class="column">
+				{#if saved}
+					{@const due = !handover.signed && handover.id === history?.current}
+					<section class:due aria-label="Sign-off">
+						<h2>Sign-off</h2>
+						{#if handover.signed}
+							<p>{signedLine(handover.signed)}</p>
+						{:else if due}
+							<p class="muted">
+								Not signed for yet. Sign once you have read it and taken over, so the handover says
+								who took over and when.
+							</p>
+							<form class="write controls" onsubmit={sign}>
+								<input
+									class="name"
+									bind:value={ui.person}
+									required
+									maxlength="64"
+									placeholder="Your name"
+									aria-label="Your name"
+									autocomplete="name"
+								/>
+								<input
+									bind:value={signNote}
+									maxlength="1000"
+									placeholder="Anything to say back (optional)"
+									aria-label="Anything to say back"
+								/>
+								<button type="submit" disabled={signing}>Sign for it</button>
+							</form>
+						{:else}
+							<p class="muted">No one signed for it.</p>
+						{/if}
+						{#if signProblem}<p class="error" role="alert">{signProblem}</p>{/if}
+					</section>
+				{/if}
 				<section aria-label={notesTitle}>
 					<h2>
 						{notesTitle} ({handover.notes.length})
@@ -627,6 +731,17 @@ and shows it: a problem with its impact, an outage at the moment it began.
 	.message {
 		grid-column: 1 / -1;
 	}
+	/* A handover no one has signed for stands out. */
+	.due {
+		padding: 2px 12px 8px;
+		border-left: 3px solid var(--accent);
+		background: var(--panel);
+		border-radius: 4px;
+	}
+	.sheet > .due {
+		grid-column: 1 / -1;
+		margin-top: 8px;
+	}
 	pre {
 		margin: 0 0 6px;
 		padding: 8px 10px;
@@ -801,8 +916,12 @@ and shows it: a problem with its impact, an outage at the moment it began.
 			border-radius: 0;
 		}
 		.row.open,
-		.note {
+		.note,
+		.due {
 			border-left: 3px solid #000;
+		}
+		.due {
+			background: none;
 		}
 		.row:disabled {
 			color: #000;

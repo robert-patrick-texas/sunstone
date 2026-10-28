@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Version
+         * @description Return the version serving, which self-update waits for after a restart.
+         */
+        get: operations["get_version_api_version_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/topology": {
         parameters: {
             query?: never;
@@ -144,8 +164,8 @@ export interface paths {
         };
         /**
          * List Handovers
-         * @description Return the handovers saved at shift changes, latest first, and
-         *     when the shift changes next.
+         * @description Return the handovers saved at shift changes, latest first, which
+         *     one the shift on now took over with, and when the shift changes next.
          */
         get: operations["list_handovers_api_handovers_get"];
         put?: never;
@@ -171,6 +191,27 @@ export interface paths {
         get: operations["get_saved_handover_api_handovers__handover_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/handovers/{handover_id}/sign-off": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign Off
+         * @description Sign for the handover the shift on now took over with, having read
+         *     it, saying who took over; it can be signed for once.
+         */
+        post: operations["sign_off_api_handovers__handover_id__sign_off_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -995,6 +1036,7 @@ export interface components {
             /** Findings */
             findings: components["schemas"]["Finding"][];
             oncall: components["schemas"]["OnCall"] | null;
+            signed?: components["schemas"]["SignOff"] | null;
             /**
              * @description The handover written to post in chat or send by email.
              *
@@ -1013,6 +1055,8 @@ export interface components {
             next: string | null;
             /** Timezone */
             timezone: string | null;
+            /** Current */
+            current: string | null;
             /** Handovers */
             handovers: components["schemas"]["HandoverSummary"][];
         };
@@ -1043,6 +1087,7 @@ export interface components {
             still_down: number;
             /** Notes */
             notes: number;
+            signed: components["schemas"]["SignOff"] | null;
         };
         /**
          * Impact
@@ -1605,6 +1650,37 @@ export interface components {
             by: string;
         };
         /**
+         * SignOff
+         * @description Who took over with a handover, and when.
+         */
+        SignOff: {
+            /** By */
+            by: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
+        /**
+         * SignOffIn
+         * @description Someone from the incoming shift taking over with a handover.
+         */
+        SignOffIn: {
+            /** By */
+            by: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
          * Site
          * @description A physical location with map coordinates.
          */
@@ -1721,6 +1797,14 @@ export interface components {
             ctx?: Record<string, never>;
         };
         /**
+         * VersionInfo
+         * @description Which release of Sunstone is serving.
+         */
+        VersionInfo: {
+            /** Version */
+            version: string;
+        };
+        /**
          * WhatIf
          * @description What failing some items would do, on top of what is already down.
          */
@@ -1810,6 +1894,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_version_api_version_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionInfo"];
+                };
+            };
+        };
+    };
     get_topology_api_topology_get: {
         parameters: {
             query?: never;
@@ -2009,6 +2113,41 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Handover"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sign_off_api_handovers__handover_id__sign_off_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                handover_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignOffIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
