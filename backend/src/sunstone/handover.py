@@ -16,8 +16,10 @@ guessed about why.
 
 At each shift change the on-call directory gives, the handover of the shift
 ending then is saved, with the notes written during it, and kept as it was.
-Each is also written as a message to post in chat or send by email; nothing
-is sent.
+Someone from the incoming shift signs for it once they have read it and
+taken over, so the saved handovers say who took over and when; only the
+handover of the shift on now can be signed for. Each is also written as a
+message to post in chat or send by email; nothing is sent.
 """
 
 import json
@@ -37,7 +39,7 @@ from sunstone.live import StateEvent
 from sunstone.model import Topology
 from sunstone.oncall import HandoverTimes, OnCall, Page, RoutedProblem
 from sunstone.operations import ShiftNote, Window
-from sunstone.problems import Ack, link_name, natural
+from sunstone.problems import Ack, Note, PersonName, link_name, natural
 
 # Saved handovers kept: a month of 12-hour shifts. Each is about 80 KB on
 # the 3,000-device sample.
@@ -77,6 +79,20 @@ class Message(_Record):
     text: str
 
 
+class SignOffIn(_Record):
+    """Someone from the incoming shift taking over with a handover."""
+
+    by: PersonName
+    note: Note = ""
+    """Anything to say back to the outgoing shift."""
+
+
+class SignOff(SignOffIn):
+    """Who took over with a handover, and when."""
+
+    at: datetime
+
+
 class Handover(_Record):
     """What the incoming shift needs to know."""
 
@@ -106,6 +122,9 @@ class Handover(_Record):
     """Discovery findings first seen in the span and still seen."""
     oncall: OnCall | None
     """Who is on call now; None without an on-call directory."""
+    signed: SignOff | None = None
+    """Who took over with a saved handover, and when; None until someone
+    does, and for one worked out now."""
 
     @computed_field
     @cached_property
@@ -131,6 +150,7 @@ class HandoverSummary(_Record):
     outages: int
     still_down: int
     notes: int
+    signed: SignOff | None
 
 
 class HandoverList(_Record):
@@ -139,6 +159,9 @@ class HandoverList(_Record):
     next: datetime | None
     """The next shift change; None without shift changes in the directory."""
     timezone: str | None
+    current: str | None
+    """The id of the handover the shift on now took over with, the only one
+    that can be signed for; None if it was not saved."""
     handovers: list[HandoverSummary]
     """Latest first."""
 
@@ -353,6 +376,7 @@ def summary(handover: Handover) -> HandoverSummary:
         outages=len(handover.outages),
         still_down=sum(1 for o in handover.outages if o.end is None),
         notes=len(handover.notes),
+        signed=handover.signed,
     )
 
 
@@ -430,6 +454,29 @@ class HandoverStore:
         os.replace(temporary, self.path)
         self._saved = saved
 
+    def sign(self, handover_id: str, sign_off: SignOff) -> Handover:
+        """Record who took over with a saved handover, holding ``lock``.
+
+        Args:
+            handover_id: Its id.
+            sign_off: Who, when, and anything they said back.
+
+        Returns:
+            The handover, signed for.
+
+        Raises:
+            KeyError: If there is no such handover.
+        """
+        found = self.get(handover_id)
+        if found is None:
+            raise KeyError(handover_id)
+        # Made again rather than copied, so its message is written again.
+        signed = Handover.model_validate(
+            {**found.model_dump(exclude_computed_fields=True), "signed": sign_off}
+        )
+        self.save(signed)
+        return signed
+
 
 def duration(span: timedelta) -> str:
     """A length of time, readably.
@@ -500,8 +547,13 @@ def _message(h: Handover) -> Message:
     text = [
         f"Shift handover, {day(h.since)} to {day(h.until)} ({end.tzname()}), "
         f"the last {duration(h.until - h.since)}",
-        "",
     ]
+    if h.signed:
+        said = f" · {h.signed.note}" if h.signed.note else ""
+        text.append(f"Signed for by {h.signed.by} at {clock(h.signed.at)}{said}")
+    elif h.id:
+        text.append("Not signed for yet.")
+    text.append("")
     if h.notes:
         text.append(f"Notes from the outgoing shift ({len(h.notes)})")
         text += [f"- {n.text} ({n.by}, {clock(n.at)})" for n in h.notes]

@@ -91,3 +91,40 @@ test('notes go with the next handover, and each shift change is saved with its m
 	await expect(page).toHaveURL(/handover=12/);
 	await expect(report.getByRole('region', { name: 'Notes for the next shift' })).toBeVisible();
 });
+
+test('the incoming shift signs for its handover, which stands out until someone does', async ({
+	page
+}) => {
+	// History has the last shift change, so its handover is saved, and no one has signed for it.
+	const button = page.getByRole('button', { name: /^Handover/ });
+	await expect(button).toContainText('to sign');
+	await button.click();
+	const report = page.getByLabel('Shift handover');
+	const due = report.getByRole('region', { name: 'Not signed for' });
+	await expect(due.locator('p').first()).toHaveText(
+		/^No one from this shift has signed for[\s\S]+ from the outgoing shift\.$/
+	);
+	await due.getByRole('button', { name: 'Read it and sign for it' }).click();
+	await expect(page).toHaveURL(/handover=\d{8}T\d{4}Z/);
+
+	const signoff = report.getByRole('region', { name: 'Sign-off' });
+	await expect(signoff).toContainText('Not signed for yet.');
+	await signoff.getByLabel('Your name').fill('Sam');
+	await signoff.getByLabel('Anything to say back').fill('asked Pat about HOU');
+	await signoff.getByRole('button', { name: 'Sign for it' }).click();
+	await expect(signoff.locator('p')).toHaveText(/^Taken over by Sam at .+ · asked Pat about HOU$/);
+	await expect(signoff.getByRole('button')).toHaveCount(0);
+	const which = report.getByRole('combobox', { name: 'Which handover' });
+	await expect(which.locator('option:checked')).toContainText('· Sam took over');
+	await report.getByRole('button', { name: 'Message' }).click();
+	await expect(report.getByRole('region', { name: 'Message' }).locator('pre')).toContainText(
+		'Signed for by Sam at '
+	);
+
+	// Signed for, it no longer stands out.
+	await which.selectOption('');
+	await expect(report.getByRole('region', { name: 'Notes for the next shift' })).toBeVisible();
+	await expect(report.getByRole('region', { name: 'Not signed for' })).toHaveCount(0);
+	await report.getByRole('button', { name: 'Close' }).click();
+	await expect(button).toHaveText('Handover');
+});

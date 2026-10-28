@@ -42,6 +42,8 @@ from sunstone.handover import (
     Handover,
     HandoverList,
     HandoverStore,
+    SignOff,
+    SignOffIn,
     handover_id,
     last_change,
     next_change,
@@ -508,14 +510,23 @@ def create_app(
                 if since >= begins and handovers.get(handover_id(at)) is None:
                     handovers.save(handover_of(d, since, at, live=False))
 
+    def current(now: datetime) -> str | None:
+        """The id of the handover the shift on now took over with, if saved."""
+        if times is None:
+            return None
+        found = handovers.get(handover_id(last_change(times, now)))
+        return found.id if found else None
+
     @app.get("/api/handovers")
     def list_handovers() -> HandoverList:
-        """Return the handovers saved at shift changes, latest first, and
-        when the shift changes next."""
+        """Return the handovers saved at shift changes, latest first, which
+        one the shift on now took over with, and when the shift changes next."""
         hand_over()
+        now = datetime.now(UTC)
         return HandoverList(
-            next=next_change(times, datetime.now(UTC)) if times else None,
+            next=next_change(times, now) if times else None,
             timezone=times.timezone if times else None,
+            current=current(now),
             handovers=[summary(h) for h in handovers.handovers()],
         )
 
@@ -528,6 +539,24 @@ def create_app(
         if found is None:
             raise HTTPException(404, f"No handover {handover_id!r}")
         return found
+
+    @app.post("/api/handovers/{handover_id}/sign-off", status_code=201)
+    def sign_off(handover_id: str, sign: SignOffIn) -> Handover:
+        """Sign for the handover the shift on now took over with, having read
+        it, saying who took over; it can be signed for once."""
+        hand_over()
+        now = datetime.now(UTC)
+        with handovers.lock:
+            found = handovers.get(handover_id)
+            if found is None:
+                raise HTTPException(404, f"No handover {handover_id!r}")
+            if found.signed:
+                raise HTTPException(409, f"{found.signed.by} signed for it already")
+            if handover_id != current(now):
+                raise HTTPException(
+                    409, "Only the handover of the shift on now can be signed for"
+                )
+            return handovers.sign(handover_id, SignOff(**sign.model_dump(), at=now))
 
     @app.post("/api/shift-notes", status_code=201)
     def add_note(note: ShiftNoteIn) -> ShiftNote:

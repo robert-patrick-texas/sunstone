@@ -3,7 +3,8 @@
  * now and who is on it, outages, pages and acknowledgements, maintenance,
  * fixes, discovery findings, who is on call, and the outgoing shift's notes,
  * over the last hours. And the handovers saved at each shift change
- * (`/api/handovers`), and notes for the next one (`/api/shift-notes`).
+ * (`/api/handovers`), signing for the one the shift on now took over with,
+ * and notes for the next one (`/api/shift-notes`).
  *
  * The types are aliases of `schema.d.ts`, generated from the backend's
  * OpenAPI description.
@@ -17,6 +18,7 @@ export type HandoverList = Schemas['HandoverList'];
 export type HandoverSummary = Schemas['HandoverSummary'];
 export type Outage = Schemas['Outage'];
 export type ShiftNote = Schemas['ShiftNote'];
+export type SignOff = Schemas['SignOff'];
 
 /**
  * Fetch the handover for a span ending now.
@@ -48,6 +50,20 @@ export function fetchHandovers(): Promise<HandoverList> {
  */
 export function fetchSavedHandover(id: string): Promise<Handover> {
 	return send('GET', `/api/handovers/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Sign for the handover the shift on now took over with, having read it.
+ *
+ * @param id - The saved handover's id.
+ * @param by - Who takes over.
+ * @param note - Anything to say back to the outgoing shift.
+ * @returns The handover, signed for.
+ * @throws Error with the API's reason when it refuses (signed for already,
+ *   or not the handover of the shift on now).
+ */
+export function signHandover(id: string, by: string, note: string): Promise<Handover> {
+	return send('POST', `/api/handovers/${encodeURIComponent(id)}/sign-off`, { by, note });
 }
 
 /**

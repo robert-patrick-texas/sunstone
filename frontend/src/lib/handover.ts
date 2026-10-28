@@ -1,9 +1,10 @@
 /**
  * The shift handover as the report shows it: how long things lasted,
  * outages sorted into whole sites, circuits and other links, and single
- * devices, the handovers saved at shift changes, and the message to post.
+ * devices, the handovers saved at shift changes and who signed for them,
+ * and the message to post.
  */
-import type { Handover, HandoverSummary, Outage } from './api/handover.ts';
+import type { Handover, HandoverList, HandoverSummary, Outage, SignOff } from './api/handover.ts';
 import type { Problem } from './api/analysis.ts';
 import { clock } from './history.ts';
 import { DEFAULT_HANDOVER_H } from './url.ts';
@@ -81,11 +82,34 @@ export function standing(problem: Pick<Problem, 'ack' | 'planned' | 'paging'>): 
  * A saved handover, to choose it from a list.
  *
  * @param saved - The saved handover.
- * @returns For example "Handed over 07:00 · 6 open, 1 note".
+ * @returns For example "Handed over 07:00 · 6 open, 1 note · Sam took over",
+ *   or "… · not signed for".
  */
 export function savedLabel(saved: HandoverSummary): string {
 	const notes = saved.notes ? `, ${saved.notes} ${saved.notes === 1 ? 'note' : 'notes'}` : '';
-	return `Handed over ${clock(saved.until)} · ${saved.problems} open${notes}`;
+	const taken = saved.signed ? `${saved.signed.by} took over` : 'not signed for';
+	return `Handed over ${clock(saved.until)} · ${saved.problems} open${notes} · ${taken}`;
+}
+
+/**
+ * The handover the shift on now took over with, while no one has signed for it.
+ *
+ * @param list - The saved handovers, or null before they come.
+ * @returns Its summary, or null if it is signed for or was not saved.
+ */
+export function toSign(list: HandoverList | null): HandoverSummary | null {
+	const current = list?.handovers.find((h) => h.id === list.current);
+	return current && !current.signed ? current : null;
+}
+
+/**
+ * Who took over with a handover.
+ *
+ * @param signed - Their sign-off.
+ * @returns For example "Taken over by Sam at 07:12 · asked Pat about HOU".
+ */
+export function signedLine(signed: SignOff): string {
+	return `Taken over by ${signed.by} at ${clock(signed.at)}${signed.note ? ` · ${signed.note}` : ''}`;
 }
 
 /**

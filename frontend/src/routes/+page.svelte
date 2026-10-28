@@ -20,6 +20,7 @@ open, and leaves it as it was when it closes.
 	import { fetchDiscovery, type Comparison } from '#lib/api/discovery.ts';
 	import { fetchOnCall, fetchOwnership, type OnCall, type Ownership } from '#lib/api/oncall.ts';
 	import { fetchWindows, type Window } from '#lib/api/operations.ts';
+	import { fetchHandovers, type HandoverSummary } from '#lib/api/handover.ts';
 	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
 	import { available, COMMANDS, commandFor, type CommandId } from '#lib/commands.ts';
@@ -29,6 +30,7 @@ open, and leaves it as it was when it closes.
 	import PerfPanel from '#lib/PerfPanel.svelte';
 	import EventsPanel from '#lib/EventsPanel.svelte';
 	import GeoView from '#lib/geo/GeoView.svelte';
+	import { toSign } from '#lib/handover.ts';
 	import HandoverReport from '#lib/HandoverReport.svelte';
 	import HierarchyView from '#lib/hierarchy/HierarchyView.svelte';
 	import type { Impact } from '#lib/impact.ts';
@@ -39,7 +41,7 @@ open, and leaves it as it was when it closes.
 	import OnCallPanel from '#lib/OnCallPanel.svelte';
 	import { indexState, type LiveIndex } from '#lib/live.ts';
 	import { shortestPaths } from '#lib/paths.ts';
-	import { stepEarlier, stepLater, type Span } from '#lib/history.ts';
+	import { clock, stepEarlier, stepLater, type Span } from '#lib/history.ts';
 	import { stepProblem } from '#lib/problem-kinds.ts';
 	import ProblemsPanel from '#lib/ProblemsPanel.svelte';
 	import { loadRecent, saveRecent, withRecent } from '#lib/recent.ts';
@@ -91,6 +93,8 @@ open, and leaves it as it was when it closes.
 	const DISCOVERY_POLL_MS = 5 * 60_000;
 	// The documentation changes when someone accepts a fix, so check now and then.
 	const CHANGES_POLL_MS = 60_000;
+	// Handovers are saved when shifts change, and signed for once.
+	const HANDOVERS_POLL_MS = 60_000;
 	// While the time slider is dragged, wait for it to settle before fetching.
 	const REPLAY_WAIT_MS = 200;
 	// How far back sources keep history, for stepping back before the events arrive.
@@ -104,6 +108,8 @@ open, and leaves it as it was when it closes.
 	let windows = $state.raw<Window[]>([]);
 	let windowsProblem = $state<string | null>(null);
 	let oncall = $state.raw<OnCall | null>(null);
+	/** The handover the shift on now took over with, while no one has signed for it. */
+	let unsigned = $state.raw<HandoverSummary | null>(null);
 	let oncallProblem = $state<string | null>(null);
 	let ownership = $state.raw<Ownership | null>(null);
 	let comparison = $state.raw<Comparison | null>(null);
@@ -473,6 +479,26 @@ open, and leaves it as it was when it closes.
 		};
 	});
 
+	// The handover the shift on now took over with, while no one has signed
+	// for it; again when the report closes, which may have signed for it.
+	$effect(() => {
+		void ui.handover;
+		let stopped = false;
+		const load = () =>
+			fetchHandovers().then(
+				(list) => {
+					if (!stopped) unsigned = toSign(list);
+				},
+				(e: unknown) => console.warn('Saved handovers unavailable', e)
+			);
+		void load();
+		const timer = setInterval(load, HANDOVERS_POLL_MS);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
+	});
+
 	// Who is on call: now, checked now and then, or at the moment replayed.
 	$effect(() => {
 		const at = ui.at;
@@ -673,8 +699,12 @@ open, and leaves it as it was when it closes.
 				{copied ?? 'Copy link'}
 			</button>
 			<button
-				title="What the incoming shift needs to know about the last hours (h)"
-				onclick={() => (ui.handover = DEFAULT_HANDOVER_H)}>Handover</button
+				class:due={unsigned}
+				title={unsigned
+					? `No one has signed for the handover at ${clock(unsigned.until)} yet (h)`
+					: 'What the incoming shift needs to know about the last hours (h)'}
+				onclick={() => (ui.handover = DEFAULT_HANDOVER_H)}
+				>Handover{#if unsigned}<span class="due-mark">{' · to sign'}</span>{/if}</button
 			>
 			<button title="Full-screen display for a NOC wall" onclick={enterWall}>Wall display</button>
 			<button
@@ -884,6 +914,12 @@ open, and leaves it as it was when it closes.
 	}
 	header button {
 		white-space: nowrap;
+	}
+	header button.due {
+		border-color: var(--accent);
+	}
+	.due-mark {
+		color: var(--accent);
 	}
 	/* Takes the room left over, and gives it up first. */
 	.stats {

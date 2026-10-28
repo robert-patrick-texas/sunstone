@@ -5,6 +5,25 @@
   "version": "0.1.0"
  },
  "paths": {
+  "/api/version": {
+   "get": {
+    "summary": "Get Version",
+    "description": "Return the version serving, which self-update waits for after a restart.",
+    "operationId": "get_version_api_version_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VersionInfo"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/topology": {
    "get": {
     "summary": "Get Topology",
@@ -224,7 +243,7 @@
   "/api/handovers": {
    "get": {
     "summary": "List Handovers",
-    "description": "Return the handovers saved at shift changes, latest first, and\nwhen the shift changes next.",
+    "description": "Return the handovers saved at shift changes, latest first, which\none the shift on now took over with, and when the shift changes next.",
     "operationId": "list_handovers_api_handovers_get",
     "responses": {
      "200": {
@@ -258,6 +277,56 @@
     ],
     "responses": {
      "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Handover"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/handovers/{handover_id}/sign-off": {
+   "post": {
+    "summary": "Sign Off",
+    "description": "Sign for the handover the shift on now took over with, having read\nit, saying who took over; it can be signed for once.",
+    "operationId": "sign_off_api_handovers__handover_id__sign_off_post",
+    "parameters": [
+     {
+      "name": "handover_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Handover Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SignOffIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
       "description": "Successful Response",
       "content": {
        "application/json": {
@@ -2149,6 +2218,16 @@
        }
       ]
      },
+     "signed": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SignOff"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
      "message": {
       "$ref": "#/components/schemas/Message",
       "description": "The handover written to post in chat or send by email.\n\nReturns:\n    A subject line saying how much is open, and the text: the notes,\n    then the first few of each section, its times in the shifts' zone.",
@@ -2198,6 +2277,17 @@
       ],
       "title": "Timezone"
      },
+     "current": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Current"
+     },
      "handovers": {
       "items": {
        "$ref": "#/components/schemas/HandoverSummary"
@@ -2211,6 +2301,7 @@
     "required": [
      "next",
      "timezone",
+     "current",
      "handovers"
     ],
     "title": "HandoverList",
@@ -2251,6 +2342,16 @@
      "notes": {
       "type": "integer",
       "title": "Notes"
+     },
+     "signed": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SignOff"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "additionalProperties": false,
@@ -2263,7 +2364,8 @@
      "unhandled",
      "outages",
      "still_down",
-     "notes"
+     "notes",
+     "signed"
     ],
     "title": "HandoverSummary",
     "description": "A saved handover, in a line."
@@ -3705,6 +3807,58 @@
     "title": "ShiftNoteIn",
     "description": "Something the outgoing shift wants the next one to know."
    },
+   "SignOff": {
+    "properties": {
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "by",
+     "at"
+    ],
+    "title": "SignOff",
+    "description": "Who took over with a handover, and when."
+   },
+   "SignOffIn": {
+    "properties": {
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "by"
+    ],
+    "title": "SignOffIn",
+    "description": "Someone from the incoming shift taking over with a handover."
+   },
    "Site": {
     "properties": {
      "code": {
@@ -4007,6 +4161,20 @@
      "type"
     ],
     "title": "ValidationError"
+   },
+   "VersionInfo": {
+    "properties": {
+     "version": {
+      "type": "string",
+      "title": "Version"
+     }
+    },
+    "type": "object",
+    "required": [
+     "version"
+    ],
+    "title": "VersionInfo",
+    "description": "Which release of Sunstone is serving."
    },
    "WhatIf": {
     "properties": {

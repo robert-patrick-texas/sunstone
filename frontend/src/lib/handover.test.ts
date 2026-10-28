@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { Problem } from './api/analysis.ts';
 import type { HandoverSummary, Outage } from './api/handover.ts';
-import { duration, lasted, messageText, outageSections, savedLabel, standing } from './handover.ts';
+import {
+	duration,
+	lasted,
+	messageText,
+	outageSections,
+	savedLabel,
+	signedLine,
+	standing,
+	toSign
+} from './handover.ts';
 
 function outage(extra: Partial<Outage>): Outage {
 	return {
@@ -78,13 +87,33 @@ describe('saved handovers', () => {
 		unhandled: 4,
 		outages: 34,
 		still_down: 2,
-		notes: 1
+		notes: 1,
+		signed: null
 	};
+	const signed = { by: 'Sam', note: '', at: '2026-10-27T12:12:00Z' };
 
-	it('are listed by when they were handed over, how much was open, and their notes', () => {
-		expect(savedLabel(saved)).toMatch(/^Handed over .+:00.* · 6 open, 1 note$/);
-		expect(savedLabel({ ...saved, notes: 2 })).toMatch(/6 open, 2 notes$/);
-		expect(savedLabel({ ...saved, notes: 0 })).toMatch(/6 open$/);
+	it('are listed by when they were handed over, how much was open, their notes, and who took over', () => {
+		expect(savedLabel(saved)).toMatch(/^Handed over .+:00.* · 6 open, 1 note · not signed for$/);
+		expect(savedLabel({ ...saved, notes: 2 })).toMatch(/6 open, 2 notes · /);
+		expect(savedLabel({ ...saved, notes: 0 })).toMatch(/6 open · /);
+		expect(savedLabel({ ...saved, signed })).toMatch(/1 note · Sam took over$/);
+	});
+
+	it('are to sign for while the shift on now has not signed for its own', () => {
+		const older = { ...saved, id: '20261027T0000Z' };
+		const list = { next: null, timezone: null, current: saved.id, handovers: [saved, older] };
+		expect(toSign(list)).toBe(saved);
+		expect(toSign({ ...list, handovers: [{ ...saved, signed }, older] })).toBeNull();
+		// Only the shift on now signs; an older one no one signed for stays so.
+		expect(toSign({ ...list, current: null })).toBeNull();
+		expect(toSign(null)).toBeNull();
+	});
+
+	it('say who took over, when, and what they said back', () => {
+		expect(signedLine(signed)).toMatch(/^Taken over by Sam at .+:12[^·]*$/);
+		expect(signedLine({ ...signed, note: 'asked Pat about HOU' })).toMatch(
+			/ at .+:12.* · asked Pat about HOU$/
+		);
 	});
 
 	it('are copied as a message with a link to open them', () => {

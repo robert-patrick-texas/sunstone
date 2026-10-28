@@ -240,6 +240,68 @@ def test_a_handover_is_saved_at_each_shift_change_with_its_notes(
     assert again.get(f"/api/handovers/{latest['id']}").json() == saved
 
 
+def test_the_incoming_shift_signs_for_its_handover_once(
+    topology: Topology, tmp_path: Path
+) -> None:
+    client = handover_client(topology, tmp_path)
+    listed = client.get("/api/handovers").json()
+    current = listed["current"]
+    assert current == listed["handovers"][0]["id"]
+    assert listed["handovers"][0]["signed"] is None
+    unsigned = client.get(f"/api/handovers/{current}").json()
+    assert unsigned["signed"] is None
+    assert "\nNot signed for yet.\n" in unsigned["message"]["text"]
+    assert "signed for" not in client.get("/api/handover").json()["message"]["text"]
+
+    url = f"/api/handovers/{current}/sign-off"
+    assert client.post(url, json={"by": " "}).status_code == 422
+    before = datetime.now(UTC)
+    made = client.post(url, json={"by": " Sam ", "note": "asked Pat about HOU"})
+    assert made.status_code == 201
+    signed = made.json()
+    assert (signed["signed"]["by"], signed["signed"]["note"]) == (
+        "Sam",
+        "asked Pat about HOU",
+    )
+    assert datetime.fromisoformat(signed["signed"]["at"]) >= before
+    assert "\nSigned for by Sam at " in signed["message"]["text"]
+    assert " · asked Pat about HOU\n" in signed["message"]["text"]
+    # Otherwise as it was.
+    drop = ("signed", "message")
+    assert {k: v for k, v in signed.items() if k not in drop} == {
+        k: v for k, v in unsigned.items() if k not in drop
+    }
+    again = client.post(url, json={"by": "Alex"})
+    assert (again.status_code, again.json()["detail"]) == (
+        409,
+        "Sam signed for it already",
+    )
+    assert (
+        client.post(
+            "/api/handovers/20200101T0000Z/sign-off", json={"by": "Alex"}
+        ).status_code
+        == 404
+    )
+
+    # Kept, and only the handover of the shift on now can be signed for.
+    saved = tmp_path / "handovers.json"
+    body = json.loads(saved.read_text(encoding="utf-8"))
+    old = {**body["handovers"][0], "id": "20200101T0000Z", "signed": None}
+    old["since"], old["until"] = "2019-12-31T12:00:00Z", "2020-01-01T00:00:00Z"
+    body["handovers"].append(old)
+    saved.write_text(json.dumps(body), encoding="utf-8")
+    restarted = handover_client(topology, tmp_path)
+    listed = restarted.get("/api/handovers").json()
+    assert listed["handovers"][0]["signed"]["by"] == "Sam"
+    assert restarted.get(f"/api/handovers/{current}").json() == signed
+    late = restarted.post("/api/handovers/20200101T0000Z/sign-off", json={"by": "Alex"})
+    assert late.status_code == 409
+    assert (
+        late.json()["detail"]
+        == "Only the handover of the shift on now can be signed for"
+    )
+
+
 def test_the_last_handover_is_saved_at_startup_without_being_asked_for(
     topology: Topology, tmp_path: Path
 ) -> None:
