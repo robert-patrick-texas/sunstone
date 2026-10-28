@@ -53,4 +53,4 @@ package-test: ## Install, update, roll back, and remove test builds in container
 	packaging/package-test.sh
 
 release-dry-run: ## Every release step except tag, push, and publish (see README)
-	uv run --project backend tools/release/release.py --dry-run
+	uv run tools/release/release.py --dry-run

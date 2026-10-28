@@ -271,7 +271,7 @@ A release is a GitHub release holding the `.deb`, `SHA256SUMS`, and `SHA256SUMS.
 1. Set `VERSION` (`MAJOR.MINOR.PATCH`, or `-rc.N` for a release candidate) and add its section to `CHANGELOG.md`.
 2. Merge to `main` and push. CI must pass for that commit.
 3. `make release-dry-run` runs every step except tag, push, and publish: the checks, `make deb`, `SHA256SUMS`, and the signature, verified against `packaging/release-signers`.
-4. `uv run --project backend tools/release/release.py` does it for real, asking for the key's passphrase: it tags `v<version>`, pushes the tag, and creates the release with the changelog's notes, marked as a normal release, release candidates included, so anyone can download and test it. It needs an authenticated `gh`.
+4. `uv run tools/release/release.py`, run from the repository root, does it for real, asking for the key's passphrase: it tags `v<version>`, pushes the tag, and creates the release with the changelog's notes, marked as a normal release, release candidates included, so anyone can download and test it. It needs an authenticated `gh`.
 
 `make deb` builds a package from the work tree in a clean `ubuntu:26.04` container. Test builds, with `VERSION_OVERRIDE` (and `RELEASE_SIGNERS` to trust a test key), are for `make package-test` only; the release tool refuses them. To rotate the key, add the new one to `packaging/release-signers`, release that signed with the old key, and remove the old key in a later release.
 

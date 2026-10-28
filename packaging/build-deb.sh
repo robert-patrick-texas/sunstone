@@ -32,7 +32,7 @@ npm_cache=${SUNSTONE_NPM_CACHE-sunstone-npm-cache}
 version=${VERSION_OVERRIDE:-$(cat VERSION)}
 # One tested mapping from VERSION to the Debian version; it also rejects
 # anything that is not MAJOR.MINOR.PATCH[-rc.N].
-deb_version=$(uv run --quiet --project backend tools/release/release.py \
+deb_version=$(uv run --quiet tools/release/release.py \
     --print-version deb --version "$version")
 signers=packaging/release-signers
 test_build=0
