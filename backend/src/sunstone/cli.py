@@ -18,6 +18,7 @@ from sunstone.loader import TopologyError, load_topology
 from sunstone.oncall import DirectoryError, load_directory
 from sunstone.operations import OperationsError
 from sunstone.settings import DEFAULT_CONFIG, Settings, SettingsError, load_settings
+from sunstone.update.releases import ReleaseError, https_getter
 from sunstone.update.updater import INSTALLED, UpdateError, Updater
 from sunstone.update.versions import Version
 
@@ -84,6 +85,12 @@ def main() -> None:
         action="store_true",
         help="go back to the version the last update came from",
     )
+    update.add_argument(
+        "--unattended",
+        action="store_true",
+        help="for the daily timer: without asking, install the newest newer "
+        "release, unless its install failed last time",
+    )
 
     args = parser.parse_args()
     if args.command == "serve":
@@ -93,6 +100,12 @@ def main() -> None:
     else:
         if args.file and not (args.sums and args.sig):
             parser.error("--file needs --sums and --sig")
+        if args.unattended and (
+            args.check or args.target or args.file or args.rollback
+        ):
+            parser.error(
+                "--unattended goes with none of --check, --version, --file, --rollback"
+            )
         sys.exit(_self_update(args))
 
 
@@ -210,11 +223,18 @@ def _self_update(args: argparse.Namespace) -> int:
     """Check for, install, or roll back a release."""
     try:
         settings = _settings(args.config)
-    except SettingsError as e:
+        # CA certificates for an inspecting proxy go beside the settings.
+        get = https_getter(
+            args.config.parent / "ca.d",
+            settings.update.tls_strict_x509,
+            settings.update.https_proxy,
+        )
+    except (SettingsError, ReleaseError) as e:
         print(f"sunstone self-update: {e}", file=sys.stderr)
         return 2
     host = "127.0.0.1" if settings.host in ("", "0.0.0.0") else settings.host
     host = "[::1]" if host == "::" else f"[{host}]" if ":" in host else host
+    hold = settings.update.hold_version
     updater = Updater(
         paths=replace(
             INSTALLED,
@@ -224,6 +244,9 @@ def _self_update(args: argparse.Namespace) -> int:
         repository=settings.update.repository,
         installed=Version.parse(version("sunstone")),
         health_url=f"http://{host}:{settings.port}/api/version",
+        api=settings.update.api,
+        hold=Version.parse(hold) if hold else None,
+        get=get,
     )
     if args.check:
         return updater.check()
@@ -238,7 +261,9 @@ def _self_update(args: argparse.Namespace) -> int:
                 args.file, args.sums, args.sig, _asker(args.yes)
             )
         target = Version.parse(args.target) if args.target else None
-        return updater.update(target, _asker(args.yes))
+        return updater.update(
+            target, _asker(args.yes or args.unattended), args.unattended
+        )
     except ValueError as e:
         print(f"sunstone self-update: {e}", file=sys.stderr)
         return 2

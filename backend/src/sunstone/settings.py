@@ -2,7 +2,7 @@
 
 The file holds the same choices as the command line, which wins over it:
 the topology and on-call directory, where saved files go, where to listen,
-and the repository updates come from. Anything left out keeps its default.
+and where updates come from and how. Anything left out keeps its default.
 ``sunstone serve`` reads a settings file only when given one; ``sunstone
 check`` and ``sunstone self-update`` read the installed one by default.
 """
@@ -10,7 +10,10 @@ check`` and ``sunstone self-update`` read the installed one by default.
 import tomllib
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from sunstone.update.releases import GITHUB_API
+from sunstone.update.versions import Version
 
 DEFAULT_CONFIG = Path("/etc/sunstone/config.toml")
 DEFAULT_REPOSITORY = "robert-patrick-texas/sunstone"
@@ -26,10 +29,30 @@ class _Record(BaseModel):
 
 
 class UpdateSettings(_Record):
-    """Where ``sunstone self-update`` takes releases from."""
+    """Where ``sunstone self-update`` takes releases from, and how."""
 
     repository: str = Field(DEFAULT_REPOSITORY, pattern=r"^[\w.-]+/[\w.-]+$")
     """A GitHub repository, as ``owner/name``."""
+    api: str = Field(GITHUB_API, pattern=r"^https://[^\s/@]+(/[^\s]*[^\s/])?$")
+    """The GitHub API: GitHub's own, a GitHub Enterprise server's
+    (``https://HOST/api/v3``), or a test server's."""
+    hold_version: str | None = None
+    """Updates that pick the release never go past this one; installing a
+    newer one by name still can, at the console."""
+    https_proxy: str | None = Field(None, pattern=r"^http://[^\s/@]+:[0-9]+/?$")
+    """A proxy that supports ``CONNECT``, as ``http://HOST:PORT``, without
+    credentials; without one, ``HTTPS_PROXY`` from the environment."""
+    tls_strict_x509: bool = True
+    """Check certificates against OpenSSL's strict X.509 profile, as Python
+    does; false accepts an inspecting proxy's CA issued before clients
+    enforced it, still checking chains, validity, and host names."""
+
+    @field_validator("hold_version")
+    @classmethod
+    def _a_version(cls, value: str | None) -> str | None:
+        if value is not None:
+            Version.parse(value)
+        return value
 
 
 class Settings(_Record):

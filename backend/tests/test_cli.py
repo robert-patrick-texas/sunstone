@@ -59,3 +59,25 @@ def test_the_server_says_which_version_it_is(tmp_path: Path) -> None:
     client = TestClient(create_app(topology, warm=False))
     assert client.get("/api/version").json() == {"version": version("sunstone")}
     assert sunstone("--version").stdout.strip() == f"sunstone {version('sunstone')}"
+
+
+def test_self_update_says_what_is_wrong_before_going_online(tmp_path: Path) -> None:
+    done = sunstone("self-update", "--unattended", "--version", "0.2.0")
+    assert done.returncode == 2
+    assert "--unattended goes with none of" in done.stderr
+
+    config = tmp_path / "config.toml"
+    config.write_text('[update]\nhold_version = "soon"\n', encoding="utf-8")
+    done = sunstone("self-update", "--check", "--config", str(config))
+    assert done.returncode == 2
+    assert str(config) in done.stderr and "hold_version" in done.stderr
+
+    config.write_text('[update]\nhold_version = "0.2.0"\n', encoding="utf-8")
+    broken = tmp_path / "ca.d" / "corp-inspection.pem"
+    broken.parent.mkdir()
+    broken.write_text("-----BEGIN CERTIFICATE-----\nnot one\n", encoding="utf-8")
+    done = sunstone("self-update", "--check", "--config", str(config))
+    assert done.returncode == 2
+    assert done.stderr.startswith(
+        f"sunstone self-update: {broken}: not a PEM CA certificate"
+    )

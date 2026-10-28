@@ -3,6 +3,18 @@
 Release notes, newest first. `tools/release` takes each release's notes from
 its section here.
 
+## Unreleased
+
+- A daily update, off until enabled: `sunstone-update.timer` runs
+  `sunstone self-update --unattended`, which installs only a newer release,
+  leaves out one whose install failed last time, and logs to the journal.
+- `hold_version` under `[update]` keeps updates that pick the release at or
+  below a version.
+- Behind a proxy: `https_proxy` under `[update]`; CA certificates in
+  `/etc/sunstone/ca.d/` trusted for self-update, for a proxy that inspects
+  TLS; `tls_strict_x509 = false` for an older inspection CA; and `api` for a
+  GitHub Enterprise server.
+
 ## 0.1.0
 
 The first release: Sunstone as a Debian package for Ubuntu 26.04 on amd64.

@@ -37,6 +37,12 @@ contents:
   - src: packaging/systemd/sunstone.service
     dst: /usr/lib/systemd/system/sunstone.service
     file_info: {mode: 0o644}
+  - src: packaging/systemd/sunstone-update.service
+    dst: /usr/lib/systemd/system/sunstone-update.service
+    file_info: {mode: 0o644}
+  - src: packaging/systemd/sunstone-update.timer
+    dst: /usr/lib/systemd/system/sunstone-update.timer
+    file_info: {mode: 0o644}
   - src: packaging/sysusers.d/sunstone.conf
     dst: /usr/lib/sysusers.d/sunstone.conf
     file_info: {mode: 0o644}
