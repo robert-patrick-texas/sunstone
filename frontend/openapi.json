@@ -190,7 +190,7 @@
   "/api/impact": {
    "post": {
     "summary": "Post Impact",
-    "description": "Return what failing some devices, sites, and links would do.",
+    "description": "Return what failing some devices, sites, links, and providers'\ncircuits would do: which devices they would cut off from the core or\nleave without redundancy, and what they would do to the whole\nnetwork and each named network.",
     "operationId": "post_impact_api_impact_post",
     "requestBody": {
      "content": {
@@ -208,7 +208,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/WhatIf"
+         "$ref": "#/components/schemas/LayeredWhatIf"
         }
        }
       }
@@ -219,6 +219,25 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/risks": {
+   "get": {
+    "summary": "Get Risks",
+    "description": "Return each named network's shared risks: the devices, links, and\nproviders beneath it whose failure alone would take two or more of\nits tunnels, worked out on the network as documented.",
+    "operationId": "get_risks_api_risks_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RiskReport"
         }
        }
       }
@@ -3747,6 +3766,33 @@
     "title": "JoinIn",
     "description": "Someone adding a problem to an incident."
    },
+   "LayeredWhatIf": {
+    "properties": {
+     "impact": {
+      "$ref": "#/components/schemas/Impact"
+     },
+     "already": {
+      "type": "boolean",
+      "title": "Already"
+     },
+     "networks": {
+      "items": {
+       "$ref": "#/components/schemas/NetworkImpact"
+      },
+      "type": "array",
+      "title": "Networks"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "impact",
+     "already",
+     "networks"
+    ],
+    "title": "LayeredWhatIf",
+    "description": "What failing some items would do, physically and to each network."
+   },
    "LayoutIn": {
     "properties": {
      "settings": {
@@ -4251,6 +4297,104 @@
     ],
     "title": "NamedNetwork",
     "description": "A named slice of the network: black, blue, grey, a tenant's."
+   },
+   "NetworkImpact": {
+    "properties": {
+     "network": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Network"
+     },
+     "before": {
+      "type": "string",
+      "enum": [
+       "operational",
+       "degraded",
+       "offline"
+      ],
+      "title": "Before"
+     },
+     "after": {
+      "$ref": "#/components/schemas/NetworkStatus"
+     },
+     "tunnels": {
+      "type": "integer",
+      "title": "Tunnels"
+     },
+     "tunnels_lost": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tunnels Lost"
+     },
+     "links_lost": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Links Lost"
+     },
+     "sites_lost": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Sites Lost"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "network",
+     "before",
+     "after",
+     "tunnels",
+     "tunnels_lost",
+     "links_lost",
+     "sites_lost"
+    ],
+    "title": "NetworkImpact",
+    "description": "What some failures do to the whole network, or to one named network."
+   },
+   "NetworkRisks": {
+    "properties": {
+     "network": {
+      "type": "string",
+      "title": "Network"
+     },
+     "tunnels": {
+      "type": "integer",
+      "title": "Tunnels"
+     },
+     "risks": {
+      "items": {
+       "$ref": "#/components/schemas/Risk"
+      },
+      "type": "array",
+      "title": "Risks"
+     },
+     "more": {
+      "type": "integer",
+      "title": "More"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "network",
+     "tunnels",
+     "risks",
+     "more"
+    ],
+    "title": "NetworkRisks",
+    "description": "One named network's shared risks, worst first."
    },
    "NetworkState": {
     "properties": {
@@ -4890,6 +5034,27 @@
     "title": "Position",
     "description": "Where a node was drawn."
    },
+   "ProviderTarget": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "const": "provider",
+      "title": "Kind"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "kind",
+     "id"
+    ],
+    "title": "ProviderTarget",
+    "description": "Every circuit from one provider, failing together."
+   },
    "Reachability": {
     "properties": {
      "position": {
@@ -5035,6 +5200,83 @@
     ],
     "title": "Review",
     "description": "What accepting a fix would do, worked out against the network now."
+   },
+   "Risk": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/RiskItem"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "tunnels": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tunnels"
+     },
+     "sites": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Sites"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "items",
+     "tunnels",
+     "sites"
+    ],
+    "title": "Risk",
+    "description": "Tunnels of one network that are not independent paths: any one of\nsome items failing alone takes them all down."
+   },
+   "RiskItem": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "device",
+       "link",
+       "provider"
+      ],
+      "title": "Kind"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "kind",
+     "id"
+    ],
+    "title": "RiskItem",
+    "description": "A device, a link, or a provider's circuits, failing alone."
+   },
+   "RiskReport": {
+    "properties": {
+     "networks": {
+      "items": {
+       "$ref": "#/components/schemas/NetworkRisks"
+      },
+      "type": "array",
+      "title": "Networks"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "networks"
+    ],
+    "title": "RiskReport",
+    "description": "Every named network with tunnels, and its shared risks."
    },
    "RoutedProblem": {
     "properties": {
@@ -6216,25 +6458,6 @@
     "title": "VersionInfo",
     "description": "Which release of Sunstone is serving."
    },
-   "WhatIf": {
-    "properties": {
-     "impact": {
-      "$ref": "#/components/schemas/Impact"
-     },
-     "already": {
-      "type": "boolean",
-      "title": "Already"
-     }
-    },
-    "additionalProperties": false,
-    "type": "object",
-    "required": [
-     "impact",
-     "already"
-    ],
-    "title": "WhatIf",
-    "description": "What failing some items would do, on top of what is already down."
-   },
    "WhatIfQuestion": {
     "properties": {
      "failures": {
@@ -6248,6 +6471,9 @@
         },
         {
          "$ref": "#/components/schemas/LinksCenter"
+        },
+        {
+         "$ref": "#/components/schemas/ProviderTarget"
         }
        ],
        "discriminator": {
@@ -6255,6 +6481,7 @@
         "mapping": {
          "device": "#/components/schemas/DeviceCenter",
          "links": "#/components/schemas/LinksCenter",
+         "provider": "#/components/schemas/ProviderTarget",
          "site": "#/components/schemas/SiteCenter"
         }
        }
@@ -6281,7 +6508,7 @@
      "failures"
     ],
     "title": "WhatIfQuestion",
-    "description": "Devices, sites, and links to suppose failed, and the moment whose live\nstate to start from (none for the healthy network)."
+    "description": "Devices, sites, links, and providers to suppose failed, and the moment\nwhose live state to start from (none for the healthy network)."
    },
    "Window": {
     "properties": {

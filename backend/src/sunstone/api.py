@@ -14,6 +14,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
+from sunstone.across import Across, Before, Failing, LayeredWhatIf, RiskReport
 from sunstone.cabling import Cabling
 from sunstone.changes import (
     Change,
@@ -52,7 +53,7 @@ from sunstone.handover import (
     shift_changes,
     summary,
 )
-from sunstone.impact import Failures, Network, WhatIf
+from sunstone.impact import Failures, Network
 from sunstone.incidents import (
     CloseIn,
     Incident,
@@ -72,7 +73,6 @@ from sunstone.incidents import (
 )
 from sunstone.layouts import (
     MAX_NAME,
-    Center,
     LayoutIn,
     LayoutStore,
     LayoutStoreFull,
@@ -131,12 +131,12 @@ class VersionInfo(BaseModel):
 
 
 class WhatIfQuestion(BaseModel):
-    """Devices, sites, and links to suppose failed, and the moment whose live
-    state to start from (none for the healthy network)."""
+    """Devices, sites, links, and providers to suppose failed, and the moment
+    whose live state to start from (none for the healthy network)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    failures: list[Center]
+    failures: list[Failing]
     at: datetime | None = None
 
 
@@ -194,6 +194,7 @@ class _Documented:
     owners: Ownership | None
     state: StateSource
     monitor: Monitor
+    across: Across
     log: DiscoveryLog
     stop: threading.Event
     """Set to stop working ahead for this version of the documentation."""
@@ -279,12 +280,14 @@ def create_app(
         state = state_source or SimulatedState(
             documented, plans=operations, cabling=real
         )
+        monitor = Monitor(network, state)
         return _Documented(
             topology=documented,
             network=network,
             owners=ownership(directory, documented) if directory else None,
             state=state,
-            monitor=Monitor(network, state),
+            monitor=monitor,
+            across=Across(network, monitor.statuses),
             log=DiscoveryLog(cables, SimulatedDiscovery(cables, real, state), state),
             stop=threading.Event(),
         )
@@ -297,6 +300,7 @@ def create_app(
             return
 
         def warm_up() -> None:
+            d.across.risks()
             d.monitor.warm()
             d.log.warm()
 
@@ -446,14 +450,25 @@ def create_app(
         return RoutedProblemList(at=found.at, problems=problems)
 
     @app.post("/api/impact")
-    def post_impact(question: WhatIfQuestion) -> WhatIf:
-        """Return what failing some devices, sites, and links would do."""
+    def post_impact(question: WhatIfQuestion) -> LayeredWhatIf:
+        """Return what failing some devices, sites, links, and providers'
+        circuits would do: which devices they would cut off from the core or
+        leave without redundancy, and what they would do to the whole
+        network and each named network."""
         d = docs
-        before = (
-            None if question.at is None else d.monitor.moment(moment_at(d, question.at))
-        )
-        failures = d.network.failures_of(question.failures)
-        return d.network.what_if(failures, before.failures if before else None)
+        failures = d.across.failures_of(question.failures)
+        if question.at is None:
+            return d.across.what_if(failures, None)
+        when = moment_at(d, question.at)
+        moment = d.monitor.moment(when)
+        return d.across.what_if(failures, Before(moment.failures, moment.tunnels), when)
+
+    @app.get("/api/risks")
+    def get_risks() -> RiskReport:
+        """Return each named network's shared risks: the devices, links, and
+        providers beneath it whose failure alone would take two or more of
+        its tunnels, worked out on the network as documented."""
+        return docs.across.risks()
 
     @app.get("/api/events")
     def get_events() -> EventLog:

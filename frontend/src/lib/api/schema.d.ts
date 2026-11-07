@@ -126,9 +126,34 @@ export interface paths {
         put?: never;
         /**
          * Post Impact
-         * @description Return what failing some devices, sites, and links would do.
+         * @description Return what failing some devices, sites, links, and providers'
+         *     circuits would do: which devices they would cut off from the core or
+         *     leave without redundancy, and what they would do to the whole
+         *     network and each named network.
          */
         post: operations["post_impact_api_impact_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/risks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Risks
+         * @description Return each named network's shared risks: the devices, links, and
+         *     providers beneath it whose failure alone would take two or more of
+         *     its tunnels, worked out on the network as documented.
+         */
+        get: operations["get_risks_api_risks_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1633,6 +1658,17 @@ export interface components {
             by: string;
         };
         /**
+         * LayeredWhatIf
+         * @description What failing some items would do, physically and to each network.
+         */
+        LayeredWhatIf: {
+            impact: components["schemas"]["Impact"];
+            /** Already */
+            already: boolean;
+            /** Networks */
+            networks: components["schemas"]["NetworkImpact"][];
+        };
+        /**
          * LayoutIn
          * @description A layout as the browser sends it.
          */
@@ -1839,6 +1875,42 @@ export interface components {
              * @default []
              */
             tags: string[];
+        };
+        /**
+         * NetworkImpact
+         * @description What some failures do to the whole network, or to one named network.
+         */
+        NetworkImpact: {
+            /** Network */
+            network: string | null;
+            /**
+             * Before
+             * @enum {string}
+             */
+            before: "operational" | "degraded" | "offline";
+            after: components["schemas"]["NetworkStatus"];
+            /** Tunnels */
+            tunnels: number;
+            /** Tunnels Lost */
+            tunnels_lost: string[];
+            /** Links Lost */
+            links_lost: string[];
+            /** Sites Lost */
+            sites_lost: string[];
+        };
+        /**
+         * NetworkRisks
+         * @description One named network's shared risks, worst first.
+         */
+        NetworkRisks: {
+            /** Network */
+            network: string;
+            /** Tunnels */
+            tunnels: number;
+            /** Risks */
+            risks: components["schemas"]["Risk"][];
+            /** More */
+            more: number;
         };
         /**
          * NetworkState
@@ -2090,6 +2162,19 @@ export interface components {
             y: number;
         };
         /**
+         * ProviderTarget
+         * @description Every circuit from one provider, failing together.
+         */
+        ProviderTarget: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "provider";
+            /** Id */
+            id: string;
+        };
+        /**
          * Reachability
          * @description Round-trip time and loss to a device from one monitoring position.
          */
@@ -2138,6 +2223,40 @@ export interface components {
              * @default []
              */
             involved: components["schemas"]["PortNow"][];
+        };
+        /**
+         * Risk
+         * @description Tunnels of one network that are not independent paths: any one of
+         *     some items failing alone takes them all down.
+         */
+        Risk: {
+            /** Items */
+            items: components["schemas"]["RiskItem"][];
+            /** Tunnels */
+            tunnels: string[];
+            /** Sites */
+            sites: string[];
+        };
+        /**
+         * RiskItem
+         * @description A device, a link, or a provider's circuits, failing alone.
+         */
+        RiskItem: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "device" | "link" | "provider";
+            /** Id */
+            id: string;
+        };
+        /**
+         * RiskReport
+         * @description Every named network with tunnels, and its shared risks.
+         */
+        RiskReport: {
+            /** Networks */
+            networks: components["schemas"]["NetworkRisks"][];
         };
         /**
          * RoutedProblem
@@ -2624,22 +2743,13 @@ export interface components {
             version: string;
         };
         /**
-         * WhatIf
-         * @description What failing some items would do, on top of what is already down.
-         */
-        WhatIf: {
-            impact: components["schemas"]["Impact"];
-            /** Already */
-            already: boolean;
-        };
-        /**
          * WhatIfQuestion
-         * @description Devices, sites, and links to suppose failed, and the moment whose live
-         *     state to start from (none for the healthy network).
+         * @description Devices, sites, links, and providers to suppose failed, and the moment
+         *     whose live state to start from (none for the healthy network).
          */
         WhatIfQuestion: {
             /** Failures */
-            failures: (components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"])[];
+            failures: (components["schemas"]["DeviceCenter"] | components["schemas"]["SiteCenter"] | components["schemas"]["LinksCenter"] | components["schemas"]["ProviderTarget"])[];
             /** At */
             at?: string | null;
         };
@@ -2865,7 +2975,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WhatIf"];
+                    "application/json": components["schemas"]["LayeredWhatIf"];
                 };
             };
             /** @description Validation Error */
@@ -2875,6 +2985,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_risks_api_risks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskReport"];
                 };
             };
         };

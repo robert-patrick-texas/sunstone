@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deviceImpact, linksImpact, worstImpact, type Impact } from './impact.ts';
+import { deviceImpact, linksImpact, tunnelsImpact, worstImpact, type Impact } from './impact.ts';
 import { fixtureIndex } from './test-fixture.ts';
 
 // What the server answers for c-wan-01 failing: branch C's switches are cut
@@ -7,7 +7,8 @@ import { fixtureIndex } from './test-fixture.ts';
 const C_WAN_FAILS: Impact = {
 	failed: { devices: new Set(['c-wan-01']), links: new Set() },
 	cutOff: new Set(['c-acc-01', 'c-acc-02']),
-	exposed: new Map()
+	exposed: new Map(),
+	tunnels: new Set()
 };
 
 describe('drawing helpers', () => {
@@ -29,9 +30,17 @@ describe('drawing helpers', () => {
 		const impact: Impact = {
 			failed: { devices: new Set(), links: new Set([circuit?.id ?? '']) },
 			cutOff: new Set(),
-			exposed: new Map([['c-wan-01', ['b-wan-01']]])
+			exposed: new Map([['c-wan-01', ['b-wan-01']]]),
+			tunnels: new Set()
 		};
 		expect(linksImpact(impact, circuit ? [circuit] : [])).toBe('lost');
 		expect(deviceImpact(impact, 'c-wan-01')).toBe('exposed');
+	});
+
+	it('tell tunnels all lost from some lost', () => {
+		const impact: Impact = { ...C_WAN_FAILS, tunnels: new Set(['T1', 'T2']) };
+		expect(tunnelsImpact(impact, ['T1', 'T2'])).toBe('lost');
+		expect(tunnelsImpact(impact, ['T1', 'T3'])).toBe('partial');
+		expect(tunnelsImpact(impact, ['T3'])).toBeNull();
 	});
 });

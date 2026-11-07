@@ -30,7 +30,7 @@ import cytoscape, {
 	type StylesheetJson
 } from 'cytoscape';
 import type { Comparison } from '../api/discovery.ts';
-import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
+import { deviceImpact, linksImpact, tunnelsImpact, worstImpact, type Impact } from '../impact.ts';
 import {
 	bundleLive,
 	deviceHealth,
@@ -751,11 +751,15 @@ export class GraphCanvas {
 			n.addClass(`impact impact-${found}`);
 		});
 		this.core.edges().forEach((e) => {
-			const ids: string[] = e.data('linkIds');
-			const found = linksImpact(
-				impact,
-				ids.flatMap((id) => index.links.get(id) ?? [])
-			);
+			// Tunnels, and a fabric member's way in, by the tunnels they stand for.
+			const tunnels: string[] = e.data('tunnels') ?? [];
+			const ids: string[] = e.data('linkIds') ?? [];
+			const found = tunnels.length
+				? tunnelsImpact(impact, tunnels)
+				: linksImpact(
+						impact,
+						ids.flatMap((id) => index.links.get(id) ?? [])
+					);
 			if (found) e.addClass(`impact impact-${found}`);
 			else e.addClass('faded');
 		});

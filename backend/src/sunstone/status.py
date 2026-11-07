@@ -33,6 +33,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from sunstone.layers import Edge, Layers, far_key
+from sunstone.live import TunnelState
 from sunstone.model import Topology
 from sunstone.problems import LiveView, link_name
 
@@ -183,8 +184,31 @@ class Statuses:
         """
         down = {d for d in self.site_of if view.health(d) == "down"}
         cut = {i for i, link in self.links.items() if view.link(link).health == "down"}
-        tunnels = {t.tunnel: t for t in view.state.tunnels}
-        gone = {tid for tid, st in tunnels.items() if st.status == "down"}
+        return self.of(at, down, cut, view.state.tunnels)
+
+    def of(
+        self,
+        at: datetime,
+        down: set[str],
+        cut: set[str],
+        tunnels: Iterable[TunnelState],
+    ) -> StatusReport:
+        """Every network's status, given what is down.
+
+        Args:
+            at: The moment it is for.
+            down: Devices down.
+            cut: Links down, by id.
+            tunnels: The tunnels' states; a tunnel left out is taken to be up.
+
+        Returns:
+            The whole network's status, and each named network's, bottom up.
+
+        Raises:
+            None
+        """
+        states = list(tunnels)
+        gone = {t.tunnel for t in states if t.status == "down"}
         whole_edges = [
             Edge(link.id, link.a.device, far_key(link)) for link in self.topology.links
         ]
@@ -197,10 +221,10 @@ class Statuses:
             s = self.layers.slices[name]
             # Its links and tunnels, and the spoke-to-spoke tunnels up now.
             edges = self.layers.link_edges(name) + self.layers.tunnel_edges(name)
-            for tid, state in tunnels.items():
-                if state.network == name and state.dynamic and state.status == "up":
-                    a, b = tid.split(":", 1)[1].split("~")
-                    edges.append(Edge(tid, a, b, tunnel=True, dynamic=True))
+            for t in states:
+                if t.network == name and t.dynamic and t.status == "up":
+                    a, b = t.tunnel.split(":", 1)[1].split("~")
+                    edges.append(Edge(t.tunnel, a, b, tunnel=True, dynamic=True))
             # A network riding another without tunnels of its own, as a
             # tenant's does, reaches across what it rides as that does now.
             for under in self.network_rides.get(name, ()):
@@ -225,6 +249,29 @@ class Statuses:
             )
         networks = [self._with_caveats(found[n], found) for n in self.layers.order]
         return StatusReport(at=at, whole=whole, networks=networks)
+
+    def reached(self, network: str, down: set[str], cut: set[str]) -> set[str]:
+        """The sites of a named network its anchors reach around some
+        failures, through its links and the tunnels that are always there.
+
+        Args:
+            network: The named network.
+            down: Devices down.
+            cut: Links and tunnels down, by id.
+
+        Returns:
+            Site codes.
+
+        Raises:
+            None
+        """
+        s = self.layers.slices[network]
+        edges = self.layers.link_edges(network) + self.layers.tunnel_edges(network)
+        live = [
+            e for e in edges if e.id not in cut and e.a not in down and e.b not in down
+        ]
+        found = _reach(live, self.anchors[network] - down, s.devices - down)
+        return {self.site_of[d] for d in found}
 
     def _status(
         self,
@@ -418,35 +465,55 @@ def _components(edges: list[Edge]) -> dict[str, str]:
 def _parts(
     tree: _Tree, holds: dict[str, set[str]], edges: list[Edge], present: set[str]
 ) -> dict[str, int]:
-    """For each group with parts, how many pieces its present members fall
-    into using only the links and tunnels inside it."""
+    """For each group with parts, how many pieces its parts fall into using
+    only the links and tunnels inside it. Its parts are the groups directly
+    inside it, each taken as one, and the devices in it directly: a site
+    split inside is that site's own outage, not its region's. A transport
+    joins the circuits into it, which belong to the whole."""
     # Each link and tunnel is inside the group it belongs to and every group
     # above that one.
     inside: dict[str, list[Edge]] = defaultdict(list)
+
+    def joins(node: str) -> bool:
+        return node in present or node.startswith("transport:")
+
     for e in edges:
-        if e.a not in present or e.b not in present:
+        if not joins(e.a) or not joins(e.b):
             continue
         ends = [tree.up(tree.leaf.get(e.a, ROOT)), tree.up(tree.leaf.get(e.b, ROOT))]
         owner = next(g for g in ends[0] if g in ends[1])
         for g in tree.up(owner):
             inside[g].append(e)
+    chains = {d: tree.up(tree.leaf.get(d, ROOT)) for d in present}
     found = {}
     for g, ds in holds.items():
         mine = ds & present
         if len(mine) >= 2:
-            found[g] = _pieces(mine, inside[g])
+            part = {d: _part(chains[d], g, d) for d in mine}
+            found[g] = _pieces(mine, inside[g], part)
     return found
 
 
-def _pieces(nodes: set[str], edges: list[Edge]) -> int:
+def _part(chain: list[str], group: str, device: str) -> str:
+    """The part of a group a device is in: the group directly inside it
+    holding the device, or the device itself."""
+    i = chain.index(group)
+    return chain[i - 1] if i > 0 else device
+
+
+def _pieces(nodes: set[str], edges: list[Edge], part: dict[str, str]) -> int:
+    """How many pieces some nodes fall into, each joined to its part first."""
     parent = {n: n for n in nodes}
 
     def find(x: str) -> str:
+        parent.setdefault(x, x)
         while parent[x] != x:
             parent[x] = parent[parent[x]]
             x = parent[x]
         return x
 
+    for n in nodes:
+        parent[find(n)] = find(part[n])
     for e in edges:
         parent[find(e.a)] = find(e.b)
     return len({find(n) for n in nodes})

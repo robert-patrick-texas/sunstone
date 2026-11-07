@@ -386,3 +386,10 @@ def test_a_fabric_tunnel_down_is_named_by_its_fabric_and_ends(
     corp = next(n for n in report.networks if n.network == "corp")
     assert corp.status == "offline"
     assert "DMVPN: d-wan-01 – a-wan-01 down" in corp.reasons
+
+
+def test_the_internet_joins_what_the_whole_holds(topology: Topology) -> None:
+    # D still reaches the rest over its circuits: the whole is not partitioned.
+    w = whole(topology, cut={"c-wan-01:p3"})
+    assert w.status == "degraded"
+    assert not [r for r in w.reasons if "partitioned" in r]

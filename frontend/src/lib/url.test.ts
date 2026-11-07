@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fixtureIndex, layeredIndex } from './test-fixture.ts';
+import { fixtureIndex, layeredFixture, layeredIndex } from './test-fixture.ts';
+import { indexTopology } from './topology.ts';
 import {
 	DEFAULT_DWELL_S,
 	fromQuery,
@@ -109,6 +110,33 @@ describe('writeItem and readItem', () => {
 		expect(readItem(`links:${CIRCUIT} nope`, index)).toEqual({ kind: 'links', ids: [CIRCUIT] });
 		expect(readItem('links:nope', index)).toBeNull();
 		expect(readItem('router:a-wan-01', index)).toBeNull();
+	});
+
+	it('read back links into a transport whose name has a space', () => {
+		const topology = structuredClone(layeredFixture);
+		const mpls = 'b-wan-01:GigabitEthernet0/0/0--transport:Mesa MPLS';
+		topology.transports.push({
+			name: 'Mesa MPLS',
+			kind: 'private-wan',
+			network: 'black',
+			tags: []
+		});
+		topology.links.push({
+			a: { device: 'b-wan-01', interface: 'GigabitEthernet0/0/0' },
+			b: { transport: 'Mesa MPLS' },
+			speed_mbps: 100,
+			kind: 'wan',
+			circuit: { provider: 'Mesa Carrier', circuit_id: 'ME-1' },
+			carries: [],
+			id: mpls
+		});
+		const index = indexTopology(topology);
+		const both = { kind: 'links' as const, ids: [mpls, CIRCUIT] };
+		expect(readItem(writeItem(both), index)).toEqual(both);
+		expect(readItem(`links:${CIRCUIT} ${mpls}`, index)).toEqual({
+			kind: 'links',
+			ids: [CIRCUIT, mpls]
+		});
 	});
 });
 
@@ -239,5 +267,18 @@ describe('named networks and layers in links', () => {
 		expect(readAnyItem('device:c-wan-01', layered)).toEqual({ kind: 'device', id: 'c-wan-01' });
 		// What-if failures and neighborhood centers stay physical.
 		expect(readItem('network:red', layered)).toBeNull();
+	});
+
+	it("carries a provider's circuits failing, while the network has some of its", () => {
+		const q = new URLSearchParams('fail=provider:Northwind Fiber&fail=provider:Nobody&fail=site:C');
+		const found = fromQuery(q, layered);
+		expect(found.whatIf).toEqual([
+			{ kind: 'provider', id: 'Northwind Fiber' },
+			{ kind: 'site', id: 'C' }
+		]);
+		expect(toQuery({ ...OPENING, whatIf: found.whatIf ?? [] }, layered).getAll('fail')).toEqual([
+			'provider:Northwind Fiber',
+			'site:C'
+		]);
 	});
 });

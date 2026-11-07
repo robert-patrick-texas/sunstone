@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureIndex, layeredIndex } from '../test-fixture.ts';
-import { DEPTH_COLOR, TUNNEL_COLOR } from '../theme.ts';
+import { DEPTH_COLOR, IMPACT_COLOR, TUNNEL_COLOR } from '../theme.ts';
 import type { NetworkState } from '../api/state.ts';
 import type { Impact } from '../impact.ts';
 import { indexState } from '../live.ts';
@@ -104,7 +104,8 @@ describe('live properties', () => {
 		const impact: Impact = {
 			failed: { devices: new Set(['c-wan-01']), links: new Set() },
 			cutOff: new Set(['c-acc-01', 'c-acc-02']),
-			exposed: new Map()
+			exposed: new Map(),
+			tunnels: new Set()
 		};
 		const devices = deviceFeatures(index, devicePositions(index), live, impact).features;
 		const byName = Object.fromEntries(devices.map((f) => [f.properties?.['name'], f.properties]));
@@ -185,5 +186,20 @@ describe('networks on the map', () => {
 		const color = (network: string) =>
 			networkArcs(layered, [network], live).features[0]?.properties?.['color'];
 		expect([color('grey'), color('blue')]).toEqual([TUNNEL_COLOR.down, TUNNEL_COLOR.unknown]);
+	});
+
+	it('marks the tunnels a "what if" takes down, all or some of an arc', () => {
+		const impact: Impact = {
+			failed: { devices: new Set(['c-wan-01']), links: new Set() },
+			cutOff: new Set(),
+			exposed: new Map(),
+			tunnels: new Set(['BLUE-A-C', 'DMVPN:c-wan-01~a-wan-01'])
+		};
+		const arcs = networkArcs(layered, ['blue', 'grey', 'corp'], null, impact).features;
+		const of = (id: string) => arcs.find((a) => a.properties?.['id'] === id)?.properties;
+		expect(of('blue|A|C')).toMatchObject({ impact: 'lost', color: IMPACT_COLOR.failed });
+		expect(of('corp|A|C')).toMatchObject({ impact: 'lost' });
+		expect(of('grey|A|C')).not.toHaveProperty('impact');
+		expect(of('grey|A|C')?.['color']).toBe(DEPTH_COLOR[1]);
 	});
 });

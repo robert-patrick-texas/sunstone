@@ -10,6 +10,7 @@
 import {
 	LAYER_KINDS,
 	type AnySelection,
+	type Failure,
 	type LayerKind,
 	type Selection,
 	type View
@@ -32,7 +33,7 @@ export interface Shared {
 	/** The replayed moment, or null for now. */
 	at: string | null;
 	path: { from: string; to: string } | null;
-	whatIf: Selection[];
+	whatIf: Failure[];
 	/** The problem whose impact is shown, by id. */
 	problem: string | null;
 	topo: {
@@ -67,12 +68,12 @@ const VIEWS: View[] = ['geo', 'hierarchy', 'topology', 'logical'];
 const SCOPES = ['network', 'neighborhood', 'path'] as const;
 
 /**
- * Write a device, site, or links.
+ * Write a device, site, links, or anything else selected or failed.
  *
  * @param item - The item.
- * @returns For example `device:dal-core-01`, or `links:ID ID`.
+ * @returns For example `device:dal-core-01`, `links:ID ID`, or `provider:Mesa Carrier`.
  */
-export function writeItem(item: AnySelection): string {
+export function writeItem(item: AnySelection | Failure): string {
 	return item.kind === 'links' ? `links:${item.ids.join(' ')}` : `${item.kind}:${item.id}`;
 }
 
@@ -89,8 +90,38 @@ export function readItem(text: string, index: TopologyIndex): Selection | null {
 	if (kind === 'device') return index.devices.has(rest) ? { kind, id: rest } : null;
 	if (kind === 'site') return index.sites.has(rest) ? { kind, id: rest } : null;
 	if (kind !== 'links') return null;
-	const ids = rest.split(' ').filter((id) => index.links.has(id));
+	// Ids are written with spaces between them, and a transport's name in an
+	// id can have spaces too ("transport:Mesa MPLS"), so words are joined
+	// until they make a link the network has.
+	const ids: string[] = [];
+	let words: string[] = [];
+	for (const word of rest.split(' ')) {
+		words.push(word);
+		if (index.links.has(words.join(' '))) {
+			ids.push(words.join(' '));
+			words = [];
+		} else if (index.links.has(word)) {
+			ids.push(word);
+			words = [];
+		}
+	}
 	return ids.length ? { kind, ids } : null;
+}
+
+/**
+ * Read something a "what if" fails, if it is in the network: a device,
+ * site, or links, or every circuit of a provider.
+ *
+ * @param text - As written by {@link writeItem}.
+ * @param index - Topology index.
+ * @returns The failure, or null if it is malformed or not in the network.
+ */
+export function readFailure(text: string, index: TopologyIndex): Failure | null {
+	if (!text.startsWith('provider:')) return readItem(text, index);
+	const id = text.slice('provider:'.length);
+	return index.topology.links.some((l) => l.circuit?.provider === id)
+		? { kind: 'provider', id }
+		: null;
 }
 
 /**
@@ -188,7 +219,7 @@ export function fromQuery(q: URLSearchParams, index: TopologyIndex): Partial<Sha
 	}
 	const [from, to] = [q.get('from'), q.get('to')];
 	if (from && to && index.devices.has(from) && index.devices.has(to)) found.path = { from, to };
-	const whatIf = q.getAll('fail').flatMap((t) => readItem(t, index) ?? []);
+	const whatIf = q.getAll('fail').flatMap((t) => readFailure(t, index) ?? []);
 	if (whatIf.length) found.whatIf = whatIf;
 	if (q.get('discovery') === '1') found.discovery = true;
 	const scope = q.get('scope');
