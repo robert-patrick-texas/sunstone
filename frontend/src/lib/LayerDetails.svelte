@@ -1,9 +1,10 @@
 <!--
 @component
 Details of something layered over the links, or beyond them: a named
-network (what it rides, what rides it, its sites, tunnels, and fabrics), a
-transport and the circuits into it, an external node and what reaches it, a
-tunnel's two ends, a fabric's members, or a tenant's networks and nodes.
+network (what it rides, what rides it, its shared risks, sites, tunnels, and
+fabrics), a transport and the circuits into it, an external node and what
+reaches it, a tunnel's two ends and the risks it shares, a fabric's members,
+or a tenant's networks and nodes.
 What is outside the boundary says so. With live state, a network's status:
 operational, degraded, or offline, why, what is degraded beneath it, and
 its regions, sites, and locations that are not operational; a tunnel's
@@ -13,6 +14,8 @@ shown in every view from here.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { riskFailure, riskItemName, riskSummary } from './across.ts';
+	import type { Risk, RiskReport } from './api/risks.ts';
 	import type { Fabric, Link } from './api/topology.ts';
 	import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
 	import type { StatusReport } from './api/status.ts';
@@ -20,6 +23,7 @@ shown in every view from here.
 	import { HEALTH_LABEL, linkLive, type LiveIndex } from './live.ts';
 	import { STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL, statusOf, statusWord } from './status.ts';
 	import {
+		checkImpact,
 		select,
 		showNetwork,
 		ui,
@@ -41,14 +45,24 @@ shown in every view from here.
 		index,
 		selection,
 		live,
-		status = null
+		status = null,
+		risks = null
 	}: {
 		index: TopologyIndex;
 		selection: LayerSelection;
 		live: LiveIndex | null;
 		/** Every network's status, while live state is shown. */
 		status?: StatusReport | null;
+		/** Each named network's shared risks. */
+		risks?: RiskReport | null;
 	} = $props();
+
+	/** Shared risks listed before "Show all", and items named in one risk. */
+	const RISKS_SHOWN = 6;
+	const ITEMS_NAMED = 3;
+	/** The network whose shared risks are all listed. */
+	let allRisksOf = $state<string | null>(null);
+	const allRisks = $derived(allRisksOf === selection.id);
 
 	/** Tunnels the source reports for a fabric, by state. */
 	function fabricLive(name: string): { down: string[]; built: string[] } {
@@ -110,6 +124,20 @@ shown in every view from here.
 
 {#snippet list(names: string[], render: Snippet<[string]>)}
 	{#each names as name, i (name)}{i > 0 ? ', ' : ''}{@render render(name)}{/each}
+{/snippet}
+
+{#snippet riskItems(risk: Risk)}
+	{#each risk.items.slice(0, ITEMS_NAMED) as item, i (item.kind + item.id)}{i > 0
+			? ', '
+			: ''}{#if item.kind === 'device'}{@render deviceLink(
+				item.id
+			)}{:else if item.kind === 'link'}<button
+				class="link"
+				onclick={(e) => follow(e, { kind: 'links', ids: [item.id] })}
+				>{riskItemName(index, item)}</button
+			>{:else}{item.id}{/if}{/each}{#if risk.items.length > ITEMS_NAMED}<span class="muted"
+			>{` and ${risk.items.length - ITEMS_NAMED} more`}</span
+		>{/if}
 {/snippet}
 
 {#snippet boundary(outside: boolean)}
@@ -205,6 +233,52 @@ shown in every view from here.
 						.tunnels.length} tunnels{/if}{#if slice.fabrics.length}, {slice.fabrics.length} fabrics{/if}
 			</dd>
 		</dl>
+		{@const own = risks?.networks.find((n) => n.network === network.name)}
+		{#if own}
+			{@const total = own.risks.length + own.more}
+			<h3>Shared risk{total ? ` (${total})` : ''}</h3>
+			{#if total}
+				<p class="muted">
+					{term(index, 'tunnel', true)} that look like separate paths but fail together: any one of these
+					failing alone takes down the {term(index, 'tunnel', true).toLowerCase()} beside it.
+				</p>
+				<table class="risks">
+					<tbody>
+						{#each own.risks.slice(0, allRisks ? undefined : RISKS_SHOWN) as risk (risk.tunnels.join())}
+							{@const first = risk.items[0]}
+							<tr>
+								<td>{@render riskItems(risk)}</td>
+								<td class="muted">{riskSummary(index, risk, own.tunnels)}</td>
+								<td class="nowrap">
+									{#if first}<button
+											class="link"
+											aria-label="What if {riskItemName(index, first)} fails"
+											onclick={() => checkImpact([riskFailure(first)])}>What if</button
+										>{/if}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+				{#if !allRisks && own.risks.length > RISKS_SHOWN}
+					<p>
+						<button class="link" onclick={() => (allRisksOf = network.name)}
+							>Show all {total}</button
+						>
+					</p>
+				{:else if own.more}
+					<p class="muted">and {own.more} more</p>
+				{/if}
+			{:else}
+				<p class="muted">
+					None: no one device, link, or provider beneath it takes two of its {term(
+						index,
+						'tunnel',
+						true
+					).toLowerCase()} at once.
+				</p>
+			{/if}
+		{/if}
 		{#if slice.fabrics.length}
 			<h3>{term(index, 'fabric', true)}</h3>
 			<table>
@@ -437,6 +511,28 @@ shown in every view from here.
 			</tbody>
 		</table>
 		{#if tunnel.tags.length}<p class="muted">Tags: {tunnel.tags.join(', ')}</p>{/if}
+		{@const shared = (
+			risks?.networks.find((n) => n.network === tunnel.network)?.risks ?? []
+		).filter((r) => r.tunnels.includes(tunnel.name))}
+		{#if shared.length}
+			<h3>Shared risk ({shared.length})</h3>
+			<p class="muted">Each of these failing alone takes it down with others.</p>
+			<table class="risks">
+				<tbody>
+					{#each shared as risk (risk.tunnels.join())}
+						{@const others = risk.tunnels.filter((t) => t !== tunnel.name)}
+						<tr>
+							<td>{@render riskItems(risk)}</td>
+							<td class="muted">
+								with {others.slice(0, 2).map(tunnelName).join(', ')}{others.length > 2
+									? ` and ${others.length - 2} more`
+									: ''}{risk.sites.length ? ` · cuts off ${risk.sites.join(', ')}` : ''}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		{/if}
 	{/if}
 {:else if selection.kind === 'fabric'}
 	{@const fabric = index.fabrics.get(selection.id)}

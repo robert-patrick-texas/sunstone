@@ -18,6 +18,8 @@ export interface Impact {
 	cutOff: Set<string>;
 	/** Devices that had a second path to the core and now have one, with the devices it runs through. */
 	exposed: Map<string, string[]>;
+	/** Tunnels up before and down with the failures ("what if" only). */
+	tunnels: Set<string>;
 }
 
 /** How one device or link is affected, for drawing. */
@@ -60,6 +62,20 @@ export function worstImpact(impact: Impact, devices: string[]): DeviceImpact | n
 		if (found) worst = Math.max(worst, SEVERITY.indexOf(found));
 	}
 	return SEVERITY[worst] ?? null;
+}
+
+/**
+ * Whether tunnels drawn as one (an arc, or a fabric member's way in) are
+ * still up.
+ *
+ * @param impact - The impact being shown.
+ * @param tunnels - Tunnel ids.
+ * @returns Lost when all go down, partial when some do, null when none.
+ */
+export function tunnelsImpact(impact: Impact, tunnels: string[]): LinkImpact | null {
+	const lost = tunnels.filter((t) => impact.tunnels.has(t)).length;
+	if (lost === 0) return null;
+	return lost === tunnels.length ? 'lost' : 'partial';
 }
 
 /**

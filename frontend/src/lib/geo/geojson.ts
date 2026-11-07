@@ -15,7 +15,7 @@
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import type { SeenLink } from '../api/discovery.ts';
 import type { Link } from '../api/topology.ts';
-import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
+import { deviceImpact, linksImpact, tunnelsImpact, worstImpact, type Impact } from '../impact.ts';
 import {
 	bundleLive,
 	deviceHealth,
@@ -25,7 +25,7 @@ import {
 	type LiveIndex
 } from '../live.ts';
 import { fabricTunnels, layersOf } from '../layers.ts';
-import { depthColor, HEALTH_GLYPH, IMPACT_GLYPH, TUNNEL_COLOR } from '../theme.ts';
+import { depthColor, HEALTH_GLYPH, IMPACT_COLOR, IMPACT_GLYPH, TUNNEL_COLOR } from '../theme.ts';
 import { farDevice, ROLES, siteOf, type TopologyIndex } from '../topology.ts';
 
 /** How long, in degrees, the stub drawn for a circuit into a transport is. */
@@ -174,18 +174,22 @@ const ARC_POINTS = 24;
  * networks between the same two sites bow out on alternate sides, further
  * each time. A tunnel to an external node has no place on the map. With
  * live state, arcs take their tunnels' health, and spoke-to-spoke tunnels
- * built now are drawn too, thinner.
+ * built now are drawn too, thinner. With a "what if" impact, arcs whose
+ * tunnels it takes down are drawn as lost, or partly lost.
  *
  * @param index - Topology index.
  * @param networks - The networks to draw.
  * @param live - Live state, or null for structure only.
+ * @param impact - Impact to show, or null.
  * @returns One arc per network and site pair, with its network, color, the
- *   tunnel or fabric to select for it, and whether it was built on demand.
+ *   tunnel or fabric to select for it, whether it was built on demand, and
+ *   with an impact, whether its tunnels are lost.
  */
 export function networkArcs(
 	index: TopologyIndex,
 	networks: string[],
-	live: LiveIndex | null = null
+	live: LiveIndex | null = null,
+	impact: Impact | null = null
 ): FeatureCollection<LineString> {
 	const layers = layersOf(index);
 	const arcs = new Map<
@@ -236,12 +240,22 @@ export function networkArcs(
 		// Bow to alternate sides, further for each network after the first two.
 		const bow = BOW * (1 + Math.floor(n / 2)) * (n % 2 ? -1 : 1);
 		const depth = layers.slices.get(String(properties['network']))?.depth ?? 0;
-		const color = live ? TUNNEL_COLOR[tunnelsLive(live, tunnels)] : depthColor(depth);
+		const lost = impact ? tunnelsImpact(impact, tunnels) : null;
+		const color = lost
+			? IMPACT_COLOR[lost === 'lost' ? 'failed' : 'exposed']
+			: live
+				? TUNNEL_COLOR[tunnelsLive(live, tunnels)]
+				: depthColor(depth);
 		return [
 			{
 				type: 'Feature' as const,
 				geometry: { type: 'LineString' as const, coordinates: arc(from, to, bow) },
-				properties: { ...properties, color, dynamic: properties['dynamic'] === true }
+				properties: {
+					...properties,
+					color,
+					dynamic: properties['dynamic'] === true,
+					...(lost ? { impact: lost } : {})
+				}
 			}
 		];
 	});

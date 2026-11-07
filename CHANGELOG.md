@@ -3,6 +3,32 @@
 Release notes, newest first. `tools/release` takes each release's notes from
 its section here.
 
+## 0.5.0
+
+- "What if" across the layers. Besides the devices a failure would cut off
+  or leave without redundancy, the answer says what it does to the whole
+  network and each named network it reaches: its status before and after,
+  the tunnels it loses out of how many, the circuits it loses at each site
+  out of how many it has there, and the sites cut off from it. A network
+  that stays up says so, and why it carries a caveat: failing hou-wsw-01
+  takes 2 of Houston's 4 circuits from black, and blue, grey, and red-alpha
+  stay up over the other two. The details panel's line for the selection
+  says the same, and the tunnels lost are drawn lost on the map and in the
+  graph views. `POST /api/impact` returns `networks`.
+- A carrier can fail as a whole: **What if Mesa Carrier fails?** on a
+  circuit's details fails every circuit it provides (`fail=provider:Mesa
+  Carrier` in a link, `{kind: provider}` to `POST /api/impact`).
+- Shared risk: a network's details list what beneath it would take two or
+  more of its tunnels down at once on its own, a device, a link, or a
+  provider's circuits, with the sites it would cut off, worst first; items
+  with the same consequence are one line, and **What if** shows one
+  failing. A tunnel's details list the risks it shares, and with which
+  tunnels. `GET /api/risks`.
+- Fixed: a group's partitions are counted between its own parts, the
+  groups directly inside it and its own devices, so a site split inside no
+  longer makes its region and the whole network read partitioned; and the
+  Internet joins the circuits into it when the whole is judged.
+
 ## 0.4.0
 
 - Network status. With Live on, the whole network and each named network,

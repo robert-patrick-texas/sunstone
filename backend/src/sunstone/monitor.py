@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sunstone.impact import Failures, Network
-from sunstone.live import StateSource
+from sunstone.live import StateSource, TunnelState
 from sunstone.problems import LiveView, ProblemList, current_failures, find_problems
 from sunstone.status import Statuses, StatusReport
 
@@ -41,6 +41,8 @@ class Moment:
     problems: ProblemList
     failures: Failures
     """Devices and links down in it, for "what if" questions asked about it."""
+    tunnels: tuple[TunnelState, ...]
+    """The tunnels it reports, for the same."""
     status: StatusReport
     """The whole network's status, and each named network's."""
 
@@ -104,6 +106,7 @@ class Monitor:
                 gzipped=gzip.compress(body, compresslevel=6),
                 problems=ProblemList(at=at, problems=find_problems(self.network, view)),
                 failures=current_failures(self.network, view),
+                tunnels=tuple(state.tunnels),
                 status=self.statuses.report(at, view),
             )
             self._moments[at] = found

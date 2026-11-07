@@ -5,13 +5,16 @@ its WAN links, or a set of links. With live state, also health, round-trip
 times from each monitoring position, and load on each link, and what
 failing it would do. Above it, the shortest paths between two devices when
 a path is shown, hop by hop with interfaces; or the impact being shown, of
-a problem or of "what if" failures. With live state, charts of the last
+a problem or of "what if" failures, with what the failures do to each
+named network they reach. With live state, charts of the last
 day: round trip to a device, load on each of its links, and load on a
 selected link; clicking a chart replays that moment. Names in the panel are
 links that select and bring that item into view.
 -->
 <script lang="ts">
-	import { fetchWhatIf, type Problem, type WhatIf } from './api/analysis.ts';
+	import { acrossSentence, lineDetail, networkLine } from './across.ts';
+	import { fetchWhatIf, type NetworkImpact, type Problem, type WhatIf } from './api/analysis.ts';
+	import type { RiskReport } from './api/risks.ts';
 	import type { Change } from './api/changes.ts';
 	import type { Comparison } from './api/discovery.ts';
 	import type { OnCall, Ownership } from './api/oncall.ts';
@@ -46,9 +49,13 @@ links that select and bring that item into view.
 		ui,
 		isPhysical,
 		type AnySelection,
+		type Failure,
 		type Selection
 	} from './state.svelte.ts';
 	import LayerDetails from './LayerDetails.svelte';
+	import { STATUS_COLOR } from './status.ts';
+	import { depthColor } from './theme.ts';
+	import { layersOf } from './layers.ts';
 	import { term } from './terms.ts';
 	import DiscoveryFor from './DiscoveryFor.svelte';
 	import OnCallFor from './OnCallFor.svelte';
@@ -77,7 +84,9 @@ links that select and bring that item into view.
 		path,
 		impact,
 		problem,
+		whatIfNetworks = [],
 		whatIfProblem,
+		risks = null,
 		windows,
 		onchange,
 		live,
@@ -92,8 +101,12 @@ links that select and bring that item into view.
 		path: PathResult | null;
 		impact: Impact | null;
 		problem: Problem | null;
+		/** What the "what if" failures do to the whole network and each named network. */
+		whatIfNetworks?: NetworkImpact[];
 		/** Why the "what if" impact could not be worked out, if it could not. */
 		whatIfProblem: string | null;
+		/** Each named network's shared risks. */
+		risks?: RiskReport | null;
 		windows: Window[];
 		/** Called after a problem is acknowledged or paged, or that is withdrawn. */
 		onchange: () => void;
@@ -285,19 +298,25 @@ links that select and bring that item into view.
 		return `${n} ${noun}${n === 1 ? '' : 's'}`;
 	}
 
-	function consequence({ impact: i, already }: WhatIf, subject: string): string {
+	function consequence({ impact: i, already, networks }: WhatIf, subject: string): string {
 		if (already) return `Live state already shows ${subject} down or cut off.`;
 		const parts: string[] = [];
 		if (i.cutOff.size) parts.push(`cut off ${plural(i.cutOff.size, 'device')}`);
 		if (i.exposed.size) parts.push(`leave ${plural(i.exposed.size, 'device')} without redundancy`);
-		return parts.length
+		const physical = parts.length
 			? `Failing ${subject} would ${parts.join(' and ')}.`
 			: `Failing ${subject} would cut nothing else off, and every device would keep a second path.`;
+		const across = acrossSentence(index, networks);
+		return across ? `${physical} Across the networks: ${across}` : physical;
 	}
 
-	function itemName(item: Selection): string {
+	function itemName(item: Failure): string {
 		if (item.kind === 'device') return item.id;
 		if (item.kind === 'site') return `${item.id} (whole site)`;
+		if (item.kind === 'provider') {
+			const n = index.topology.links.filter((l) => l.circuit?.provider === item.id).length;
+			return `${item.id} (${plural(n, 'circuit')})`;
+		}
 		const links = item.ids.flatMap((id) => index.links.get(id) ?? []);
 		return links.length === 1 && links[0] ? linkName(links[0]) : `${links.length} links`;
 	}
@@ -377,11 +396,48 @@ links that select and bring that item into view.
 	<button class="link" onclick={(e) => follow(e, { kind: 'site', id: code })}>{code}</button>
 {/snippet}
 
-{#snippet whatIf(item: Selection, label: string)}
+{#snippet whatIf(item: Failure, label: string, adding = 'Add to what if')}
 	{@const added = ui.whatIf.some((f) => JSON.stringify(f) === JSON.stringify(item))}
 	<button disabled={added} onclick={() => addFailure($state.snapshot(item))}>
-		{added ? 'In what if' : ui.whatIf.length ? 'Add to what if' : label}
+		{added ? 'In what if' : ui.whatIf.length ? adding : label}
 	</button>
+{/snippet}
+
+{#snippet acrossNetworks(networks: NetworkImpact[])}
+	{@const lines = networks.map((n) => networkLine(index, n))}
+	{@const slices = layersOf(index).slices}
+	{@const hidden = networks.filter(
+		(n) => n.network !== null && n.tunnels_lost.length && !ui.networks.includes(n.network)
+	)}
+	<h3>Networks ({lines.filter((l) => l.network !== null).length})</h3>
+	<table class="across">
+		<tbody>
+			{#each lines as l (l.network ?? '')}
+				{@const name = l.network}
+				<tr onclick={() => name !== null && select({ kind: 'network', id: name }, true)}>
+					<td class="nowrap">
+						{#if name !== null}<span
+								class="dot depth"
+								style:--depth={depthColor(slices.get(name)?.depth ?? 0)}
+							></span>{/if}{l.name}
+					</td>
+					<td class="nowrap" style:color={STATUS_COLOR[l.after]}>{l.status}</td>
+					<td class="muted">{lineDetail(l)}</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+	{#if hidden.length}
+		<p class="actions">
+			<button
+				onclick={() =>
+					(ui.networks = [
+						...ui.networks,
+						...hidden.flatMap((n) => (n.network ? [n.network] : []))
+					])}>Show their tunnels</button
+			>
+		</p>
+	{/if}
 {/snippet}
 
 {#snippet planButton(item: Selection)}
@@ -533,9 +589,13 @@ links that select and bring that item into view.
 					<ul class="failures">
 						{#each ui.whatIf as item, i (JSON.stringify(item))}
 							<li>
-								<button class="link" onclick={(e) => follow(e, $state.snapshot(item))}
-									>{itemName(item)}</button
-								>
+								{#if item.kind === 'provider'}
+									{itemName(item)}
+								{:else}
+									<button class="link" onclick={(e) => follow(e, $state.snapshot(item))}
+										>{itemName(item)}</button
+									>
+								{/if}
 								<button
 									class="remove"
 									aria-label="Remove {itemName(item)}"
@@ -641,6 +701,7 @@ links that select and bring that item into view.
 					{/if}
 				{/if}
 				{#if impact}{@render consequences(impact)}{/if}
+				{#if ui.whatIf.length && whatIfNetworks.length}{@render acrossNetworks(whatIfNetworks)}{/if}
 			</section>
 		{/if}
 
@@ -873,11 +934,19 @@ links that select and bring that item into view.
 					{@const total = links.reduce((s, l) => s + l.speed_mbps, 0)}
 					<h2>{links.length === 1 ? 'Link' : `${links.length} links`}</h2>
 					<p class="muted">{formatSpeed(total)} total capacity</p>
+					{@const provider = links.length === 1 ? links[0]?.circuit?.provider : undefined}
 					<p class="actions">
 						{@render whatIf(
 							selection,
 							links.length === 1 ? 'What if it fails?' : 'What if they fail?'
 						)}
+						{#if provider}
+							{@render whatIf(
+								{ kind: 'provider', id: provider },
+								`What if ${provider} fails?`,
+								`Add ${provider} to what if`
+							)}
+						{/if}
 						{@render planButton(selection)}
 					</p>
 					{#if ifFails}
@@ -949,7 +1018,7 @@ links that select and bring that item into view.
 		{#if layer}
 			<section aria-label="Selection">
 				<button class="close" onclick={() => select(null)} aria-label="Close details">×</button>
-				<LayerDetails {index} selection={layer} {live} {status} />
+				<LayerDetails {index} selection={layer} {live} {status} {risks} />
 			</section>
 		{/if}
 	</aside>
@@ -1230,6 +1299,10 @@ links that select and bring that item into view.
 		border-radius: 2px;
 		background: var(--role);
 		margin-right: 6px;
+	}
+	.dot.depth {
+		border-radius: 50%;
+		background: var(--depth);
 	}
 	details {
 		margin-top: 14px;

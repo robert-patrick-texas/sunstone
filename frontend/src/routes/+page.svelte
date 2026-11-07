@@ -15,7 +15,13 @@ open, and leaves it as it was when it closes.
 	import '../app.css';
 	import { onMount, untrack } from 'svelte';
 	import { pushState, replaceState } from '$app/navigation';
-	import { fetchProblems, fetchWhatIf, type Problem } from '#lib/api/analysis.ts';
+	import {
+		fetchProblems,
+		fetchWhatIf,
+		type NetworkImpact,
+		type Problem
+	} from '#lib/api/analysis.ts';
+	import { fetchRisks, type RiskReport } from '#lib/api/risks.ts';
 	import { fetchStatus, type StatusReport } from '#lib/api/status.ts';
 	import { fetchChanges, type Change } from '#lib/api/changes.ts';
 	import { fetchDiscovery, type Comparison } from '#lib/api/discovery.ts';
@@ -136,7 +142,11 @@ open, and leaves it as it was when it closes.
 	/** Every network's status, while live state is shown. */
 	let status = $state.raw<StatusReport | null>(null);
 	let whatIf = $state.raw<Impact | null>(null);
+	/** What the "what if" failures do to the whole network and each named network. */
+	let whatIfNetworks = $state.raw<NetworkImpact[]>([]);
 	let whatIfProblem = $state<string | null>(null);
+	/** Each named network's shared risks, for the network as documented. */
+	let risks = $state.raw<RiskReport | null>(null);
 	const focused = $derived(problems.find((p) => p.id === ui.problem) ?? null);
 	// Problems someone is on, or that planned work accounts for, are handled.
 	const unhandled = $derived(problems.filter((p) => !p.ack && p.planned.length === 0).length);
@@ -358,6 +368,7 @@ open, and leaves it as it was when it closes.
 		const at = live?.state.generated_at ?? null;
 		if (failures.length === 0) {
 			whatIf = null;
+			whatIfNetworks = [];
 			whatIfProblem = null;
 			return;
 		}
@@ -366,11 +377,28 @@ open, and leaves it as it was when it closes.
 			(answer) => {
 				if (stopped) return;
 				whatIf = answer.impact;
+				whatIfNetworks = answer.networks;
 				whatIfProblem = null;
 			},
 			(e: unknown) => {
 				if (!stopped) whatIfProblem = e instanceof Error ? e.message : String(e);
 			}
+		);
+		return () => {
+			stopped = true;
+		};
+	});
+
+	// Shared risks follow the documentation: asked again whenever it changes.
+	$effect(() => {
+		if (!index) return;
+		let stopped = false;
+		fetchRisks().then(
+			(found) => {
+				if (!stopped) risks = found;
+			},
+			// Without them, details just leave shared risk out.
+			(e: unknown) => console.warn('Could not fetch shared risks', e)
 		);
 		return () => {
 			stopped = true;
@@ -866,7 +894,9 @@ open, and leaves it as it was when it closes.
 					{path}
 					{impact}
 					problem={focused}
+					{whatIfNetworks}
 					{whatIfProblem}
+					{risks}
 					{windows}
 					onchange={refetch}
 					{live}

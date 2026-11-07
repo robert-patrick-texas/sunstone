@@ -598,12 +598,18 @@ links; a link's camera, if any, is where the map opens.
 		);
 	});
 
-	// Named networks chosen, or live state turned on or off, redraw their tunnels.
+	// Named networks chosen, live state turned on or off, or an impact shown, redraw their tunnels.
 	$effect(() => {
-		const [m, networks, l] = [map, ui.networks, live];
+		const [m, networks, l, i] = [map, ui.networks, live, impact];
 		if (!m) return;
 		const source = m.getSource('network-arcs') as GeoJSONSource | undefined;
-		source?.setData(networkArcs(index, networks, l));
+		source?.setData(networkArcs(index, networks, l, i));
+		// While an impact is shown, the tunnels it leaves up fade with the rest.
+		m.setPaintProperty(
+			'network-arcs',
+			'line-opacity',
+			i ? ['case', isSelected, 1, hasImpact, 1, FADED] : 0.9
+		);
 	});
 
 	// New snapshots, or a new impact or discovery to show, replace the features' properties.

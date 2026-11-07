@@ -10,6 +10,9 @@ export type View = 'geo' | 'hierarchy' | 'topology' | 'logical';
 export type Selection =
 	{ kind: 'device'; id: string } | { kind: 'site'; id: string } | { kind: 'links'; ids: string[] };
 
+/** What a "what if" can fail: something physical, or every circuit of one provider. */
+export type Failure = Selection | { kind: 'provider'; id: string };
+
 /** What else can be selected: things beyond the devices, and the layers over them. */
 export type LayerKind = 'transport' | 'external' | 'network' | 'tunnel' | 'fabric' | 'tenant';
 export interface LayerSelection {
@@ -112,8 +115,8 @@ export const ui = $state({
 	at: null as string | null,
 	/** The problem whose impact is shown, by id. */
 	problem: null as string | null,
-	/** Devices, sites, and links supposed to fail, to see what that would do. */
-	whatIf: [] as Selection[],
+	/** Devices, sites, links, and providers supposed to fail, to see what that would do. */
+	whatIf: [] as Failure[],
 	/** Show where discovery and the documentation disagree, on the map. */
 	discovery: false,
 	/**
@@ -188,9 +191,9 @@ export function clearPath(): void {
 /**
  * Add something to the "what if" failures, unless it is already there.
  *
- * @param item - Device, site, or links to suppose failed.
+ * @param item - Device, site, links, or provider to suppose failed.
  */
-export function addFailure(item: Selection): void {
+export function addFailure(item: Failure): void {
 	clearPath();
 	ui.problem = null;
 	const key = JSON.stringify(item);
@@ -222,9 +225,9 @@ export function planMaintenance(targets: Selection[]): void {
 /**
  * Show what failing some items would do, in place of any path or problem.
  *
- * @param targets - Devices, sites, and links.
+ * @param targets - Devices, sites, links, and providers.
  */
-export function checkImpact(targets: Selection[]): void {
+export function checkImpact(targets: Failure[]): void {
 	clearPath();
 	ui.problem = null;
 	ui.whatIf = targets;
