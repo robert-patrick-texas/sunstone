@@ -6,7 +6,7 @@
  * the view never shows half of a ring of neighbors.
  */
 import type { Selection } from '../state.svelte.ts';
-import type { TopologyIndex } from '../topology.ts';
+import { deviceEnds, farDevice, type TopologyIndex } from '../topology.ts';
 
 export interface Neighborhood {
 	/** Hop distance of each device included; the starting devices are 0. */
@@ -32,7 +32,7 @@ export function seedsOf(index: TopologyIndex, selection: Selection | null): stri
 	}
 	const ends = selection.ids.flatMap((id) => {
 		const link = index.links.get(id);
-		return link ? [link.a.device, link.b.device] : [];
+		return link ? deviceEnds(link).map((e) => e.device) : [];
 	});
 	return [...new Set(ends)];
 }
@@ -59,8 +59,9 @@ export function neighborhood(
 		const next = new Set<string>();
 		for (const device of frontier) {
 			for (const link of index.linksByDevice.get(device) ?? []) {
-				const other = link.a.device === device ? link.b.device : link.a.device;
-				if (!hops.has(other)) next.add(other);
+				// A neighborhood stops at a transport or external node.
+				const other = link.a.device === device ? farDevice(link) : link.a.device;
+				if (other !== null && !hops.has(other)) next.add(other);
 			}
 		}
 		if (next.size === 0) break;

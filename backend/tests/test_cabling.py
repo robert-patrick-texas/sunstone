@@ -6,7 +6,7 @@ from sunstone.cabling import Cabling
 from sunstone.discovery import Visibility
 from sunstone.impact import Network
 from sunstone.mockgen import PRESETS, generate
-from sunstone.model import Link, Topology
+from sunstone.model import Link, Topology, device_b
 from sunstone.monitor import Monitor
 from sunstone.simulate import SimulatedState, monitored
 
@@ -25,7 +25,9 @@ def cabling(topology: Topology) -> Cabling:
 
 def test_without_drift_the_cables_are_as_documented(topology: Topology) -> None:
     exact = Cabling(topology)
-    assert [(c.a, c.b) for c in exact.cables] == [(ln.a, ln.b) for ln in topology.links]
+    assert [(c.a, c.b) for c in exact.cables] == [
+        (ln.a, device_b(ln)) for ln in topology.links
+    ]
     assert exact.dangling == []
     assert (exact.hidden, exact.silent, exact.extra) == (set(), set(), [])
 
@@ -87,7 +89,7 @@ def test_a_device_on_a_rewired_uplink_stays_reachable(
     state = SimulatedState(topology, cabling=cabling)
     [(link_id, (documented, _))] = cabling.rewired.items()
     link = next(ln for ln in topology.links if ln.id == link_id)
-    access = link.b.device if link.a.device == documented else link.a.device
+    access = device_b(link).device if link.a.device == documented else link.a.device
     assert access in state.adjacent
     assert any(
         far == cabling.rewired[link_id][1].device for far, _ in state.adjacent[access]

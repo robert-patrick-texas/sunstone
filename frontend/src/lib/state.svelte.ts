@@ -4,10 +4,41 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { DEFAULT_DWELL_S, type Camera } from './url.ts';
 
-export type View = 'geo' | 'hierarchy' | 'topology';
+export type View = 'geo' | 'hierarchy' | 'topology' | 'logical';
 
+/** Something physical: what maintenance, a "what if", and neighborhoods work on. */
 export type Selection =
 	{ kind: 'device'; id: string } | { kind: 'site'; id: string } | { kind: 'links'; ids: string[] };
+
+/** What else can be selected: things beyond the devices, and the layers over them. */
+export type LayerKind = 'transport' | 'external' | 'network' | 'tunnel' | 'fabric' | 'tenant';
+export interface LayerSelection {
+	kind: LayerKind;
+	/** Its name. */
+	id: string;
+}
+
+/** Anything that can be selected. */
+export type AnySelection = Selection | LayerSelection;
+
+export const LAYER_KINDS: readonly LayerKind[] = [
+	'transport',
+	'external',
+	'network',
+	'tunnel',
+	'fabric',
+	'tenant'
+];
+
+/**
+ * Whether a selection is of something physical.
+ *
+ * @param selection - A selection.
+ * @returns True for a device, site, or links.
+ */
+export function isPhysical(selection: AnySelection): selection is Selection {
+	return selection.kind === 'device' || selection.kind === 'site' || selection.kind === 'links';
+}
 
 /** A maintenance window being planned (no id yet) or changed. */
 export interface WindowDraft {
@@ -48,7 +79,9 @@ export function rememberName(name: string): void {
 
 export const ui = $state({
 	view: 'geo' as View,
-	selection: null as Selection | null,
+	selection: null as AnySelection | null,
+	/** Named networks shown, in every view; none for the network as a whole. */
+	networks: [] as string[],
 	/** Incremented to ask the current view to bring the selection into sight. */
 	focusRequest: 0,
 	/** Devices whose shortest paths are highlighted in every view. */
@@ -102,6 +135,15 @@ export const fromLink: { camera: Camera | null } = { camera: null };
 
 /** Sites the graph views show device by device instead of as one box. */
 export const expandedSites = new SvelteSet<string>();
+
+/** Sites the logical view shows device by device, apart from the other graph views. */
+export const logicalExpanded = new SvelteSet<string>();
+
+/** Settings of the logical view, kept across view switches. */
+export const logical = $state({
+	/** Also draw, faintly, what the networks shown ride. */
+	under: true
+});
 
 /** Settings of the topology view, kept across view switches. */
 export const topo = $state({
@@ -221,13 +263,23 @@ export function showProblem(problem: { id: string; target: Selection }): void {
  * @param selection - What to select, or null to clear.
  * @param focus - Also move the current view to it (search results, links in the details panel).
  */
-export function select(selection: Selection | null, focus = false): void {
+export function select(selection: AnySelection | null, focus = false): void {
 	ui.selection = selection;
 	if (focus) ui.focusRequest++;
 	if (ui.pathFrom && selection?.kind === 'device' && selection.id !== ui.pathFrom) {
 		ui.path = { from: ui.pathFrom, to: selection.id };
 		ui.pathFrom = null;
 	}
+}
+
+/**
+ * Show a named network in every view, and select it.
+ *
+ * @param name - The network.
+ */
+export function showNetwork(name: string): void {
+	ui.networks = [name];
+	select({ kind: 'network', id: name }, true);
 }
 
 /**

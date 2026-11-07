@@ -21,6 +21,7 @@ Press `/` or Ctrl+K to get here.
 	import { MARK } from './problem-kinds.ts';
 	import {
 		commandEntries,
+		groupLabels,
 		oncallEntries,
 		problemEntries,
 		recentEntries,
@@ -29,7 +30,14 @@ Press `/` or Ctrl+K to get here.
 		windowEntries,
 		type Entry
 	} from './search.ts';
-	import { select, showProblem, showTeam, ui, type Selection } from './state.svelte.ts';
+	import {
+		select,
+		showNetwork,
+		showProblem,
+		showTeam,
+		ui,
+		type Selection
+	} from './state.svelte.ts';
 	import { HEALTH_COLOR, HEALTH_GLYPH } from './theme.ts';
 	import type { TopologyIndex } from './topology.ts';
 
@@ -98,7 +106,7 @@ Press `/` or Ctrl+K to get here.
 			return entries.length ? [{ label: 'Recent', entries, more: 0, recent: true }] : [];
 		}
 		const lists = [problemList, items(), windowList, oncallList, commandList];
-		return timed('search', () => search(query, lists));
+		return timed('search', () => search(query, lists, groupLabels(index)));
 	});
 	const flat = $derived(groups.flatMap((g) => g.entries));
 	const expanded = $derived(open && flat.length > 0);
@@ -129,7 +137,8 @@ Press `/` or Ctrl+K to get here.
 		if (target.kind === 'command') {
 			oncommand(target.command);
 		} else if (target.kind === 'item') {
-			select(target.item, true);
+			if (target.item.kind === 'network') showNetwork(target.item.id);
+			else select(target.item, true);
 		} else if (target.kind === 'team') {
 			showTeam(target.team);
 		} else if (target.kind === 'problem') {

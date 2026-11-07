@@ -17,8 +17,12 @@ import type { SeenLink } from '../api/discovery.ts';
 import type { Link } from '../api/topology.ts';
 import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
 import { bundleLive, deviceHealth, groupHealth, linkLive, type LiveIndex } from '../live.ts';
-import { HEALTH_GLYPH, IMPACT_GLYPH } from '../theme.ts';
-import { ROLES, siteOf, type TopologyIndex } from '../topology.ts';
+import { fabricTunnels, layersOf } from '../layers.ts';
+import { depthColor, HEALTH_GLYPH, IMPACT_GLYPH, TUNNEL_LIVE } from '../theme.ts';
+import { farDevice, ROLES, siteOf, type TopologyIndex } from '../topology.ts';
+
+/** How long, in degrees, the stub drawn for a circuit into a transport is. */
+const STUB_DEG = 0.0006;
 
 export type LonLat = [number, number];
 
@@ -59,8 +63,10 @@ export function pairKey(a: string, b: string): string {
 export function sitePairs(index: TopologyIndex): SitePair[] {
 	const pairs = new Map<string, SitePair>();
 	for (const link of index.topology.links) {
+		const far = farDevice(link);
+		if (far === null) continue; // into a transport or to an external node
 		const a = siteOf(index, link.a.device);
-		const b = siteOf(index, link.b.device);
+		const b = siteOf(index, far);
 		if (a === b) continue;
 		const key = pairKey(a, b);
 		const pair = pairs.get(key) ?? { key, a, b, linkIds: [], capacityMbps: 0 };
@@ -128,6 +134,8 @@ export function siteFeatures(
 				name: site.name,
 				devices: devices.length
 			};
+			const transports = layersOf(index).transportsAt.get(site.code);
+			if (transports) properties['transports'] = transports.join(' · ');
 			if (live) {
 				const { health, counts } = groupHealth(live, devices);
 				properties['health'] = health;
@@ -147,6 +155,81 @@ export function siteFeatures(
 			};
 		})
 	);
+}
+
+/** How far an arc bows out from the straight line, as a share of its length. */
+const BOW = 0.18;
+const ARC_POINTS = 24;
+
+/**
+ * Tunnels of named networks as arcs between their sites: each network's own
+ * tunnels, and the tunnels its fabrics are made of. Arcs of different
+ * networks between the same two sites bow out on alternate sides, further
+ * each time. A tunnel to an external node has no place on the map.
+ *
+ * @param index - Topology index.
+ * @param networks - The networks to draw.
+ * @param live - Draw them neutral, as while live state is shown.
+ * @returns One arc per network and site pair, with its network, color, and
+ *   the tunnel or fabric to select for it.
+ */
+export function networkArcs(
+	index: TopologyIndex,
+	networks: string[],
+	live = false
+): FeatureCollection<LineString> {
+	const layers = layersOf(index);
+	const arcs = new Map<string, { a: string; b: string; properties: Record<string, string> }>();
+	const add = (x: string, y: string, network: string, ref: Record<string, string>) => {
+		const [a, b] = [siteOf(index, x), siteOf(index, y)];
+		const key = `${network}|${pairKey(a, b)}`;
+		if (a === b || arcs.has(key)) return;
+		const depth = layers.slices.get(network)?.depth ?? 0;
+		const color = live ? TUNNEL_LIVE : depthColor(depth);
+		arcs.set(key, { a, b, properties: { id: key, network, color, ...ref } });
+	};
+	for (const name of networks) {
+		const slice = layers.slices.get(name);
+		if (!slice) continue;
+		for (const t of slice.tunnels) {
+			if ('device' in t.b) add(t.a.device, t.b.device, name, { tunnel: t.name });
+		}
+		for (const f of slice.fabrics) {
+			for (const { a, b } of fabricTunnels(f)) add(a.device, b.device, name, { fabric: f.name });
+		}
+	}
+	const seen = new Map<string, number>();
+	const features = [...arcs.values()].flatMap(({ a, b, properties }) => {
+		const [from, to] = [index.sites.get(a), index.sites.get(b)];
+		if (!from || !to) return [];
+		const n = seen.get(pairKey(a, b)) ?? 0;
+		seen.set(pairKey(a, b), n + 1);
+		// Bow to alternate sides, further for each network after the first two.
+		const bow = BOW * (1 + Math.floor(n / 2)) * (n % 2 ? -1 : 1);
+		return [
+			{
+				type: 'Feature' as const,
+				geometry: { type: 'LineString' as const, coordinates: arc(from, to, bow) },
+				properties
+			}
+		];
+	});
+	return collection(features);
+}
+
+/** Points along a quadratic curve from one site to another, bowed out by a share of its length. */
+function arc(
+	from: { lon: number; lat: number },
+	to: { lon: number; lat: number },
+	bow: number
+): LonLat[] {
+	const [x1, y1, x2, y2] = [from.lon, from.lat, to.lon, to.lat];
+	const [cx, cy] = [(x1 + x2) / 2 - (y2 - y1) * bow, (y1 + y2) / 2 + (x2 - x1) * bow];
+	return Array.from({ length: ARC_POINTS + 1 }, (_, i) => {
+		const t = i / ARC_POINTS;
+		const u = 1 - t;
+		return [u * u * x1 + 2 * u * t * cx + t * t * x2, u * u * y1 + 2 * u * t * cy + t * t * y2];
+	});
 }
 
 /**
@@ -248,25 +331,33 @@ export function linkFeatures(
 	impact: Impact | null = null,
 	drift: Set<string> | null = null
 ): FeatureCollection<LineString> {
+	// A link into a transport or to an external node is a short stub out
+	// from its device, each of a device's stubs at its own angle.
+	const stubs = new Map<string, number>();
+	const farEnd = (link: Link, from: LonLat): LonLat => {
+		const device = farDevice(link);
+		if (device !== null) return positions.get(device) ?? [0, 0];
+		const n = stubs.get(link.a.device) ?? 0;
+		stubs.set(link.a.device, n + 1);
+		const angle = Math.PI / 4 + (n * Math.PI) / 3;
+		return [from[0] + STUB_DEG * Math.cos(angle), from[1] + STUB_DEG * Math.sin(angle)];
+	};
 	return collection(
-		links.map((link) => ({
-			type: 'Feature',
-			geometry: {
-				type: 'LineString',
-				coordinates: [
-					positions.get(link.a.device) ?? [0, 0],
-					positions.get(link.b.device) ?? [0, 0]
-				]
-			},
-			properties: {
-				id: link.id,
-				kind: link.kind,
-				speed: link.speed_mbps,
-				...(live ? liveProperties(linkLive(live, link)) : {}),
-				...(impact ? lostProperty(impact, [link]) : {}),
-				...(drift?.has(link.id) ? { drift: true } : {})
-			}
-		}))
+		links.map((link) => {
+			const from = positions.get(link.a.device) ?? [0, 0];
+			return {
+				type: 'Feature',
+				geometry: { type: 'LineString', coordinates: [from, farEnd(link, from)] },
+				properties: {
+					id: link.id,
+					kind: link.kind,
+					speed: link.speed_mbps,
+					...(live ? liveProperties(linkLive(live, link)) : {}),
+					...(impact ? lostProperty(impact, [link]) : {}),
+					...(drift?.has(link.id) ? { drift: true } : {})
+				}
+			} as Feature<LineString>;
+		})
 	);
 }
 

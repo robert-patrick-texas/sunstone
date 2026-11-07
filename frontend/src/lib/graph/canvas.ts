@@ -33,7 +33,8 @@ import type { Comparison } from '../api/discovery.ts';
 import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
 import { bundleLive, deviceHealth, groupHealth, linkLive, type LiveIndex } from '../live.ts';
 import type { PathResult } from '../paths.ts';
-import { select, type Selection } from '../state.svelte.ts';
+import { footprint } from '../layers.ts';
+import { isPhysical, select, type AnySelection } from '../state.svelte.ts';
 import {
 	COLOR,
 	DRIFT_COLOR,
@@ -44,6 +45,7 @@ import {
 	LINK_NODATA,
 	LINK_UNMONITORED,
 	ROLE_COLOR,
+	TUNNEL_LIVE,
 	utilColor
 } from '../theme.ts';
 import { siteOf, type TopologyIndex } from '../topology.ts';
@@ -109,6 +111,43 @@ const STYLE: StylesheetJson = [
 		style: { width: 'data(w)', height: 'data(h)', 'z-compound-depth': 'bottom' }
 	},
 	{
+		// Outside the boundary: clouds and external nodes have dashed borders.
+		selector: 'node[kind = "transport"]',
+		style: {
+			shape: 'ellipse',
+			width: 110,
+			height: 50,
+			'background-color': COLOR.cloud,
+			'border-color': COLOR.outside,
+			'border-style': 'dashed',
+			'border-width': 1.5,
+			label: 'data(label)',
+			color: COLOR.text,
+			'font-size': 12,
+			'text-valign': 'center'
+		}
+	},
+	{ selector: 'node[kind = "transport"][w]', style: { width: 'data(w)', height: 'data(h)' } },
+	{
+		selector: 'node[kind = "external"]',
+		style: {
+			shape: 'round-rectangle',
+			width: 86,
+			height: 20,
+			'background-color': COLOR.background,
+			'border-color': COLOR.outside,
+			'border-style': 'dashed',
+			'border-width': 1.5,
+			label: 'data(label)',
+			color: COLOR.muted,
+			'font-size': 9,
+			'text-valign': 'center'
+		}
+	},
+	{ selector: 'node[kind = "external"][w]', style: { width: 'data(w)', height: 'data(h)' } },
+	{ selector: 'node[externalKind = "service"]', style: { shape: 'round-hexagon' } },
+	{ selector: 'node[externalKind = "tenant"]', style: { shape: 'round-diamond' } },
+	{
 		selector: 'node[kind = "ring"]',
 		style: {
 			shape: 'ellipse',
@@ -149,6 +188,48 @@ const STYLE: StylesheetJson = [
 		}
 	},
 	{ selector: 'edge[kind = "wan"]', style: { 'line-color': COLOR.wan, opacity: 0.45 } },
+	// The logical view: networks in their colors, parallel edges of different
+	// networks fanned apart, tunnels and fabric memberships dashed.
+	{
+		selector: 'edge[network]',
+		style: { 'line-color': 'data(color)', opacity: 0.85, 'curve-style': 'bezier' }
+	},
+	{
+		selector: 'edge[kind = "tunnel"], edge[kind = "fabric"]',
+		style: { 'line-style': 'dashed', 'line-dash-pattern': [6, 4], width: 1.6 }
+	},
+	{
+		selector: 'edge[kind = "reach"]',
+		style: { 'line-style': 'dotted', 'line-color': COLOR.outside, opacity: 0.6, width: 1 }
+	},
+	{
+		selector: 'edge[label]',
+		style: {
+			label: 'data(label)',
+			'font-size': 7,
+			color: COLOR.muted,
+			'min-zoomed-font-size': 7,
+			'text-background-color': COLOR.background,
+			'text-background-opacity': 0.85,
+			'text-background-padding': '1px'
+		}
+	},
+	{
+		selector: 'node[kind = "fabric"]',
+		style: {
+			shape: 'round-hexagon',
+			width: 'data(w)',
+			height: 'data(h)',
+			'background-color': COLOR.cloud,
+			'border-color': 'data(tint)',
+			'border-width': 2,
+			label: 'data(label)',
+			color: COLOR.text,
+			'font-size': 11,
+			'text-valign': 'center',
+			'text-wrap': 'wrap'
+		}
+	},
 	{
 		selector: 'edge.context',
 		style: { opacity: 1, 'z-index': 5, 'font-size': 8, color: COLOR.text }
@@ -253,6 +334,7 @@ const STYLE: StylesheetJson = [
 	},
 	{ selector: 'node.drift', style: { 'border-width': 3, 'border-color': DRIFT_COLOR } },
 	{ selector: 'node.center', style: { 'border-width': 2, 'border-color': COLOR.site } },
+	{ selector: 'edge[?beneath]', style: { opacity: 0.25 } },
 	{ selector: '.faded', style: { opacity: 0.15 } },
 	{ selector: 'node.path', style: { 'border-width': 3, 'border-color': COLOR.path } },
 	{
@@ -279,7 +361,7 @@ export class GraphCanvas {
 	private readonly resize: ResizeObserver;
 	private edgeOfLink = new Map<string, string>();
 	private labelsShown = false;
-	private selection: Selection | null = null;
+	private selection: AnySelection | null = null;
 	private path: PathResult | null = null;
 	private impact: Impact | null = null;
 	private discovery: Comparison | null = null;
@@ -310,11 +392,22 @@ export class GraphCanvas {
 			const { kind, id, site, device } = e.target.data();
 			// Something only discovery sees selects the device it hangs off.
 			if (kind === 'ghost') select({ kind: 'device', id: device });
-			else select(kind === 'device' ? { kind: 'device', id } : { kind: 'site', id: site });
+			else if (kind === 'transport' || kind === 'external' || kind === 'fabric') {
+				select({ kind, id: id.slice(kind.length + 1) });
+			} else select(kind === 'device' ? { kind: 'device', id } : { kind: 'site', id: site });
 		});
 		this.core.on('tap', 'edge', (e) => {
-			const { kind, linkIds, device } = e.target.data();
-			select(kind === 'ghost' ? { kind: 'device', id: device } : { kind: 'links', ids: linkIds });
+			const { kind, linkIds, device, tunnels, fabric, network, source } = e.target.data();
+			if (kind === 'ghost') select({ kind: 'device', id: device });
+			else if (kind === 'tunnel') {
+				select(
+					tunnels.length === 1
+						? { kind: 'tunnel', id: tunnels[0] }
+						: { kind: 'network', id: network }
+				);
+			} else if (kind === 'fabric') select({ kind: 'fabric', id: fabric });
+			else if (kind === 'reach') select({ kind: 'external', id: source.slice('external:'.length) });
+			else select({ kind: 'links', ids: linkIds });
 		});
 		this.core.on('dbltap', 'node[kind != "ghost"]', (e) => options.onDoubleTap(e.target));
 		// A dragged device takes its frame along; a dragged frame takes its devices.
@@ -422,8 +515,29 @@ export class GraphCanvas {
 	 * @returns A device's node (or its collapsed site), a site's box, frame, or
 	 *   devices, or the edges carrying the selected links. Empty if none is drawn.
 	 */
-	elementsFor(selection: Selection | null): CollectionReturnValue {
+	elementsFor(selection: AnySelection | null): CollectionReturnValue {
 		const core = this.core;
+		if (selection && !isPhysical(selection)) {
+			// A network, transport, tunnel, and so on: everything it stands for.
+			const where = footprint(this.index, selection);
+			const edgeIds = new Set([...where.links].map((id) => this.edgeOfLink.get(id)));
+			// In the logical view, its own edges and node too.
+			const { kind, id } = selection;
+			for (const e of core.edges('[network]')) {
+				const d = e.data();
+				const own =
+					(kind === 'network' && d.network === id) ||
+					(kind === 'tunnel' && d.tunnels?.includes(id)) ||
+					(kind === 'fabric' && d.fabric === id);
+				if (own) edgeIds.add(e.id());
+			}
+			if (kind === 'fabric') where.nodes.add(`fabric:${id}`);
+			const beyond = [...where.nodes].reduce(
+				(all, key) => all.union(core.getElementById(key)),
+				core.edges().filter((e) => edgeIds.has(e.id()))
+			);
+			return [...where.devices].reduce((all, device) => all.union(this.nodeFor(device)), beyond);
+		}
 		if (selection?.kind === 'device') return this.nodeFor(selection.id);
 		if (selection?.kind === 'site') {
 			const node = core.getElementById(siteNodeId(selection.id));
@@ -442,7 +556,7 @@ export class GraphCanvas {
 	 * @param path - Shortest paths to show, or null for none.
 	 * @param impact - Impact to show when there is no path, or null for none.
 	 */
-	highlight(selection: Selection | null, path: PathResult | null, impact: Impact | null): void {
+	highlight(selection: AnySelection | null, path: PathResult | null, impact: Impact | null): void {
 		this.selection = selection;
 		this.path = path;
 		this.impact = impact;
@@ -481,6 +595,32 @@ export class GraphCanvas {
 				frame.data({ w: box.w + 2 * FRAME_PAD, h: box.h + 2 * FRAME_PAD });
 				frame.position({ x: (box.x1 + box.x2) / 2, y: (box.y1 + box.y2) / 2 });
 			});
+		});
+	}
+
+	/**
+	 * Move transports, fabrics, and external nodes off anything a layout put
+	 * them on. A transport joins the sites whose circuits go into it, so a
+	 * force-directed layout puts it in their middle, often on the hubs or on
+	 * a fabric over it joining the same sites.
+	 */
+	separateBeyond(): void {
+		const beyond = this.core.nodes('[kind = "transport"], [kind = "fabric"], [kind = "external"]');
+		const others = this.core
+			.nodes('[kind != "frame"][kind != "ring"]')
+			.difference(beyond)
+			.map((n) => n.boundingBox());
+		const placed: typeof others = [];
+		const overlaps = (a: (typeof others)[0], b: (typeof others)[0]) =>
+			a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
+		beyond.forEach((n) => {
+			let box = n.boundingBox();
+			for (let tries = 0; tries < 50; tries++) {
+				if (![...others, ...placed].some((b) => overlaps(box, b))) break;
+				n.shift({ x: 0, y: box.h + 12 });
+				box = n.boundingBox();
+			}
+			placed.push(box);
 		});
 	}
 
@@ -525,6 +665,12 @@ export class GraphCanvas {
 				n.addClass(`live live-${health}`);
 			});
 			core.edges().forEach((e) => {
+				// Tunnels have no health of their own yet: neutral, still dashed.
+				if (['tunnel', 'fabric', 'reach'].includes(e.data('kind'))) {
+					e.data('liveColor', TUNNEL_LIVE);
+					e.addClass('live');
+					return;
+				}
 				const ids: string[] = e.data('linkIds');
 				const links = ids.flatMap((id) => index.links.get(id) ?? []);
 				const { health, utilPct } = bundleLive(links.map((l) => linkLive(live, l)));

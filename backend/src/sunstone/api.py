@@ -87,7 +87,7 @@ from sunstone.live import (
     StateSource,
 )
 from sunstone.loader import load_topology
-from sunstone.model import Topology
+from sunstone.model import Topology, cabled, device_ends
 from sunstone.monitor import POLL, Monitor
 from sunstone.oncall import (
     DEFAULT_URGENCY,
@@ -266,12 +266,15 @@ def create_app(
     )
     # The simulated network is cabled a little differently from its
     # documentation, and stays so however the documentation changes.
-    cabling = Cabling(base, watched=set(monitored(base)))
+    cabling = Cabling(cabled(base), watched=set(monitored(base)))
 
     def build(documented: Topology) -> _Documented:
         """Work out everything that follows the documentation."""
         network = Network(documented)
-        real = cabling.documenting(documented)
+        # Discovery compares only links between two devices so far, not
+        # circuits into a transport or links to external nodes.
+        cables = cabled(documented)
+        real = cabling.documenting(cables)
         state = state_source or SimulatedState(
             documented, plans=operations, cabling=real
         )
@@ -281,9 +284,7 @@ def create_app(
             owners=ownership(directory, documented) if directory else None,
             state=state,
             monitor=Monitor(network, state),
-            log=DiscoveryLog(
-                documented, SimulatedDiscovery(documented, real, state), state
-            ),
+            log=DiscoveryLog(cables, SimulatedDiscovery(cables, real, state), state),
             stop=threading.Event(),
         )
 
@@ -911,7 +912,9 @@ def create_app(
 
     def discovered(d: _Documented, at: datetime) -> Comparison:
         """The comparison in effect at a moment, with expected findings set aside."""
-        return expecting(d.log.comparison(at), expected(changes.changes()), d.topology)
+        return expecting(
+            d.log.comparison(at), expected(changes.changes()), cabled(d.topology)
+        )
 
     def offered(d: _Documented, finding: str, expect: bool) -> tuple[Finding, Fix]:
         """A finding of the latest discovery run, and the fix it offers, or
@@ -951,7 +954,7 @@ def create_app(
                 about = [
                     (e.device, e.interface)
                     for ln in d.network.links_of.get(device, [])
-                    for e in (ln.a, ln.b)
+                    for e in device_ends(ln)
                     if e.device == device
                 ]
             return Review(

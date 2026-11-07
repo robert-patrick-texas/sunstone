@@ -4,6 +4,7 @@ import type { Window } from './api/operations.ts';
 import { COMMANDS } from './commands.ts';
 import {
 	commandEntries,
+	groupLabels,
 	ipv4,
 	itemEntry,
 	problemEntries,
@@ -13,7 +14,7 @@ import {
 	windowEntries,
 	type Group
 } from './search.ts';
-import { fixture, link } from './test-fixture.ts';
+import { fixture, layeredFixture, link } from './test-fixture.ts';
 import { indexTopology } from './topology.ts';
 
 // The fixture with addresses, a platform, and a circuit of its own.
@@ -203,5 +204,38 @@ describe('ipv4', () => {
 		expect(ipv4('10.1.0')).toBeNull();
 		expect(ipv4('10.1.0.256')).toBeNull();
 		expect(ipv4('fe80::1')).toBeNull();
+	});
+});
+
+describe('networks and what is layered over the links', () => {
+	const layered = indexTopology({
+		...structuredClone(layeredFixture),
+		terms: { tenant: 'Customer' }
+	});
+	const entries = topologyEntries(layered);
+	const look = (query: string) => search(query, [entries], groupLabels(layered));
+
+	it('finds a network, a tunnel by its tag, and a fabric', () => {
+		expect(labels(look('grey')).slice(0, 2)).toEqual([
+			['Networks', ['grey']],
+			['Tunnels', ['GREY-A-C']]
+		]);
+		expect(look('secure')[0]?.entries[0]?.target).toEqual({
+			kind: 'item',
+			item: { kind: 'tunnel', id: 'GREY-A-C' }
+		});
+		expect(look('dmvpn')[0]?.entries[0]?.detail).toBe('corp · 3 members · 2 tunnels');
+	});
+
+	it("finds tenants by Sunstone's word and the organization's, under its word", () => {
+		for (const word of ['tenant', 'customer']) {
+			expect(labels(look(word))).toContainEqual(['Customers', ['T1']]);
+		}
+	});
+
+	it('finds a circuit into a transport by the transport', () => {
+		const found = look('inet NO-2');
+		expect(labels(found)).toEqual([['Links', ['Circuit NO-2']]]);
+		expect(found[0]?.entries[0]?.detail).toBe('Northwind Fiber · c-wan-01 – INET · 500M');
 	});
 });

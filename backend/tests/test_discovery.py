@@ -23,7 +23,7 @@ from sunstone.discovery import (
 from sunstone.discovery_log import DiscoveryLog
 from sunstone.live import DeviceHistory, DeviceState, InterfaceState, NetworkState
 from sunstone.mockgen import PRESETS, generate, to_yaml
-from sunstone.model import Link, Topology
+from sunstone.model import Link, Topology, device_b
 from sunstone.problems import short_interface
 
 AT = datetime(2026, 10, 27, 15, 0, tzinfo=UTC)
@@ -69,7 +69,7 @@ class AllUp:
                     stale=False,
                 )
                 for ln in self.topology.links
-                for end in (ln.a, ln.b)
+                for end in (ln.a, device_b(ln))
             ],
         )
 
@@ -89,7 +89,7 @@ def tables(topology: Topology, skip: Collection[str] = ()) -> dict[str, list[Nei
     for ln in topology.links:
         if ln.id in skip:
             continue
-        for here, there in ((ln.a, ln.b), (ln.b, ln.a)):
+        for here, there in ((ln.a, device_b(ln)), (device_b(ln), ln.a)):
             found[here.device].append(
                 Neighbor(
                     interface=here.interface,
@@ -114,7 +114,8 @@ def uplink(topology: Topology, n: int = 0) -> Link:
     return [
         ln
         for ln in topology.links
-        if {roles[ln.a.device], roles[ln.b.device]} == {"access", "distribution"}
+        if {roles[ln.a.device], roles[device_b(ln).device]}
+        == {"access", "distribution"}
     ][n]
 
 
@@ -146,7 +147,7 @@ class TestCompare:
     ) -> None:
         link = uplink(topology)
         found = tables(topology)
-        for device in (link.a.device, link.b.device):
+        for device in (link.a.device, device_b(link).device):
             del found[device]
         result = compare(topology, run(found))
         assert result.links[link.id] == "unchecked"
@@ -160,7 +161,7 @@ class TestCompare:
         found[moved.a.device].append(
             Neighbor(
                 interface=moved.a.interface,
-                remote=moved.b.device,
+                remote=device_b(moved).device,
                 remote_port="TenGigabitEthernet1/0/99",
                 protocol="cdp",
             )
@@ -227,7 +228,9 @@ class TestCompare:
             ("no-neighbors", [device])
         ]
         theirs = {
-            ln.id for ln in topology.links if device in (ln.a.device, ln.b.device)
+            ln.id
+            for ln in topology.links
+            if device in (ln.a.device, device_b(ln).device)
         }
         assert result.links == dict.fromkeys(sorted(theirs), "not-seen")
 
@@ -414,11 +417,13 @@ class TestFixes:
             "no-neighbors": None,
         }
         documented = {
-            f"{e.device}:{e.interface}" for ln in topology.links for e in (ln.a, ln.b)
+            f"{e.device}:{e.interface}"
+            for ln in topology.links
+            for e in (ln.a, device_b(ln))
         }
         for f in findings:
             if f.fix and f.fix.after:
-                ends = [f.fix.after.a, f.fix.after.b]
+                ends = [f.fix.after.a, device_b(f.fix.after)]
                 # Spelled out, as the documentation spells ports.
                 assert all(
                     e.interface.startswith(("Gigabit", "TenGigabit")) for e in ends
@@ -460,7 +465,7 @@ class TestFixes:
         one, two = uplink(topology, 0), uplink(topology, 2)
         found = tables(topology, skip={one.id, two.id})
         # The two cables swapped at their B ends.
-        for here, there in ((one.a, two.b), (two.a, one.b)):
+        for here, there in ((one.a, device_b(two)), (two.a, device_b(one))):
             found[here.device].append(
                 Neighbor(
                     interface=here.interface,

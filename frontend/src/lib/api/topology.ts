@@ -12,7 +12,18 @@ export type Site = Schemas['Site'];
 export type Device = Schemas['Device'];
 export type Link = Schemas['Link'];
 export type Endpoint = Schemas['Endpoint'];
+export type FarEnd = Link['b'];
 export type Role = Device['role'];
+export type NamedNetwork = Schemas['NamedNetwork'];
+export type Transport = Schemas['Transport'];
+export type External = Schemas['External'];
+export type Tenant = Schemas['Tenant'];
+export type Tunnel = Schemas['Tunnel'];
+export type Fabric = Schemas['Fabric'];
+export type FabricMember = Schemas['FabricMember'];
+/** Sunstone's words an organization can give its own for, as `terms` keys. */
+export type Term =
+	'network' | 'transport' | 'external' | 'service' | 'partner' | 'tenant' | 'tunnel' | 'fabric';
 
 /**
  * Fetch the whole topology.

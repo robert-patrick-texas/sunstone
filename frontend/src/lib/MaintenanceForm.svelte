@@ -7,14 +7,15 @@ everyone; Check impact first shows what the work would take down.
 <script lang="ts">
 	import { saveWindow, type Window } from './api/operations.ts';
 	import { targetName } from './maintenance.ts';
-	import { checkImpact, rememberName, ui } from './state.svelte.ts';
+	import { checkImpact, isPhysical, rememberName, ui } from './state.svelte.ts';
 	import type { TopologyIndex } from './topology.ts';
 
 	const { index, onsaved }: { index: TopologyIndex; onsaved: (w: Window) => void } = $props();
 
 	let saving = $state(false);
 	let problem = $state<string | null>(null);
-	const selected = $derived(ui.selection);
+	// Only something physical can be worked on.
+	const selected = $derived(ui.selection && isPhysical(ui.selection) ? ui.selection : null);
 	const canAdd = $derived(
 		selected !== null &&
 			!ui.planning?.targets.some((t) => JSON.stringify(t) === JSON.stringify(selected))

@@ -24,7 +24,11 @@ export const COLOR = {
 	wan: '#f5a623',
 	lan: '#5c6b80',
 	selected: '#ffe066',
-	path: '#4dd0e1'
+	path: '#4dd0e1',
+	/** Transports: clouds. */
+	cloud: '#18222e',
+	/** The border of anything outside the boundary: transports and external nodes. */
+	outside: '#8a96a8'
 };
 
 // Live state. Healthy is blue, not green: green and red are hard to tell apart
@@ -93,4 +97,26 @@ export function utilColor(pct: number): string {
 	let color = UTIL_BANDS[0]?.[1] ?? '';
 	for (const [from, c] of UTIL_BANDS) if (pct >= from) color = c;
 	return color;
+}
+
+// Named networks are colored by how deep they sit, not by name: networks
+// over the circuits, over those, and three or more deep. The three hues are
+// the reference palette's aqua, violet, and orange, which pass every check
+// on this background with all pairs shown together. Violet and orange are
+// near the status blue and red, so tunnels are always dashed and labeled
+// with their network, and turn gray while live state is shown.
+export const DEPTH_COLOR = ['#199e70', '#9085e9', '#d95926'] as const;
+
+/** A tunnel's color while live state is shown: neutral, until tunnels have health of their own. */
+export const TUNNEL_LIVE = '#5c6b80';
+
+/**
+ * A named network's color.
+ *
+ * @param depth - How many networks are under it.
+ * @returns Its depth's color; the circuits themselves (depth 0) take the WAN color.
+ */
+export function depthColor(depth: number): string {
+	if (depth <= 0) return COLOR.wan;
+	return DEPTH_COLOR[Math.min(depth, DEPTH_COLOR.length) - 1] ?? COLOR.wan;
 }

@@ -746,6 +746,27 @@ export interface components {
             by: string;
         };
         /**
+         * Carried
+         * @description A network a link carries.
+         *
+         *     Its numbers are the same at both ends unless ``a`` or ``b`` gives an end
+         *     its own: VLAN 30 at one end can be VLAN 400 at the other.
+         */
+        Carried: {
+            /** Network */
+            network: string;
+            /** Vlan */
+            vlan?: number | null;
+            /** Vni */
+            vni?: number | null;
+            /** Label */
+            label?: number | null;
+            /** Vrf */
+            vrf?: string | null;
+            a?: components["schemas"]["SegmentIds"] | null;
+            b?: components["schemas"]["SegmentIds"] | null;
+        };
+        /**
          * Carrier
          * @description How to reach a carrier's NOC about its circuits.
          */
@@ -1080,6 +1101,92 @@ export interface components {
             until: string;
             /** Events */
             events: components["schemas"]["StateEvent"][];
+        };
+        /**
+         * External
+         * @description A node beyond what Sunstone manages: a service, a partner's device,
+         *     or a tenant's.
+         */
+        External: {
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "service" | "partner" | "tenant";
+            /** Tenant */
+            tenant?: string | null;
+            /** Network */
+            network?: string | null;
+            /**
+             * Reached Over
+             * @default []
+             */
+            reached_over: string[];
+            /** Platform */
+            platform?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+        };
+        /**
+         * ExternalEnd
+         * @description The far end of a link to something someone else runs.
+         */
+        ExternalEnd: {
+            /** External */
+            external: string;
+            /** Interface */
+            interface?: string | null;
+        };
+        /**
+         * Fabric
+         * @description Tunnels of one network made from members rather than listed: a DMVPN
+         *     cloud, FlexVPN, AutoVPN, SD-WAN, or a GETVPN group.
+         */
+        Fabric: {
+            /** Name */
+            name: string;
+            /** Network */
+            network: string;
+            /** Rides */
+            rides: string;
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "hub-spoke" | "hub-spoke-dynamic" | "full-mesh" | "group";
+            /** Technology */
+            technology?: string | null;
+            /** Members */
+            members: components["schemas"]["FabricMember"][];
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+        };
+        /**
+         * FabricMember
+         * @description A device's tunnel interface in a fabric.
+         */
+        FabricMember: {
+            /** Device */
+            device: string;
+            /** Interface */
+            interface: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "hub" | "spoke" | "peer";
+            /** Source */
+            source?: string | null;
         };
         /**
          * FailedSet
@@ -1527,11 +1634,13 @@ export interface components {
         };
         /**
          * Link
-         * @description A physical connection between two device interfaces.
+         * @description A physical connection between two interfaces, or from an interface
+         *     into a transport or to an external node.
          */
         Link: {
             a: components["schemas"]["Endpoint"];
-            b: components["schemas"]["Endpoint"];
+            /** B */
+            b: components["schemas"]["Endpoint"] | components["schemas"]["TransportEnd"] | components["schemas"]["ExternalEnd"];
             /** Speed Mbps */
             speed_mbps: number;
             /**
@@ -1542,11 +1651,17 @@ export interface components {
             kind: "lan" | "wan";
             circuit?: components["schemas"]["Circuit"] | null;
             /**
+             * Carries
+             * @default []
+             */
+            carries: components["schemas"]["Carried"][];
+            /**
              * Id
              * @description Stable identifier that does not depend on which end is listed first.
              *
              *     Returns:
-             *         The two ``device:interface`` ends, sorted and joined with ``--``.
+             *         The two ends, sorted and joined with ``--``: ``device:interface``
+             *         for a device's, ``transport:NAME`` or ``external:NAME`` otherwise.
              */
             readonly id: string;
         };
@@ -1618,6 +1733,34 @@ export interface components {
             name: string;
             /** Site */
             site: string;
+        };
+        /**
+         * NamedNetwork
+         * @description A named slice of the network: black, blue, grey, a tenant's.
+         */
+        NamedNetwork: {
+            /** Name */
+            name: string;
+            /**
+             * Boundary
+             * @default inside
+             * @enum {string}
+             */
+            boundary: "inside" | "outside";
+            /** Tenant */
+            tenant?: string | null;
+            /**
+             * Rides
+             * @default []
+             */
+            rides: string[];
+            /** Description */
+            description?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
         };
         /**
          * NetworkState
@@ -1967,6 +2110,20 @@ export interface components {
             platform?: string | null;
         };
         /**
+         * SegmentIds
+         * @description What one end calls a network: its VLAN, VXLAN VNI, MPLS label, or VRF.
+         */
+        SegmentIds: {
+            /** Vlan */
+            vlan?: number | null;
+            /** Vni */
+            vni?: number | null;
+            /** Label */
+            label?: number | null;
+            /** Vrf */
+            vrf?: string | null;
+        };
+        /**
          * Shift
          * @description Who is on call for a team over a stretch of time.
          */
@@ -2140,8 +2297,19 @@ export interface components {
             escalation: components["schemas"]["Step"][];
         };
         /**
+         * Tenant
+         * @description An organization a network or node belongs to, as NetBox has them.
+         */
+        Tenant: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+        };
+        /**
          * Topology
-         * @description A whole network: every site, device, and link.
+         * @description A whole network: every site, device, and link, and what is layered
+         *     over them.
          */
         Topology: {
             /** Sites */
@@ -2150,6 +2318,121 @@ export interface components {
             devices: components["schemas"]["Device"][];
             /** Links */
             links: components["schemas"]["Link"][];
+            /**
+             * Networks
+             * @default []
+             */
+            networks: components["schemas"]["NamedNetwork"][];
+            /**
+             * Transports
+             * @default []
+             */
+            transports: components["schemas"]["Transport"][];
+            /**
+             * Externals
+             * @default []
+             */
+            externals: components["schemas"]["External"][];
+            /**
+             * Tenants
+             * @default []
+             */
+            tenants: components["schemas"]["Tenant"][];
+            /**
+             * Tunnels
+             * @default []
+             */
+            tunnels: components["schemas"]["Tunnel"][];
+            /**
+             * Fabrics
+             * @default []
+             */
+            fabrics: components["schemas"]["Fabric"][];
+            /**
+             * Terms
+             * @default {}
+             */
+            terms: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * Transport
+         * @description A shared network someone else runs that circuits connect into: the
+         *     Internet, or a carrier's private WAN (a provider network, in NetBox).
+         */
+        Transport: {
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "internet" | "private-wan";
+            /** Network */
+            network?: string | null;
+            /** Provider */
+            provider?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+        };
+        /**
+         * TransportEnd
+         * @description The far end of a circuit into a transport.
+         */
+        TransportEnd: {
+            /** Transport */
+            transport: string;
+        };
+        /**
+         * Tunnel
+         * @description A point-to-point tunnel: a link in one network that rides another.
+         */
+        Tunnel: {
+            /** Name */
+            name: string;
+            /** Network */
+            network: string;
+            /** Rides */
+            rides: string;
+            /** Technology */
+            technology?: string | null;
+            a: components["schemas"]["TunnelEnd"];
+            /** B */
+            b: components["schemas"]["TunnelEnd"] | components["schemas"]["TunnelPeer"];
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+        };
+        /**
+         * TunnelEnd
+         * @description One of the network's own ends of a tunnel.
+         */
+        TunnelEnd: {
+            /** Device */
+            device: string;
+            /** Interface */
+            interface: string;
+            /** Source */
+            source?: string | null;
+        };
+        /**
+         * TunnelPeer
+         * @description A tunnel's far end that someone else runs: known by name, and its
+         *     address if known.
+         */
+        TunnelPeer: {
+            /** External */
+            external: string;
+            /** Peer */
+            peer?: string | null;
         };
         /** ValidationError */
         ValidationError: {

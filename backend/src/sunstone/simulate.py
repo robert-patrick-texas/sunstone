@@ -53,7 +53,16 @@ from sunstone.live import (
     Reachability,
     StateEvent,
 )
-from sunstone.model import Endpoint, Link, Site, Topology
+from sunstone.model import (
+    Endpoint,
+    Link,
+    Site,
+    Topology,
+    TransportEnd,
+    cabled,
+    device_ends,
+    end_key,
+)
 
 FAULT_WINDOW_S = 300
 LOAD_WINDOW_S = 900
@@ -168,11 +177,14 @@ class _Port:
 
     near: Endpoint
     far: Endpoint | None
-    """The other end of the cable; None for a port with no cable."""
+    """The other end of the cable; None for a port with no cable, or one
+    into a transport or to an external node."""
     link: Link
     """The link whose traffic it carries."""
     forward: bool
     """``near`` stands for the link's A end."""
+    beyond: bool = False
+    """It goes into a transport or to an external node, as documented."""
 
 
 @dataclass(frozen=True)
@@ -242,10 +254,10 @@ class SimulatedState:
         self.circuits_of: dict[str, set[str]] = {}
         for link in topology.links:
             if link.kind == "wan":
-                for end in (link.a, link.b):
+                for end in device_ends(link):
                     site = self.devices[end.device].site
                     self.circuits_of.setdefault(site, set()).add(link.id)
-        cabling = cabling or Cabling(topology)
+        cabling = cabling or Cabling(cabled(topology))
         self.cabling = cabling
         # Every port a device has a cable in, or a documented one without.
         self.ports = [
@@ -257,6 +269,13 @@ class SimulatedState:
             )
             if near.device in self.devices
         ] + [_Port(end, None, link, end == link.a) for end, link in cabling.dangling]
+        # Circuits into transports and links to external nodes are cabled as
+        # documented, and seen only from their own device's end.
+        self.ports += [
+            _Port(link.a, None, link, True, beyond=True)
+            for link in topology.links
+            if not isinstance(link.b, Endpoint)
+        ]
         self.ends_of: dict[str, list[_Port]] = {}
         # Monitoring reaches devices over the real cables.
         self.adjacent: dict[str, list[tuple[str, str]]] = {}
@@ -265,6 +284,15 @@ class SimulatedState:
             if port.far and port.far.device in self.devices:
                 self.adjacent.setdefault(port.near.device, []).append(
                     (port.far.device, port.link.id)
+                )
+            elif isinstance(port.link.b, TransportEnd):
+                # A transport joins every device with a circuit into it.
+                cloud = end_key(port.link.b)
+                self.adjacent.setdefault(port.near.device, []).append(
+                    (cloud, port.link.id)
+                )
+                self.adjacent.setdefault(cloud, []).append(
+                    (port.near.device, port.link.id)
                 )
         # Links whose load can cross the high mark, for load events; not those
         # half without a cable, which read as down.
@@ -462,7 +490,7 @@ class SimulatedState:
         hot = self._hot(at)
         loads: dict[str, float] = {}
         for link in self.loaded:
-            ends = {link.a.device, link.b.device}
+            ends = {e.device for e in device_ends(link)}
             if link.id in faults.cut or ends & faults.silent or not ends & self.watched:
                 continue
             loads[link.id] = _pct(max(self._load(link, at, link.id in hot)))
@@ -585,6 +613,8 @@ class SimulatedState:
     def _uncabled(self, port: _Port, at: datetime, faults: _Faults) -> bool:
         """Whether a port reads as down: no cable, or one that is unplugged,
         to a device that cannot be polled, or carrying a cut circuit."""
+        if port.beyond:
+            return port.link.id in faults.cut
         return (
             port.far is None
             or port.link.id in faults.cut

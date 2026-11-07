@@ -26,7 +26,14 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sunstone.impact import FailedSet, Failures, Impact, Network
 from sunstone.layouts import Center, DeviceCenter, LinksCenter, SiteCenter
 from sunstone.live import DeviceState, InterfaceState, NetworkState
-from sunstone.model import Endpoint, Link
+from sunstone.model import (
+    Endpoint,
+    ExternalEnd,
+    Link,
+    TransportEnd,
+    device_ends,
+    end_name,
+)
 
 DEGRADED_LOSS_PCT = 1
 HIGH_PCT = 80
@@ -182,11 +189,13 @@ class LiveView:
         Raises:
             None
         """
-        a, b = self.devices.get(link.a.device), self.devices.get(link.b.device)
+        far = link.b if isinstance(link.b, Endpoint) else None
+        a = self.devices.get(link.a.device)
+        b = self.devices.get(far.device) if far else None
         if a is None and b is None:
             return LinkState("unmonitored")
         ra = _fresh(self.interfaces.get((link.a.device, link.a.interface)))
-        rb = _fresh(self.interfaces.get((link.b.device, link.b.interface)))
+        rb = _fresh(self.interfaces.get((far.device, far.interface))) if far else None
         if any(_down(d) for d in (a, b)) or any(
             r and r.oper == "down" for r in (ra, rb)
         ):
@@ -263,6 +272,12 @@ def _outages(
             following: list[str] = []
             for device in frontier:
                 for link in network.links_of.get(device, []):
+                    if isinstance(link.b, TransportEnd):
+                        # Reach stops at a circuit into a transport.
+                        boundary.append(link)
+                        continue
+                    if not isinstance(link.b, Endpoint):
+                        continue
                     other = link.b.device if link.a.device == device else link.a.device
                     if other in reached:
                         boundary.append(link)
@@ -273,7 +288,7 @@ def _outages(
         seen |= group
 
         edge = {
-            link.a.device if link.a.device in group else link.b.device
+            link.a.device if link.a.device in group else end_name(link.b)
             for link in boundary
         }
         down = sorted((d for d in edge if view.health(d) == "down"), key=natural)
@@ -330,7 +345,7 @@ def _links_down(
     problems: list[Problem] = []
     for link_id in failures.links:
         link = network.links.get(link_id)
-        if not link or link.a.device not in reached or link.b.device not in reached:
+        if not link or any(e.device not in reached for e in device_ends(link)):
             continue
         impact = network.impact(Failures(links=frozenset([link_id])))
         problems.append(
@@ -364,7 +379,7 @@ def _loads(network: Network, view: LiveView) -> list[Problem]:
                 kind="congested" if state.util >= CRITICAL_PCT else "busy",
                 title=f"{link_name(link)} at {_round(state.util)}%",
                 detail=_join(
-                    f"{start.device} {short_interface(start.interface)} → {end.device}",
+                    f"{_port(start)} → {end_name(end)}",
                     f"{format_speed(link.speed_mbps)} link",
                 ),
                 target=LinksCenter(kind="links", ids=[link.id]),
@@ -479,7 +494,7 @@ def link_name(link: Link) -> str:
     """
     if link.circuit:
         return f"Circuit {link.circuit.circuit_id}"
-    return f"{link.a.device} – {link.b.device}"
+    return f"{link.a.device} – {end_name(link.b)}"
 
 
 def natural(text: str) -> list[int | str]:
@@ -514,11 +529,16 @@ def _round(value: float) -> int:
     return math.floor(value + 0.5)
 
 
-def _ends(link: Link) -> str:
-    def end(e: Endpoint) -> str:
-        return f"{e.device} {short_interface(e.interface)}"
+def _port(end: Endpoint | TransportEnd | ExternalEnd) -> str:
+    """A link end as the detail line says it: a device and its port, or what
+    is beyond."""
+    if isinstance(end, Endpoint):
+        return f"{end.device} {short_interface(end.interface)}"
+    return end_name(end)
 
-    return f"{end(link.a)} ↔ {end(link.b)}"
+
+def _ends(link: Link) -> str:
+    return f"{_port(link.a)} ↔ {_port(link.b)}"
 
 
 def _exposure(count: int) -> str:

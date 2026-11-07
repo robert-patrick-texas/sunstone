@@ -5,6 +5,7 @@
  */
 import type { Link } from '../api/topology.ts';
 import {
+	beyondNode,
 	deviceNode,
 	frameNode,
 	mergeLinks,
@@ -14,7 +15,7 @@ import {
 	type GraphNode
 } from '../graph/model.ts';
 import { siteLevels } from '../hierarchy/layout.ts';
-import { ROLES, siteOf, type TopologyIndex } from '../topology.ts';
+import { isDeviceEnd, nodeKey, ROLES, siteOf, type TopologyIndex } from '../topology.ts';
 import type { PathResult } from '../paths.ts';
 import type { Neighborhood } from './neighborhood.ts';
 
@@ -46,6 +47,10 @@ export function networkGraph(
 		for (const device of index.devicesBySite.get(code) ?? []) {
 			nodes.push(deviceNode(device, framed));
 		}
+	}
+	for (const key of index.linksByNode.keys()) {
+		const node = beyondNode(index, key);
+		if (node) nodes.push(node);
 	}
 	const nodeOf = (device: string) => {
 		const site = siteOf(index, device);
@@ -95,13 +100,28 @@ function devicesGraph(
 	for (const [name, hop] of hops) {
 		const device = index.devices.get(name);
 		if (device) nodes.push({ ...deviceNode(device, framed), hop });
+		// A path crosses transports, by their keys.
+		const beyond = device ? null : beyondNode(index, name);
+		if (beyond) nodes.push({ ...beyond, hop });
+	}
+	// A transport or external node at the edge is drawn, one hop further out.
+	const drawn = new Set(nodes.map((n) => n.id));
+	for (const link of links) {
+		if (isDeviceEnd(link.b) || !hops.has(link.a.device)) continue;
+		const node = beyondNode(index, nodeKey(link.b));
+		if (!node || drawn.has(node.id)) continue;
+		drawn.add(node.id);
+		nodes.push({ ...node, hop: (hops.get(link.a.device) ?? 0) + 1 });
 	}
 	if (framed) {
-		const sites = new Set(nodes.map((n) => n.site));
+		const sites = new Set(nodes.flatMap((n) => (n.site ? [n.site] : [])));
 		nodes.unshift(...[...sites].map((code) => frameNode(index, code)));
 	}
 	const nodeOf = (device: string) => (hops.has(device) ? device : null);
-	return { nodes, edges: mergeLinks([...links], nodeOf) };
+	const edges = mergeLinks([...links], nodeOf).filter(
+		(e) => drawn.has(e.source) && drawn.has(e.target)
+	);
+	return { nodes, edges };
 }
 
 /**

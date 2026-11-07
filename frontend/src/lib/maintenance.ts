@@ -6,7 +6,7 @@
 import type { Window } from './api/operations.ts';
 import { clock } from './history.ts';
 import type { Selection } from './state.svelte.ts';
-import { linkName, siteOf, type TopologyIndex } from './topology.ts';
+import { deviceEnds, linkName, siteOf, type TopologyIndex } from './topology.ts';
 
 export type Phase = 'open' | 'upcoming' | 'ended';
 
@@ -45,7 +45,7 @@ export function windowsFor(index: TopologyIndex, windows: Window[], item: Select
 		for (const id of item.ids) {
 			links.add(id);
 			const link = index.links.get(id);
-			if (link) for (const d of [link.a.device, link.b.device]) devices.add(d);
+			if (link) for (const e of deviceEnds(link)) devices.add(e.device);
 		}
 	}
 	return windows.filter((w) =>

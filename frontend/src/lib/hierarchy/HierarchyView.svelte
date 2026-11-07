@@ -11,7 +11,7 @@ the details panel); expanded sites show devices in tier rows.
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
 	import { timed } from '../perf.ts';
-	import { expandedSites, ui, type Selection } from '../state.svelte.ts';
+	import { expandedSites, ui, type AnySelection } from '../state.svelte.ts';
 	import { siteOf, type TopologyIndex } from '../topology.ts';
 	import { buildHierarchy } from './layout.ts';
 
@@ -105,7 +105,7 @@ the details panel); expanded sites show devices in tier rows.
 		untrack(() => ui.selection && focus(c, ui.selection));
 	});
 
-	async function focus(c: GraphCanvas, selection: Selection): Promise<void> {
+	async function focus(c: GraphCanvas, selection: AnySelection): Promise<void> {
 		if (selection.kind === 'device') {
 			const site = siteOf(index, selection.id);
 			if (!expandedSites.has(site)) {

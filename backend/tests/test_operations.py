@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from sunstone.api import Files, create_app
 from sunstone.impact import Failures, Network
 from sunstone.mockgen import PRESETS, generate, to_yaml
-from sunstone.model import Topology
+from sunstone.model import Topology, device_b
 from sunstone.operations import OperationsStore, WindowIn
 from sunstone.problems import AckIn
 from sunstone.simulate import SimulatedState
@@ -61,8 +61,8 @@ def quiet_moment(topology: Topology) -> datetime:
     near = {"dal-dist-01"} | {
         end.device
         for link in topology.links
-        if "dal-dist-01" in (link.a.device, link.b.device)
-        for end in (link.a, link.b)
+        if "dal-dist-01" in (link.a.device, device_b(link).device)
+        for end in (link.a, device_b(link))
     }
     state = SimulatedState(topology)
     now = datetime.now(UTC)

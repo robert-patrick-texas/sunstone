@@ -28,7 +28,7 @@ from sunstone.live import (
     StateEvent,
 )
 from sunstone.mockgen import PRESETS, generate, to_yaml
-from sunstone.model import Topology
+from sunstone.model import Topology, device_b
 from sunstone.oncall import Notice, Page
 from sunstone.problems import Ack, link_name
 
@@ -250,7 +250,7 @@ class LinksDown:
                     stale=False,
                 )
                 for ln in self.topology.links
-                for end in (ln.a, ln.b)
+                for end in (ln.a, device_b(ln))
             ],
         )
 
@@ -274,7 +274,9 @@ def incidents_client(topology: Topology, tmp_path: Path) -> TestClient:
         incidents=tmp_path / "incidents.json",
     )
     sites = {d.name: d.site for d in topology.devices}
-    inside = [ln for ln in topology.links if sites[ln.a.device] == sites[ln.b.device]]
+    inside = [
+        ln for ln in topology.links if sites[ln.a.device] == sites[device_b(ln).device]
+    ]
     first = inside[0]
     second = next(ln for ln in inside if sites[ln.a.device] != sites[first.a.device])
     source = LinksDown(topology, frozenset({first.id, second.id}))

@@ -8,7 +8,13 @@ import type { Comparison, Finding, FindingKind, LinkCheck } from './api/discover
 import type { Link } from './api/topology.ts';
 import { clock } from './history.ts';
 import type { Selection } from './state.svelte.ts';
-import { shortInterface, type TopologyIndex } from './topology.ts';
+import {
+	deviceEnds,
+	isDeviceEnd,
+	portName,
+	shortInterface,
+	type TopologyIndex
+} from './topology.ts';
 
 /** Kinds in the order the server ranks them, most misleading first. */
 export const FINDING_KINDS: { kind: FindingKind; label: string }[] = [
@@ -103,14 +109,16 @@ export interface DeviceCheck {
  * @param comparison - The comparison.
  * @param index - Topology index.
  * @param device - The device's name.
- * @returns Whether it answered, its links confirmed, and the findings that involve it.
+ * @returns Whether it answered, its cables to other devices and how many are
+ *   confirmed, and the findings that involve it.
  */
 export function deviceCheck(
 	comparison: Comparison,
 	index: TopologyIndex,
 	device: string
 ): DeviceCheck {
-	const links = index.linksByDevice.get(device) ?? [];
+	// Discovery compares only links between two devices so far, not circuits into a transport.
+	const links = (index.linksByDevice.get(device) ?? []).filter((l) => isDeviceEnd(l.b));
 	return {
 		polled: comparison.polled.includes(device),
 		links: links.length,
@@ -143,10 +151,7 @@ export const NO_FIX: Partial<Record<FindingKind, string>> = {
  * @returns For example "d-dist-02 Te1/0/48 – d-acc-05 Te1/0/1".
  */
 export function linkEnds(link: Link): string {
-	return (
-		`${link.a.device} ${shortInterface(link.a.interface)} – ` +
-		`${link.b.device} ${shortInterface(link.b.interface)}`
-	);
+	return `${portName(link.a)} – ${portName(link.b)}`;
 }
 
 const DONE: Record<Change['fix']['kind'], string> = {
@@ -185,7 +190,7 @@ export function expectationOf(
 	changes: Change[],
 	link: Link
 ): { finding: Finding; change: Change | undefined } | null {
-	const ends = [link.a.device, link.b.device];
+	const ends = deviceEnds(link).map((e) => e.device);
 	const finding = comparison.expected.find(
 		(f) => f.link === link.id || (f.kind === 'no-neighbors' && ends.includes(f.devices[0] ?? ''))
 	);

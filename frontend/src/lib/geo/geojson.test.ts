@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fixtureIndex } from '../test-fixture.ts';
+import { fixtureIndex, layeredIndex } from '../test-fixture.ts';
+import { DEPTH_COLOR, TUNNEL_LIVE } from '../theme.ts';
 import type { NetworkState } from '../api/state.ts';
 import type { Impact } from '../impact.ts';
 import { indexState } from '../live.ts';
@@ -7,6 +8,7 @@ import {
 	deviceFeatures,
 	devicePositions,
 	linkFeatures,
+	networkArcs,
 	pairKey,
 	siteFeatures,
 	sitePairs
@@ -128,5 +130,48 @@ describe('live properties', () => {
 		const core = byId['a-acc-01:TenGigabitEthernet1/0/49--a-core-01:TenGigabitEthernet1/0/1'];
 		expect(core).toMatchObject({ health: 'unmonitored' });
 		expect(core).not.toHaveProperty('util');
+	});
+});
+
+describe('networks on the map', () => {
+	const layered = layeredIndex();
+
+	it('labels each site with the transports it has circuits into', () => {
+		const sites = siteFeatures(layered).features.map((f) => f.properties);
+		expect(sites.find((p) => p?.['code'] === 'C')?.['transports']).toBe('INET');
+		expect(sites.find((p) => p?.['code'] === 'B')).not.toHaveProperty('transports');
+	});
+
+	it('leaves circuits into a transport out of site pairs, and draws them as stubs', () => {
+		expect(sitePairs(layered).map((p) => p.key)).toEqual(
+			sitePairs(fixtureIndex()).map((p) => p.key)
+		);
+		const circuit = layered.links.get('c-wan-01:GigabitEthernet0/0/0--transport:INET')!;
+		const [line] = linkFeatures([circuit], devicePositions(layered)).features;
+		const [from, to] = line!.geometry.coordinates;
+		expect(to).not.toEqual(from);
+	});
+
+	it("draws networks' tunnels as arcs, bowing apart between the same sites", () => {
+		const arcs = networkArcs(layered, ['grey', 'blue', 'corp']).features;
+		expect(arcs.map((a) => a.properties?.['id']).sort()).toEqual([
+			'blue|A|C',
+			'corp|A|C',
+			'corp|B|C',
+			'grey|A|C'
+		]);
+		expect(arcs.find((a) => a.properties?.['id'] === 'grey|A|C')?.properties).toMatchObject({
+			network: 'grey',
+			tunnel: 'GREY-A-C',
+			color: DEPTH_COLOR[1]
+		});
+		// The middle points of the three arcs between A and C are all apart.
+		const middles = arcs
+			.filter((a) => String(a.properties?.['id']).endsWith('A|C'))
+			.map((a) => JSON.stringify(a.geometry.coordinates[12]));
+		expect(new Set(middles).size).toBe(3);
+		expect(networkArcs(layered, ['grey'], true).features[0]?.properties?.['color']).toBe(
+			TUNNEL_LIVE
+		);
 	});
 });

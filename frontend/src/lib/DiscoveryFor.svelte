@@ -23,7 +23,7 @@ Sunstone, or expected not to be seen, says so.
 	} from './discovery.ts';
 	import { clock } from './history.ts';
 	import { reviewFix, ui, type Selection } from './state.svelte.ts';
-	import { linkName, type TopologyIndex } from './topology.ts';
+	import { isDeviceEnd, linkName, type TopologyIndex } from './topology.ts';
 
 	const {
 		index,
@@ -97,30 +97,42 @@ Sunstone, or expected not to be seen, says so.
 			{@const check = linkCheck(comparison, id)}
 			{@const finding = comparison.findings.find((f) => f.link === id)}
 			{@const fixed = changeOf(changes, id)}
-			<p class:finding={check !== 'confirmed'}>
-				{#if item.ids.length > 1 && link}{linkName(link)}:
-				{/if}<b>{CHECK_LABEL[check]}</b>
-				<span class="muted">
-					{#if finding}· {finding.detail}
-					{:else if check === 'confirmed'}· seen at {clock(comparison.at)}
-					{:else if check === 'unchecked'}· neither end answers discovery
-					{/if}
-				</span>
-				{#if finding}{@render fixOf(finding)}{/if}
-			</p>
-			{@const expectation =
-				check === 'expected' && link ? expectationOf(comparison, changes, link) : null}
-			{#if expectation}
-				<p class="fixed">
-					Expected: {expectation.change?.title ?? expectation.finding.title}
-					{@render expectedBy(expectation.change)}
+			{#if link && !isDeviceEnd(link.b)}
+				<p>
+					{#if item.ids.length > 1}{linkName(link)}:
+					{/if}<b>{CHECK_LABEL.unchecked}</b>
+					<span class="muted"
+						>· discovery does not compare {'transport' in link.b
+							? 'circuits into a transport'
+							: 'links to something someone else runs'} yet</span
+					>
 				</p>
-			{/if}
-			{#if fixed}
-				<p class="fixed">
-					Fixed here by {fixed.by} at {clock(fixed.at)}{fixed.note ? `: ${fixed.note}` : ''}
-					<span class="muted">· not yet in the source of truth</span>
+			{:else}
+				<p class:finding={check !== 'confirmed'}>
+					{#if item.ids.length > 1 && link}{linkName(link)}:
+					{/if}<b>{CHECK_LABEL[check]}</b>
+					<span class="muted">
+						{#if finding}· {finding.detail}
+						{:else if check === 'confirmed'}· seen at {clock(comparison.at)}
+						{:else if check === 'unchecked'}· neither end answers discovery
+						{/if}
+					</span>
+					{#if finding}{@render fixOf(finding)}{/if}
 				</p>
+				{@const expectation =
+					check === 'expected' && link ? expectationOf(comparison, changes, link) : null}
+				{#if expectation}
+					<p class="fixed">
+						Expected: {expectation.change?.title ?? expectation.finding.title}
+						{@render expectedBy(expectation.change)}
+					</p>
+				{/if}
+				{#if fixed}
+					<p class="fixed">
+						Fixed here by {fixed.by} at {clock(fixed.at)}{fixed.note ? `: ${fixed.note}` : ''}
+						<span class="muted">· not yet in the source of truth</span>
+					</p>
+				{/if}
 			{/if}
 		{/each}
 		{#if item.ids.length > MAX_LINKS}

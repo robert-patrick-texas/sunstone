@@ -12,6 +12,7 @@ the current selection as what it works on.
 	import MaintenanceForm from './MaintenanceForm.svelte';
 	import {
 		checkImpact,
+		isPhysical,
 		localTime,
 		planMaintenance,
 		select,
@@ -97,7 +98,12 @@ the current selection as what it works on.
 		<MaintenanceForm {index} onsaved={onchange} />
 	{:else}
 		<p class="actions">
-			<button onclick={() => planMaintenance(ui.selection ? [$state.snapshot(ui.selection)] : [])}>
+			<button
+				onclick={() =>
+					planMaintenance(
+						ui.selection && isPhysical(ui.selection) ? [$state.snapshot(ui.selection)] : []
+					)}
+			>
 				Plan maintenance
 			</button>
 		</p>

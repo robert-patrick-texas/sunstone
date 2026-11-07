@@ -14,6 +14,7 @@ export function link(a: string, b: string, speed = 10_000, extra: Partial<Link> 
 		b: { device: bd, interface: bi },
 		speed_mbps: speed,
 		kind: 'lan',
+		carries: [],
 		id: ends.join('--'),
 		...extra
 	};
@@ -55,9 +56,99 @@ export const fixture: Topology = {
 		link('c-wan-01:Gi1/0/2', 'b-wan-01:Gi1/0/1', 1_000, wan),
 		link('c-wan-01:Te1/0/1', 'c-acc-01:Te1/0/49'),
 		link('c-wan-01:Te1/0/2', 'c-acc-02:Te1/0/49')
-	]
+	],
+	networks: [],
+	transports: [],
+	externals: [],
+	tenants: [],
+	tunnels: [],
+	fabrics: [],
+	terms: {}
 };
 
 export function fixtureIndex(): TopologyIndex {
 	return indexTopology(structuredClone(fixture));
+}
+
+const inet = (device: string, id: string): Link => ({
+	a: { device, interface: 'GigabitEthernet0/0/0' },
+	b: { transport: 'INET' },
+	speed_mbps: 500,
+	kind: 'wan',
+	circuit: { provider: 'Northwind Fiber', circuit_id: id },
+	carries: [],
+	id: `${device}:GigabitEthernet0/0/0--transport:INET`
+});
+
+/**
+ * The tiny topology with layers over it: hub A and branch C on the Internet;
+ * blue over black between them, grey over blue, and tenant T1's red network
+ * over grey through its encryptor at C; a DMVPN fabric with hubs A and B;
+ * and a service reached over the Internet.
+ */
+export const layeredFixture: Topology = {
+	...fixture,
+	links: [
+		...fixture.links,
+		inet('a-wan-01', 'NO-1'),
+		inet('c-wan-01', 'NO-2'),
+		{
+			a: { device: 'c-acc-02', interface: 'Gi1/0/9' },
+			b: { external: 'r1-c', interface: 'black' },
+			speed_mbps: 1_000,
+			kind: 'lan',
+			carries: [{ network: 'grey', vlan: 200 }],
+			id: 'c-acc-02:Gi1/0/9--external:r1-c:black'
+		}
+	],
+	networks: [
+		{ name: 'black', boundary: 'outside', rides: [], tags: [] },
+		{ name: 'blue', boundary: 'inside', rides: [], tags: [] },
+		{ name: 'grey', boundary: 'inside', rides: [], tags: [] },
+		{ name: 'corp', boundary: 'inside', rides: [], tags: [] },
+		{ name: 'red', boundary: 'inside', tenant: 'T1', rides: ['grey'], tags: [] }
+	],
+	transports: [{ name: 'INET', kind: 'internet', network: 'black', tags: [] }],
+	externals: [
+		{ name: 'r1-c', kind: 'tenant', tenant: 'T1', network: 'red', reached_over: [], tags: [] },
+		{ name: 'Nimbus Cloud', kind: 'service', reached_over: ['INET'], tags: [] }
+	],
+	tenants: [{ name: 'T1' }],
+	tunnels: [
+		{
+			name: 'BLUE-A-C',
+			network: 'blue',
+			rides: 'black',
+			a: { device: 'a-wan-01', interface: 'Tunnel10', source: 'Loopback0' },
+			b: { device: 'c-wan-01', interface: 'Tunnel10', source: 'Loopback0' },
+			tags: []
+		},
+		{
+			name: 'GREY-A-C',
+			network: 'grey',
+			rides: 'blue',
+			a: { device: 'a-acc-01', interface: 'Tunnel20' },
+			b: { device: 'c-acc-02', interface: 'Tunnel20' },
+			tags: ['secure']
+		}
+	],
+	fabrics: [
+		{
+			name: 'DMVPN',
+			network: 'corp',
+			rides: 'black',
+			shape: 'hub-spoke-dynamic',
+			members: [
+				{ device: 'a-wan-01', interface: 'Tunnel100', role: 'hub' },
+				{ device: 'b-wan-01', interface: 'Tunnel100', role: 'hub' },
+				{ device: 'c-wan-01', interface: 'Tunnel100', role: 'spoke' }
+			],
+			tags: []
+		}
+	],
+	terms: {}
+};
+
+export function layeredIndex(): TopologyIndex {
+	return indexTopology(structuredClone(layeredFixture));
 }

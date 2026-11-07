@@ -7,7 +7,13 @@
  * `links:ID ID`. Reading a link skips anything that no longer matches the
  * network, such as a device since renamed, rather than failing.
  */
-import type { Selection, View } from './state.svelte.ts';
+import {
+	LAYER_KINDS,
+	type AnySelection,
+	type LayerKind,
+	type Selection,
+	type View
+} from './state.svelte.ts';
 import type { TopologyIndex } from './topology.ts';
 
 export interface Camera {
@@ -19,7 +25,9 @@ export interface Camera {
 /** Everything a link carries. */
 export interface Shared {
 	view: View;
-	selection: Selection | null;
+	selection: AnySelection | null;
+	/** Named networks shown. */
+	networks: string[];
 	live: boolean;
 	/** The replayed moment, or null for now. */
 	at: string | null;
@@ -55,7 +63,7 @@ export const DEFAULT_DWELL_S = 20;
 export const DEFAULT_HANDOVER_H = 12;
 /** The id of a handover saved at a shift change: its time in UTC. */
 export const SAVED_HANDOVER = /^\d{8}T\d{4}Z$/;
-const VIEWS: View[] = ['geo', 'hierarchy', 'topology'];
+const VIEWS: View[] = ['geo', 'hierarchy', 'topology', 'logical'];
 const SCOPES = ['network', 'neighborhood', 'path'] as const;
 
 /**
@@ -64,7 +72,7 @@ const SCOPES = ['network', 'neighborhood', 'path'] as const;
  * @param item - The item.
  * @returns For example `device:dal-core-01`, or `links:ID ID`.
  */
-export function writeItem(item: Selection): string {
+export function writeItem(item: AnySelection): string {
 	return item.kind === 'links' ? `links:${item.ids.join(' ')}` : `${item.kind}:${item.id}`;
 }
 
@@ -86,6 +94,30 @@ export function readItem(text: string, index: TopologyIndex): Selection | null {
 }
 
 /**
+ * Read anything that can be selected, if it is in the network: a device,
+ * site, or links, or a transport, external node, network, tunnel, fabric,
+ * or tenant by name.
+ *
+ * @param text - As written by {@link writeItem}.
+ * @param index - Topology index.
+ * @returns The selection, or null if it is malformed or not in the network.
+ */
+export function readAnyItem(text: string, index: TopologyIndex): AnySelection | null {
+	const colon = text.indexOf(':');
+	const [kind, id] = [text.slice(0, colon), text.slice(colon + 1)];
+	if (!(LAYER_KINDS as readonly string[]).includes(kind)) return readItem(text, index);
+	const known: Record<LayerKind, Map<string, unknown>> = {
+		transport: index.transports,
+		external: index.externals,
+		network: index.networks,
+		tunnel: index.tunnels,
+		fabric: index.fabrics,
+		tenant: index.tenants
+	};
+	return known[kind as LayerKind].has(id) ? { kind: kind as LayerKind, id } : null;
+}
+
+/**
  * The link for what is on screen.
  *
  * @param shared - What is on screen.
@@ -102,6 +134,7 @@ export function toQuery(shared: Shared, index: TopologyIndex): URLSearchParams {
 	if (shared.incident !== null) q.set('incident', String(shared.incident));
 	if (shared.view !== 'geo') q.set('view', shared.view);
 	if (shared.selection) q.set('select', writeItem(shared.selection));
+	if (shared.networks.length) q.set('network', shared.networks.join(','));
 	if (shared.live) {
 		q.set('live', '1');
 		if (shared.at) q.set('at', shared.at);
@@ -144,7 +177,9 @@ export function fromQuery(q: URLSearchParams, index: TopologyIndex): Partial<Sha
 	const view = q.get('view');
 	if (view && (VIEWS as string[]).includes(view)) found.view = view as View;
 	const selection = q.get('select');
-	if (selection) found.selection = readItem(selection, index);
+	if (selection) found.selection = readAnyItem(selection, index);
+	const networks = (q.get('network') ?? '').split(',').filter((n) => index.networks.has(n));
+	if (networks.length) found.networks = [...new Set(networks)];
 	if (q.get('live') === '1') {
 		found.live = true;
 		const at = q.get('at');

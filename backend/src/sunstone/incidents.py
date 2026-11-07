@@ -45,7 +45,7 @@ from sunstone.changes import Change
 from sunstone.handover import Message, duration
 from sunstone.layouts import Center, DeviceCenter, LinksCenter, SiteCenter
 from sunstone.live import StateEvent
-from sunstone.model import Topology
+from sunstone.model import Topology, device_ends
 from sunstone.oncall import Notice, Page
 from sunstone.operations import Title, Window
 from sunstone.problems import (
@@ -892,7 +892,9 @@ def _list(names: list[str], noun: str) -> str:
 
 def _touches(change: Change, devices: set[str], links: set[str]) -> bool:
     for link in (change.fix.before, change.fix.after):
-        if link and (link.id in links or {link.a.device, link.b.device} & devices):
+        if link and (
+            link.id in links or {e.device for e in device_ends(link)} & devices
+        ):
             return True
     return False
 

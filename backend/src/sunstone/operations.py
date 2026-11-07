@@ -36,6 +36,7 @@ from pydantic import (
 from sunstone.impact import Failures, Network
 from sunstone.layouts import Center
 from sunstone.live import StateEvent
+from sunstone.model import device_ends
 from sunstone.oncall import Cover, CoverIn, Page, PageIn
 from sunstone.problems import Ack, AckIn, Note, PersonName, Problem
 
@@ -565,4 +566,6 @@ def _worked_on(network: Network, link_id: str, work: Failures) -> bool:
     link = network.links.get(link_id)
     if link_id in work.links:
         return True
-    return link is not None and bool({link.a.device, link.b.device} & work.devices)
+    return link is not None and bool(
+        {e.device for e in device_ends(link)} & work.devices
+    )

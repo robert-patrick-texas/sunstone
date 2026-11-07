@@ -2,7 +2,9 @@
  * Layout for the top-down hierarchy view.
  *
  * Sites are stacked in levels: sites with a core tier on top, the rest by
- * WAN hops from those. A collapsed site is one box. An expanded site is a
+ * WAN hops from those. Transports (the Internet, a carrier's private WAN)
+ * take a level of their own between the sites whose circuits go into them,
+ * as clouds, and external nodes go below the sites their links come from. A collapsed site is one box. An expanded site is a
  * frame with its devices in fixed tier rows (WAN edge, core, distribution,
  * access). A general layered-graph algorithm would put every link between
  * two different rows, splitting a redundant pair joined by a peer link onto
@@ -16,6 +18,7 @@ import {
 	deviceNode,
 	frameNode,
 	mergeLinks,
+	beyondNode,
 	SITE_H,
 	SITE_W,
 	siteBoxNode,
@@ -23,7 +26,15 @@ import {
 	type GraphEdge,
 	type GraphNode
 } from '../graph/model.ts';
-import { compareNatural, ROLES, siteOf, type TopologyIndex } from '../topology.ts';
+import {
+	compareNatural,
+	farDevice,
+	isDeviceEnd,
+	nodeKey,
+	ROLES,
+	siteOf,
+	type TopologyIndex
+} from '../topology.ts';
 const DX = 76;
 const DY = 64;
 const TIER_GAP = 36;
@@ -60,11 +71,13 @@ interface Block {
  * @returns Site codes per level, ordered to keep links between levels short.
  */
 export function siteLevels(index: TopologyIndex): string[][] {
-	const codes = index.topology.sites.map((s) => s.code);
+	// Transports and external nodes with links are placed too, by their keys.
+	const beyond = [...index.linksByNode.keys()];
+	const codes = [...index.topology.sites.map((s) => s.code), ...beyond];
 	const adjacent = new Map(codes.map((c) => [c, new Set<string>()]));
 	for (const link of index.topology.links) {
 		const a = siteOf(index, link.a.device);
-		const b = siteOf(index, link.b.device);
+		const b = isDeviceEnd(link.b) ? siteOf(index, link.b.device) : nodeKey(link.b);
 		if (a === b) continue;
 		adjacent.get(a)?.add(b);
 		adjacent.get(b)?.add(a);
@@ -125,9 +138,10 @@ function expandedBlock(index: TopologyIndex, code: string): Block {
 		if (placed.length > 0) y += TIER_GAP;
 		const barycenter = (name: string) =>
 			average(
-				(index.linksByDevice.get(name) ?? []).map((l) =>
-					x.get(l.a.device === name ? l.b.device : l.a.device)
-				)
+				(index.linksByDevice.get(name) ?? []).map((l) => {
+					const other = l.a.device === name ? farDevice(l) : l.a.device;
+					return other === null ? undefined : x.get(other);
+				})
 			);
 		tier.sort((p, q) => barycenter(p.name) - barycenter(q.name) || compareNatural(p.name, q.name));
 		for (let start = 0; start < tier.length; start += MAX_PER_ROW) {
@@ -222,6 +236,8 @@ function blockNodes(
 ): HNode[] {
 	const { code, w, h } = block;
 	const center = { x: left + w / 2, y: top + h / 2, w, h };
+	const beyond = beyondNode(index, code);
+	if (beyond) return [{ ...beyond, ...center }];
 	if (!expanded) return [{ ...siteBoxNode(index, code), ...center }];
 	// The frame is sized here, so it is drawn as a plain node behind the devices rather
 	// than as their compound parent, which costs Cytoscape dearly on large graphs.

@@ -10,7 +10,7 @@
 import type { DeviceHistory, StateEvent } from './api/state.ts';
 import type { Link } from './api/topology.ts';
 import type { Selection } from './state.svelte.ts';
-import { linkName, siteOf, type TopologyIndex } from './topology.ts';
+import { isDeviceEnd, linkName, siteOf, type TopologyIndex } from './topology.ts';
 
 export const STEP_MS = 5 * 60_000;
 /** Devices at one site changing together at one step are one row from this many. */
@@ -208,8 +208,11 @@ export function linkHistory(
 	history: DeviceHistory,
 	link: Link
 ): { aToB: (number | null)[]; bToA: (number | null)[]; down: boolean[] } | null {
-	const atA = link.a.device === history.device;
-	const end = atA ? link.a : link.b;
+	const end =
+		isDeviceEnd(link.b) && link.b.device === history.device && link.a.device !== history.device
+			? link.b
+			: link.a;
+	const atA = end === link.a;
 	const series = history.interfaces.find((i) => i.interface === end.interface);
 	if (!series) return null;
 	return {

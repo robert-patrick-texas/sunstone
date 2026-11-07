@@ -9,6 +9,7 @@
  */
 import type { Link } from './api/topology.ts';
 import type { DeviceState, InterfaceState, NetworkState } from './api/state.ts';
+import { deviceEnds } from './topology.ts';
 
 /** Loss at or above this, from any position, marks a device degraded. */
 export const DEGRADED_LOSS_PCT = 1;
@@ -85,16 +86,17 @@ export function deviceHealth(live: LiveIndex, device: string): DeviceHealth {
  * @returns Health and load in each direction.
  */
 export function linkLive(live: LiveIndex, link: Link): LinkLive {
-	const ends = [link.a, link.b].map((e) => ({
+	// A link into a transport or to an external node is seen from its A end only.
+	const ends = deviceEnds(link).map((e) => ({
 		device: live.devices.get(e.device),
 		reading: live.interfaces.get(key(e.device, e.interface))
 	}));
-	const [a, b] = ends as [(typeof ends)[0], (typeof ends)[0]];
+	const [a, b] = ends as [(typeof ends)[0], (typeof ends)[0] | undefined];
 	const unknown = { aToB: null, bToA: null, utilPct: null };
-	if (!a.device && !b.device) return { health: 'unmonitored', ...unknown };
+	if (!a.device && !b?.device) return { health: 'unmonitored', ...unknown };
 	const fresh = (r: InterfaceState | undefined) => (r && !r.stale ? r : undefined);
 	const ra = fresh(a.reading);
-	const rb = fresh(b.reading);
+	const rb = fresh(b?.reading);
 	const deviceDown = ends.some((e) => e.device && !e.device.stale && e.device.status === 'down');
 	if (deviceDown || ra?.oper === 'down' || rb?.oper === 'down') {
 		return { health: 'down', ...unknown };

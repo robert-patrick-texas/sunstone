@@ -141,6 +141,8 @@ export function layoutPositions(request: LayoutRequest): Map<string, Position> {
  * @returns Positions of devices and collapsed site boxes.
  */
 export function sitewisePositions(graph: TopoGraph): Map<string, Position> {
+	// A transport or external node is at no site: it is placed as one of its own.
+	const group = (n: GraphNode) => n.site || n.id;
 	const bySite = new Map<string, GraphNode[]>();
 	for (const n of graph.nodes) {
 		if (n.kind === 'device') bySite.set(n.site, [...(bySite.get(n.site) ?? []), n]);
@@ -159,9 +161,11 @@ export function sitewisePositions(graph: TopoGraph): Map<string, Position> {
 			offsets.set(id, { x: p.x - (x1 + x2) / 2, y: p.y - (y1 + y2) / 2 });
 		sizes.set(site, { w: x2 - x1 + DEVICE_W + FRAME_ROOM, h: y2 - y1 + DEVICE_H + FRAME_ROOM });
 	}
-	for (const n of graph.nodes) if (n.kind === 'site') sizes.set(n.site, { w: SITE_W, h: SITE_H });
+	for (const n of graph.nodes) {
+		if (n.kind !== 'device' && n.kind !== 'frame') sizes.set(group(n), { w: SITE_W, h: SITE_H });
+	}
 
-	const siteOf = new Map(graph.nodes.map((n) => [n.id, n.site]));
+	const siteOf = new Map(graph.nodes.map((n) => [n.id, group(n)]));
 	const pairs = new Map<string, { source: string; target: string }>();
 	for (const e of graph.edges) {
 		const [a, b] = [siteOf.get(e.source), siteOf.get(e.target)];
@@ -173,7 +177,7 @@ export function sitewisePositions(graph: TopoGraph): Map<string, Position> {
 
 	const positions = new Map<string, Position>();
 	for (const n of graph.nodes) {
-		const center = centers.get(n.site);
+		const center = centers.get(group(n));
 		if (!center || n.kind === 'frame') continue;
 		const offset = n.kind === 'device' ? offsets.get(n.id) : undefined;
 		positions.set(n.id, { x: center.x + (offset?.x ?? 0), y: center.y + (offset?.y ?? 0) });
