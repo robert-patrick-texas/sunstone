@@ -8,7 +8,7 @@
  * member is part of the path.
  */
 import type { Link } from './api/topology.ts';
-import { compareNatural, type TopologyIndex } from './topology.ts';
+import { compareNatural, isDeviceEnd, nodeKey, type TopologyIndex } from './topology.ts';
 
 /** Most paths listed one by one; the rest are counted. */
 export const MAX_LISTED = 12;
@@ -28,8 +28,20 @@ export interface PathResult {
 	listed: string[][];
 }
 
-const other = (link: Link, device: string) =>
-	link.a.device === device ? link.b.device : link.a.device;
+/**
+ * Where a link leads from one node of a path: a device, or a transport by
+ * its key. A path crosses a transport like a device; an external node
+ * leads nowhere.
+ */
+const other = (link: Link, node: string): string | null => {
+	if (link.a.device !== node) return link.a.device;
+	if (isDeviceEnd(link.b)) return link.b.device;
+	return 'transport' in link.b ? nodeKey(link.b) : null;
+};
+
+/** The links at a node of a path: a device's, or a transport's. */
+const linksAt = (index: TopologyIndex, node: string): Link[] =>
+	(node.startsWith('transport:') ? index.linksByNode : index.linksByDevice).get(node) ?? [];
 
 /**
  * Find every shortest path between two devices.
@@ -44,9 +56,9 @@ export function shortestPaths(index: TopologyIndex, from: string, to: string): P
 	for (let frontier = [from]; frontier.length > 0 && !dist.has(to);) {
 		const next: string[] = [];
 		for (const device of frontier) {
-			for (const link of index.linksByDevice.get(device) ?? []) {
+			for (const link of linksAt(index, device)) {
 				const neighbor = other(link, device);
-				if (dist.has(neighbor)) continue;
+				if (neighbor === null || dist.has(neighbor)) continue;
 				dist.set(neighbor, (dist.get(device) ?? 0) + 1);
 				next.push(neighbor);
 			}
@@ -66,9 +78,9 @@ export function shortestPaths(index: TopologyIndex, from: string, to: string): P
 		const next: string[] = [];
 		for (const device of frontier) {
 			const here = devices.get(device) ?? 0;
-			for (const link of index.linksByDevice.get(device) ?? []) {
+			for (const link of linksAt(index, device)) {
 				const neighbor = other(link, device);
-				if (dist.get(neighbor) !== here - 1) continue;
+				if (neighbor === null || dist.get(neighbor) !== here - 1) continue;
 				links.add(link.id);
 				previous.set(device, (previous.get(device) ?? new Set()).add(neighbor));
 				if (devices.has(neighbor)) continue;
@@ -128,10 +140,10 @@ function list(from: string, to: string, previous: Map<string, Set<string>>): str
  * @returns The links, in natural order of `a`'s interfaces.
  */
 export function linksBetween(index: TopologyIndex, path: PathResult, a: string, b: string): Link[] {
-	return (index.linksByDevice.get(a) ?? [])
+	return linksAt(index, a)
 		.filter((l) => other(l, a) === b && path.links.has(l.id))
 		.sort((x, y) => {
-			const end = (l: Link) => (l.a.device === a ? l.a : l.b).interface;
+			const end = (l: Link) => (l.a.device === a || !isDeviceEnd(l.b) ? l.a : l.b).interface;
 			return compareNatural(end(x), end(y));
 		});
 }

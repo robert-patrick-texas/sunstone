@@ -23,7 +23,7 @@ from sunstone.mockgen import (
     generate_directory,
     to_yaml,
 )
-from sunstone.model import Topology
+from sunstone.model import Topology, device_b
 from sunstone.oncall import HandoverTimes
 
 T0 = datetime(2026, 10, 27, 8, 0, tzinfo=UTC)
@@ -52,7 +52,7 @@ def test_devices_down_together_at_a_site_are_one_outage(topology: Topology) -> N
     circuit = next(
         ln
         for ln in topology.links
-        if ln.kind == "wan" and "HOU" in {site[ln.a.device], site[ln.b.device]}
+        if ln.kind == "wan" and "HOU" in {site[ln.a.device], site[device_b(ln).device]}
     )
     other = next(
         ln for ln in topology.links if ln.kind == "wan" and ln.id != circuit.id

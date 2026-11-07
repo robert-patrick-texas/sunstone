@@ -17,7 +17,8 @@ import {
 	seenWhen
 } from './discovery.ts';
 import { clock } from './history.ts';
-import { fixtureIndex } from './test-fixture.ts';
+import { fixtureIndex, layeredIndex } from './test-fixture.ts';
+import { farDevice } from './topology.ts';
 
 const index = fixtureIndex();
 const [first, second] = index.topology.links.map((l) => l.id) as [string, string];
@@ -83,6 +84,12 @@ describe('linkCheck and deviceCheck', () => {
 		expect([core.links, core.confirmed]).toEqual([3, 1]);
 		expect(core.findings.map((f) => f.id)).toEqual(['wrong', 'missing']);
 		expect(deviceCheck(COMPARISON, index, 'c-acc-01').polled).toBe(false);
+	});
+
+	it('leave out circuits into a transport, which discovery does not see', () => {
+		// c-wan-01 has four cables and, in the layered fixture, an Internet circuit.
+		const wan = deviceCheck(COMPARISON, layeredIndex(), 'c-wan-01');
+		expect([wan.links, wan.confirmed]).toEqual([4, 4]);
 	});
 });
 
@@ -202,7 +209,7 @@ describe('expectationOf', () => {
 	it('finds the expected finding that explains a link, with its change', () => {
 		const link = index.topology.links[0]!;
 		const silent = link.a.device;
-		const away = index.topology.links.find((l) => ![l.a.device, l.b.device].includes(silent))!;
+		const away = index.topology.links.find((l) => ![l.a.device, farDevice(l)].includes(silent))!;
 		const expected = finding('silent', { kind: 'no-neighbors', devices: [silent] });
 		const comparison = { ...COMPARISON, expected: [expected] };
 		const change: Change = {

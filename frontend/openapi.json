@@ -1554,6 +1554,91 @@
     "title": "AckIn",
     "description": "Someone taking on a problem."
    },
+   "Carried": {
+    "properties": {
+     "network": {
+      "type": "string",
+      "title": "Network"
+     },
+     "vlan": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 4094.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Vlan"
+     },
+     "vni": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 16777215.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Vni"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 1048575.0,
+        "minimum": 16.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Label"
+     },
+     "vrf": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Vrf"
+     },
+     "a": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SegmentIds"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "b": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SegmentIds"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "network"
+    ],
+    "title": "Carried",
+    "description": "A network a link carries.\n\nIts numbers are the same at both ends unless ``a`` or ``b`` gives an end\nits own: VLAN 30 at one end can be VLAN 400 at the other."
+   },
    "Carrier": {
     "properties": {
      "provider": {
@@ -2303,6 +2388,221 @@
     ],
     "title": "EventLog",
     "description": "The changes seen between two moments, oldest first."
+   },
+   "External": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "service",
+       "partner",
+       "tenant"
+      ],
+      "title": "Kind"
+     },
+     "tenant": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tenant"
+     },
+     "network": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Network"
+     },
+     "reached_over": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Reached Over",
+      "default": []
+     },
+     "platform": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Platform"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tags",
+      "default": []
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "kind"
+    ],
+    "title": "External",
+    "description": "A node beyond what Sunstone manages: a service, a partner's device,\nor a tenant's."
+   },
+   "ExternalEnd": {
+    "properties": {
+     "external": {
+      "type": "string",
+      "title": "External"
+     },
+     "interface": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Interface"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "external"
+    ],
+    "title": "ExternalEnd",
+    "description": "The far end of a link to something someone else runs."
+   },
+   "Fabric": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "network": {
+      "type": "string",
+      "title": "Network"
+     },
+     "rides": {
+      "type": "string",
+      "title": "Rides"
+     },
+     "shape": {
+      "type": "string",
+      "enum": [
+       "hub-spoke",
+       "hub-spoke-dynamic",
+       "full-mesh",
+       "group"
+      ],
+      "title": "Shape"
+     },
+     "technology": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Technology"
+     },
+     "members": {
+      "items": {
+       "$ref": "#/components/schemas/FabricMember"
+      },
+      "type": "array",
+      "title": "Members"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tags",
+      "default": []
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "network",
+     "rides",
+     "shape",
+     "members"
+    ],
+    "title": "Fabric",
+    "description": "Tunnels of one network made from members rather than listed: a DMVPN\ncloud, FlexVPN, AutoVPN, SD-WAN, or a GETVPN group."
+   },
+   "FabricMember": {
+    "properties": {
+     "device": {
+      "type": "string",
+      "title": "Device"
+     },
+     "interface": {
+      "type": "string",
+      "title": "Interface"
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "hub",
+       "spoke",
+       "peer"
+      ],
+      "title": "Role"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "device",
+     "interface",
+     "role"
+    ],
+    "title": "FabricMember",
+    "description": "A device's tunnel interface in a fabric."
    },
    "FailedSet": {
     "properties": {
@@ -3479,7 +3779,18 @@
       "$ref": "#/components/schemas/Endpoint"
      },
      "b": {
-      "$ref": "#/components/schemas/Endpoint"
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Endpoint"
+       },
+       {
+        "$ref": "#/components/schemas/TransportEnd"
+       },
+       {
+        "$ref": "#/components/schemas/ExternalEnd"
+       }
+      ],
+      "title": "B"
      },
      "speed_mbps": {
       "type": "integer",
@@ -3505,10 +3816,18 @@
        }
       ]
      },
+     "carries": {
+      "items": {
+       "$ref": "#/components/schemas/Carried"
+      },
+      "type": "array",
+      "title": "Carries",
+      "default": []
+     },
      "id": {
       "type": "string",
       "title": "Id",
-      "description": "Stable identifier that does not depend on which end is listed first.\n\nReturns:\n    The two ``device:interface`` ends, sorted and joined with ``--``.",
+      "description": "Stable identifier that does not depend on which end is listed first.\n\nReturns:\n    The two ends, sorted and joined with ``--``: ``device:interface``\n    for a device's, ``transport:NAME`` or ``external:NAME`` otherwise.",
       "readOnly": true
      }
     },
@@ -3521,7 +3840,7 @@
      "id"
     ],
     "title": "Link",
-    "description": "A physical connection between two device interfaces."
+    "description": "A physical connection between two interfaces, or from an interface\ninto a transport or to an external node."
    },
    "LinksCenter": {
     "properties": {
@@ -3704,6 +4023,68 @@
     ],
     "title": "MonitoringPosition",
     "description": "A place measurements are taken from, such as a collector at a hub."
+   },
+   "NamedNetwork": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "boundary": {
+      "type": "string",
+      "enum": [
+       "inside",
+       "outside"
+      ],
+      "title": "Boundary",
+      "default": "inside"
+     },
+     "tenant": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tenant"
+     },
+     "rides": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Rides",
+      "default": []
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tags",
+      "default": []
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "NamedNetwork",
+    "description": "A named slice of the network: black, blue, grey, a tenant's."
    },
    "NetworkState": {
     "properties": {
@@ -4622,6 +5003,64 @@
     "title": "SeenLink",
     "description": "A cable discovery sees that the documentation does not have as it is:\none no one documented, one to a device not in the topology, or the real\ncable of a documented link seen on another port or device."
    },
+   "SegmentIds": {
+    "properties": {
+     "vlan": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 4094.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Vlan"
+     },
+     "vni": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 16777215.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Vni"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 1048575.0,
+        "minimum": 16.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Label"
+     },
+     "vrf": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Vrf"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "SegmentIds",
+    "description": "What one end calls a network: its VLAN, VXLAN VNI, MPLS label, or VRF."
+   },
    "Shift": {
     "properties": {
      "team": {
@@ -5017,6 +5456,32 @@
     "title": "TeamNow",
     "description": "A team, who is on call for it, and who is on next."
    },
+   "Tenant": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "Tenant",
+    "description": "An organization a network or node belongs to, as NetBox has them."
+   },
    "Topology": {
     "properties": {
      "sites": {
@@ -5039,6 +5504,74 @@
       },
       "type": "array",
       "title": "Links"
+     },
+     "networks": {
+      "items": {
+       "$ref": "#/components/schemas/NamedNetwork"
+      },
+      "type": "array",
+      "title": "Networks",
+      "default": []
+     },
+     "transports": {
+      "items": {
+       "$ref": "#/components/schemas/Transport"
+      },
+      "type": "array",
+      "title": "Transports",
+      "default": []
+     },
+     "externals": {
+      "items": {
+       "$ref": "#/components/schemas/External"
+      },
+      "type": "array",
+      "title": "Externals",
+      "default": []
+     },
+     "tenants": {
+      "items": {
+       "$ref": "#/components/schemas/Tenant"
+      },
+      "type": "array",
+      "title": "Tenants",
+      "default": []
+     },
+     "tunnels": {
+      "items": {
+       "$ref": "#/components/schemas/Tunnel"
+      },
+      "type": "array",
+      "title": "Tunnels",
+      "default": []
+     },
+     "fabrics": {
+      "items": {
+       "$ref": "#/components/schemas/Fabric"
+      },
+      "type": "array",
+      "title": "Fabrics",
+      "default": []
+     },
+     "terms": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "propertyNames": {
+       "enum": [
+        "network",
+        "transport",
+        "external",
+        "service",
+        "partner",
+        "tenant",
+        "tunnel",
+        "fabric"
+       ]
+      },
+      "type": "object",
+      "title": "Terms",
+      "default": {}
      }
     },
     "additionalProperties": false,
@@ -5049,7 +5582,204 @@
      "links"
     ],
     "title": "Topology",
-    "description": "A whole network: every site, device, and link."
+    "description": "A whole network: every site, device, and link, and what is layered\nover them."
+   },
+   "Transport": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "internet",
+       "private-wan"
+      ],
+      "title": "Kind"
+     },
+     "network": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Network"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Provider"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tags",
+      "default": []
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "kind"
+    ],
+    "title": "Transport",
+    "description": "A shared network someone else runs that circuits connect into: the\nInternet, or a carrier's private WAN (a provider network, in NetBox)."
+   },
+   "TransportEnd": {
+    "properties": {
+     "transport": {
+      "type": "string",
+      "title": "Transport"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "transport"
+    ],
+    "title": "TransportEnd",
+    "description": "The far end of a circuit into a transport."
+   },
+   "Tunnel": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "network": {
+      "type": "string",
+      "title": "Network"
+     },
+     "rides": {
+      "type": "string",
+      "title": "Rides"
+     },
+     "technology": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Technology"
+     },
+     "a": {
+      "$ref": "#/components/schemas/TunnelEnd"
+     },
+     "b": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/TunnelEnd"
+       },
+       {
+        "$ref": "#/components/schemas/TunnelPeer"
+       }
+      ],
+      "title": "B"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tags",
+      "default": []
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "network",
+     "rides",
+     "a",
+     "b"
+    ],
+    "title": "Tunnel",
+    "description": "A point-to-point tunnel: a link in one network that rides another."
+   },
+   "TunnelEnd": {
+    "properties": {
+     "device": {
+      "type": "string",
+      "title": "Device"
+     },
+     "interface": {
+      "type": "string",
+      "title": "Interface"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "device",
+     "interface"
+    ],
+    "title": "TunnelEnd",
+    "description": "One of the network's own ends of a tunnel."
+   },
+   "TunnelPeer": {
+    "properties": {
+     "external": {
+      "type": "string",
+      "title": "External"
+     },
+     "peer": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Peer"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "external"
+    ],
+    "title": "TunnelPeer",
+    "description": "A tunnel's far end that someone else runs: known by name, and its\naddress if known."
    },
    "ValidationError": {
     "properties": {

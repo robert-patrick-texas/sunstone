@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from sunstone.discovery import Finding, Fix
 from sunstone.live import InterfaceState
-from sunstone.model import Link, Topology
+from sunstone.model import Link, Topology, device_b
 from sunstone.problems import Note, PersonName
 
 
@@ -152,7 +152,7 @@ def applied(topology: Topology, fixes: list[Fix]) -> Topology:
         else:
             links[at] = fix.after
     try:
-        return Topology(sites=topology.sites, devices=topology.devices, links=links)
+        return Topology.model_validate({**dict(topology), "links": links})
     except ValidationError as e:
         raise ChangeConflict(
             "; ".join(
@@ -190,7 +190,10 @@ def ports(link: Link | None) -> list[tuple[str, str]]:
     """
     if link is None:
         return []
-    return [(link.a.device, link.a.interface), (link.b.device, link.b.interface)]
+    return [
+        (link.a.device, link.a.interface),
+        (device_b(link).device, device_b(link).interface),
+    ]
 
 
 class ChangeStore:

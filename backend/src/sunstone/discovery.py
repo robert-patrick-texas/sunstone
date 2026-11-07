@@ -37,7 +37,7 @@ from pydantic import BaseModel, ConfigDict
 
 from sunstone.cabling import Cabling
 from sunstone.live import NetworkState, StateSource
-from sunstone.model import Device, Endpoint, Link, Topology
+from sunstone.model import Device, Endpoint, Link, Topology, device_b
 from sunstone.problems import ABBREVIATIONS, natural, short_interface
 
 LinkCheck = Literal[
@@ -284,8 +284,8 @@ def _key(interface: str) -> str:
 
 def _ports(link: Link) -> tuple[tuple[str, str], tuple[str, str]]:
     return (link.a.device, _key(link.a.interface)), (
-        link.b.device,
-        _key(link.b.interface),
+        device_b(link).device,
+        _key(device_b(link).interface),
     )
 
 
@@ -384,7 +384,7 @@ def compare(
         for t in discovery.tables
         if not t.neighbors
         and any(
-            t.device in (ln.a.device, ln.b.device) and ln.id not in down
+            t.device in (ln.a.device, device_b(ln).device) and ln.id not in down
             for ln in topology.links
         )
     }
@@ -419,7 +419,7 @@ def compare(
 
     def other_end(link: Link, device: str, interface: str) -> Port:
         a = (link.a.device, _key(link.a.interface)) == (device, _key(interface))
-        end = link.b if a else link.a
+        end = device_b(link) if a else link.a
         return Port(device=end.device, interface=end.interface)
 
     def contradicted(
@@ -476,7 +476,7 @@ def compare(
         ):
             return None
         a = (link.a.device, link.a.interface) == (end.device, end.interface)
-        old = link.a if a else link.b
+        old = link.a if a else device_b(link)
         new = Endpoint(
             device=there.device,
             interface=spelled(there),
@@ -548,7 +548,7 @@ def compare(
     for link in topology.links:
         if link.id in checks:
             continue
-        ends = [link.a.device, link.b.device]
+        ends = [link.a.device, device_b(link).device]
         if not any(d in polled for d in ends):
             checks[link.id] = "unchecked"
         elif link.id in down:
@@ -559,7 +559,9 @@ def compare(
             if not any(d in silent for d in ends):
                 findings[link.id] = _not_seen(link, polled)
     for device in sorted(silent, key=natural):
-        count = sum(device in (ln.a.device, ln.b.device) for ln in topology.links)
+        count = sum(
+            device in (ln.a.device, device_b(ln).device) for ln in topology.links
+        )
         findings[f"silent:{device}"] = Finding(
             id=SILENT + device,
             kind="no-neighbors",
@@ -618,7 +620,9 @@ def expecting(
         if cover(f)
     ]
     explained = {f.link for f in kept if f.link}
-    explained |= {ln.id for ln in topology.links if {ln.a.device, ln.b.device} & silent}
+    explained |= {
+        ln.id for ln in topology.links if {ln.a.device, device_b(ln).device} & silent
+    }
     links: dict[str, LinkCheck] = {
         k: "expected" if k in explained and v == "not-seen" else v
         for k, v in comparison.links.items()
@@ -635,7 +639,7 @@ def expecting(
 
 
 def _not_seen(link: Link, polled: set[str]) -> Finding:
-    asking = [d for d in (link.a.device, link.b.device) if d in polled]
+    asking = [d for d in (link.a.device, device_b(link).device) if d in polled]
     who = (
         "neither end reports it"
         if len(asking) == 2
@@ -643,19 +647,19 @@ def _not_seen(link: Link, polled: set[str]) -> Finding:
     )
     between = (
         f"{_name(link.a.device, link.a.interface)} – "
-        f"{_name(link.b.device, link.b.interface)}"
+        f"{_name(device_b(link).device, device_b(link).interface)}"
     )
     return Finding(
         id=f"not-seen:{link.id}",
         kind="not-seen",
-        title=f"{link.a.device} – {link.b.device} not seen",
+        title=f"{link.a.device} – {device_b(link).device} not seen",
         detail=f"Documented {between}; {who}",
         link=link.id,
         documented=[
             Port(device=link.a.device, interface=link.a.interface),
-            Port(device=link.b.device, interface=link.b.interface),
+            Port(device=device_b(link).device, interface=device_b(link).interface),
         ],
-        devices=[link.a.device, link.b.device],
+        devices=[link.a.device, device_b(link).device],
         fix=Fix(kind="retire", summary=f"Retire the link {between}", before=link),
     )
 
@@ -665,7 +669,7 @@ def _with_end(link: Link, a: bool, end: Endpoint) -> Link:
     (a copy would keep the old one)."""
     return Link(
         a=end if a else link.a,
-        b=link.b if a else end,
+        b=device_b(link) if a else end,
         speed_mbps=link.speed_mbps,
         kind=link.kind,
         circuit=link.circuit,
@@ -677,9 +681,12 @@ def _down_links(topology: Topology, state: Visibility) -> set[str]:
     return {
         ln.id
         for ln in topology.links
-        if {(ln.a.device, ln.a.interface), (ln.b.device, ln.b.interface)}
+        if {
+            (ln.a.device, ln.a.interface),
+            (device_b(ln).device, device_b(ln).interface),
+        }
         & state.down_ports
-        or {ln.a.device, ln.b.device} & state.down_devices
+        or {ln.a.device, device_b(ln).device} & state.down_devices
     }
 
 

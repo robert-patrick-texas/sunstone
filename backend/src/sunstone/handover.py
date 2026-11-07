@@ -38,7 +38,7 @@ from sunstone.changes import Change
 from sunstone.discovery import Finding
 from sunstone.layouts import Center, DeviceCenter, LinksCenter, SiteCenter
 from sunstone.live import StateEvent
-from sunstone.model import Topology
+from sunstone.model import Topology, device_ends
 from sunstone.oncall import HandoverTimes, OnCall, Page, RoutedProblem
 from sunstone.operations import ShiftNote, Window
 from sunstone.problems import Ack, Note, PersonName, link_name, natural
@@ -250,7 +250,7 @@ def outages(
         if d.kind != "link" or d.name not in links:
             continue
         link = links[d.name]
-        sites = [site_of[link.a.device], site_of[link.b.device]]
+        sites = [site_of[e.device] for e in device_ends(link)]
         group = next(
             (groups[(d.start, s)] for s in sites if (d.start, s) in groups), None
         )

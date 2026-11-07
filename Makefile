@@ -39,6 +39,8 @@ data: ## Regenerate the mock topologies and on-call directories in data/sample
 		--oncall ../data/sample/small.oncall.yaml
 	cd backend && uv run python -m sunstone.mockgen --preset large -o ../data/sample/large.yaml \
 		--oncall ../data/sample/large.oncall.yaml
+	cd backend && uv run python -m sunstone.mockgen --preset layers -o ../data/sample/layers.yaml \
+		--oncall ../data/sample/layers.oncall.yaml
 
 api-types: ## Regenerate the frontend's API types after changing backend models
 	cd backend && uv run python -c "import json, pathlib, sunstone.api as a; \

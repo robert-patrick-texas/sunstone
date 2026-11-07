@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { fixtureIndex } from './test-fixture.ts';
+import { fixtureIndex, layeredIndex } from './test-fixture.ts';
 import {
 	DEFAULT_DWELL_S,
 	fromQuery,
 	movesOn,
 	readable,
+	readAnyItem,
 	readItem,
 	toQuery,
 	writeItem,
@@ -16,6 +17,7 @@ const CIRCUIT = 'a-wan-01:Gi1/0/1--c-wan-01:Gi1/0/1';
 const OPENING: Shared = {
 	view: 'geo',
 	selection: null,
+	networks: [],
 	live: false,
 	at: null,
 	path: null,
@@ -201,5 +203,41 @@ describe('movesOn', () => {
 		expect(movesOn(selected, { ...selected, camera: { lon: 1, lat: 2, zoom: 3 } })).toBe(false);
 		expect(movesOn(selected, { ...selected, expanded: ['A'] })).toBe(false);
 		expect(movesOn(selected, { ...selected, selection: null })).toBe(false);
+	});
+});
+
+describe('named networks and layers in links', () => {
+	const layered = layeredIndex();
+
+	it('carries the networks shown and a layer selection', () => {
+		const q = toQuery(
+			{ ...OPENING, networks: ['grey', 'blue'], selection: { kind: 'transport', id: 'INET' } },
+			layered
+		);
+		expect(readable(q)).toBe('select=transport:INET&network=grey,blue');
+		expect(fromQuery(q, layered)).toMatchObject({
+			networks: ['grey', 'blue'],
+			selection: { kind: 'transport', id: 'INET' }
+		});
+	});
+
+	it('skips networks and names the topology does not have', () => {
+		const q = new URLSearchParams('network=gray,grey,grey&select=tunnel:NOPE');
+		expect(fromQuery(q, layered)).toMatchObject({ networks: ['grey'], selection: null });
+	});
+
+	it('reads every kind of layer by name, and devices, sites, and links as before', () => {
+		for (const text of [
+			'network:red',
+			'tunnel:GREY-A-C',
+			'fabric:DMVPN',
+			'tenant:T1',
+			'external:Nimbus Cloud'
+		]) {
+			expect(writeItem(readAnyItem(text, layered)!)).toBe(text);
+		}
+		expect(readAnyItem('device:c-wan-01', layered)).toEqual({ kind: 'device', id: 'c-wan-01' });
+		// What-if failures and neighborhood centers stay physical.
+		expect(readItem('network:red', layered)).toBeNull();
 	});
 });

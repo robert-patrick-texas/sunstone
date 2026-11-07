@@ -4,7 +4,8 @@ Key to what colors and lines mean: device roles and link kinds, or with live
 state, device health and link load, or while an impact is shown, how
 devices and links are affected, or while discovery is shown, what it sees
 that the documentation does not. Every color is named here, and the glyphs
-are shown, so color is never the only cue.
+are shown, so color is never the only cue. With named networks shown, also
+what their colors and dashes mean.
 -->
 <script lang="ts">
 	import { IMPACT_LABEL, type DeviceImpact } from './impact.ts';
@@ -18,19 +19,32 @@ are shown, so color is never the only cue.
 		IMPACT_GLYPH,
 		LINK_NODATA,
 		LINK_UNMONITORED,
+		DEPTH_COLOR,
 		ROLE_COLOR,
+		TUNNEL_LIVE,
 		UTIL_BANDS
 	} from './theme.ts';
 	import { ROLE_LABEL, ROLES } from './topology.ts';
 
-	const { live, impact, discovery }: { live: boolean; impact: boolean; discovery: boolean } =
-		$props();
+	const {
+		live,
+		impact,
+		discovery,
+		layers = false
+	}: {
+		live: boolean;
+		impact: boolean;
+		discovery: boolean;
+		/** Named networks are drawn. */
+		layers?: boolean;
+	} = $props();
+	const DEPTHS = ['Over circuits', 'Over another', 'Three deep'];
 
 	const HEALTHS: DeviceHealth[] = ['up', 'degraded', 'down', 'nodata', 'unmonitored'];
 	const IMPACTS: DeviceImpact[] = ['failed', 'cutoff', 'exposed'];
 </script>
 
-<div class="legend" class:live={live && !impact} aria-label="Legend">
+<div class="legend" class:live={(live && !impact) || layers} aria-label="Legend">
 	{#if impact}
 		<div class="row">
 			<b>Impact</b>
@@ -79,11 +93,27 @@ are shown, so color is never the only cue.
 			<span><i class="line" style:background={LINK_UNMONITORED}></i>Not monitored</span>
 		</div>
 	{:else}
-		{#each ROLES as role (role)}
-			<span><i class="swatch" style:background={ROLE_COLOR[role]}></i>{ROLE_LABEL[role]}</span>
-		{/each}
-		<span><i class="line" style:background={COLOR.wan}></i>WAN link</span>
-		<span><i class="line" style:background={COLOR.lan}></i>LAN link</span>
+		<div class="row">
+			{#each ROLES as role (role)}
+				<span><i class="swatch" style:background={ROLE_COLOR[role]}></i>{ROLE_LABEL[role]}</span>
+			{/each}
+			<span><i class="line" style:background={COLOR.wan}></i>WAN link</span>
+			<span><i class="line" style:background={COLOR.lan}></i>LAN link</span>
+		</div>
+	{/if}
+	{#if layers}
+		<div class="row">
+			<b>Networks</b>
+			{#each DEPTHS as label, i (label)}
+				<span><i class="swatch round" style:background={DEPTH_COLOR[i]}></i>{label}</span>
+			{/each}
+			<span
+				><i class="line dashed" style:color={live ? TUNNEL_LIVE : DEPTH_COLOR[0]}></i>Tunnel{live
+					? ', no health yet'
+					: ''}</span
+			>
+			<span><i class="outside"></i>Outside the boundary</span>
+		</div>
 	{/if}
 </div>
 
@@ -128,6 +158,18 @@ are shown, so color is never the only cue.
 		width: 12px;
 		height: 8px;
 		border-radius: 2px;
+	}
+	.swatch.round {
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+	}
+	.outside {
+		display: inline-block;
+		width: 14px;
+		height: 9px;
+		border: 1.5px dashed var(--muted);
+		border-radius: 50%;
 	}
 	.ring {
 		display: inline-block;

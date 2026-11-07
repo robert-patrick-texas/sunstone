@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sunstone.api import create_app
 from sunstone.live import NetworkState
 from sunstone.mockgen import PRESETS, generate, to_yaml
-from sunstone.model import Topology
+from sunstone.model import Topology, device_b
 from sunstone.simulate import (
     FAULT_WINDOW_S,
     MAX_RUN,
@@ -65,7 +65,7 @@ def test_a_down_device_reports_nothing_and_its_neighbors_see_the_link_down(
     assert not any(i.device in down for i in snapshot.interfaces)
     readings = {(i.device, i.interface): i for i in snapshot.interfaces}
     for link in topology.links:
-        for near, far in ((link.a, link.b), (link.b, link.a)):
+        for near, far in ((link.a, device_b(link)), (device_b(link), link.a)):
             seen = readings.get((near.device, near.interface))
             if far.device in down and seen:
                 assert (seen.oper, seen.in_pct, seen.out_pct) == ("down", 0.0, 0.0)
@@ -80,9 +80,9 @@ def test_some_circuits_go_down_while_both_routers_stay_up(
         link
         for link in topology.links
         if link.kind == "wan"
-        and {link.a.device, link.b.device} <= up
+        and {link.a.device, device_b(link).device} <= up
         and readings.get((link.a.device, link.a.interface)) == "down"
-        and readings.get((link.b.device, link.b.interface)) == "down"
+        and readings.get((device_b(link).device, device_b(link).interface)) == "down"
     ]
     assert cut
 
@@ -113,11 +113,11 @@ def test_a_branch_that_loses_every_circuit_is_cut_off(topology: Topology) -> Non
     circuits = [
         link
         for link in topology.links
-        if link.kind == "wan" and {link.a.device, link.b.device} & names
+        if link.kind == "wan" and {link.a.device, device_b(link).device} & names
     ]
     assert circuits
     for link in circuits:
-        hub = link.b if link.a.device in names else link.a
+        hub = device_b(link) if link.a.device in names else link.a
         assert readings[(hub.device, hub.interface)] == "down"
 
 
@@ -164,7 +164,7 @@ def test_both_ends_of_a_link_see_the_same_traffic(
     compared = 0
     for link in topology.links:
         a = readings.get((link.a.device, link.a.interface))
-        b = readings.get((link.b.device, link.b.interface))
+        b = readings.get((device_b(link).device, device_b(link).interface))
         if a and b and not a.stale and not b.stale and a.oper == "up":
             assert a.out_pct is not None and b.in_pct is not None
             assert abs(a.out_pct - b.in_pct) <= 1.0
@@ -249,7 +249,9 @@ def test_history_lines_up_with_snapshots(topology: Topology) -> None:
     assert len(history.status) == 6 * 12 + 1
     assert set(history.rtt_ms) == {"west", "east"}
     links = [
-        link for link in topology.links if device in (link.a.device, link.b.device)
+        link
+        for link in topology.links
+        if device in (link.a.device, device_b(link).device)
     ]
     assert len(history.interfaces) == len(links)
     step = timedelta(seconds=history.step_s)

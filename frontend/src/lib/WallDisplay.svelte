@@ -16,7 +16,7 @@ pauses, the arrow keys step, and Escape leaves.
 	import { personOf } from './oncall.ts';
 	import { MARK } from './problem-kinds.ts';
 	import { select, ui, type Selection } from './state.svelte.ts';
-	import { siteOf, type TopologyIndex } from './topology.ts';
+	import { deviceEnds, siteOf, type TopologyIndex } from './topology.ts';
 	import { slidesFor, tally, type Slide } from './wall.ts';
 
 	const {
@@ -135,7 +135,7 @@ pauses, the arrow keys step, and Escape leaves.
 					? [target.id]
 					: target.ids.flatMap((id) => {
 							const link = index.links.get(id);
-							return link ? [siteOf(index, link.a.device), siteOf(index, link.b.device)] : [];
+							return link ? deviceEnds(link).map((e) => siteOf(index, e.device)) : [];
 						});
 		return [...new Set(codes)]
 			.map((code) => `${code} · ${index.sites.get(code)?.name ?? code}`)

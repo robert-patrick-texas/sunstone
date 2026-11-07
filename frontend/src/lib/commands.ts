@@ -4,7 +4,7 @@
  * shortcuts help all read it, so they cannot disagree. What each command
  * does lives with the page, which holds the state it acts on.
  */
-import type { Selection } from './state.svelte.ts';
+import { isPhysical, type AnySelection } from './state.svelte.ts';
 
 export type CommandId =
 	| 'search'
@@ -17,6 +17,7 @@ export type CommandId =
 	| 'view-geo'
 	| 'view-hierarchy'
 	| 'view-topology'
+	| 'view-logical'
 	| 'neighborhood'
 	| 'path-from'
 	| 'what-if'
@@ -38,7 +39,8 @@ export type CommandId =
 	| 'incidents';
 
 /** What a command needs before it can run. */
-export type Need = 'selection' | 'device' | 'live' | 'problems' | 'replay';
+/** `item`: a device, site, or links, as opposed to a network or tunnel, say. */
+export type Need = 'selection' | 'item' | 'device' | 'live' | 'problems' | 'replay';
 
 export interface Command {
 	id: CommandId;
@@ -99,12 +101,19 @@ export const COMMANDS: Command[] = [
 		also: ['graph', 'layout']
 	},
 	{
+		id: 'view-logical',
+		label: 'Logical view',
+		group: 'Views',
+		keys: ['4'],
+		also: ['networks', 'tunnels', 'overlay', 'underlay', 'fabric']
+	},
+	{
 		id: 'neighborhood',
 		label: 'Neighborhood of the selection',
 		group: 'Views',
 		keys: ['n'],
 		also: ['hops', 'around'],
-		needs: ['selection']
+		needs: ['item']
 	},
 	{
 		id: 'path-from',
@@ -120,7 +129,7 @@ export const COMMANDS: Command[] = [
 		group: 'Views',
 		keys: ['w'],
 		also: ['impact', 'failure'],
-		needs: ['selection']
+		needs: ['item']
 	},
 	{
 		id: 'live',
@@ -237,7 +246,7 @@ export const COMMANDS: Command[] = [
 
 /** What commands can act on at the moment. */
 export interface Context {
-	selection: Selection | null;
+	selection: AnySelection | null;
 	live: boolean;
 	/** Replaying an earlier moment rather than showing now. */
 	replaying: boolean;
@@ -255,6 +264,7 @@ export interface Context {
 export function available(command: Command, context: Context): boolean {
 	return (command.needs ?? []).every((need) => {
 		if (need === 'selection') return context.selection !== null;
+		if (need === 'item') return context.selection !== null && isPhysical(context.selection);
 		if (need === 'device') return context.selection?.kind === 'device';
 		if (need === 'live') return context.live;
 		if (need === 'problems') return context.problems > 0;

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel, ConfigDict
 
 from sunstone.layouts import Center
-from sunstone.model import Link, Topology
+from sunstone.model import Endpoint, Link, Topology, TransportEnd, device_ends
 
 ROOT = -1
 
@@ -99,12 +99,25 @@ class Network:
             self.devices_of[d.site].append(d.name)
         self.links_of: dict[str, list[Link]] = {}
         for link in topology.links:
-            for end in (link.a, link.b):
+            for end in device_ends(link):
                 self.links_of.setdefault(end.device, []).append(link)
-        self._ends = [
-            (self.number[link.a.device], self.number[link.b.device], link.id)
-            for link in topology.links
-        ]
+        # Transports join the devices whose circuits go into them, as more
+        # nodes after the devices; external nodes lead nowhere, so links to
+        # them are left out.
+        transports = {
+            t.name: len(self.names) + i for i, t in enumerate(topology.transports)
+        }
+        self._nodes = len(self.names) + len(transports)
+        self._ends: list[tuple[int, int, str]] = []
+        for link in topology.links:
+            b = link.b
+            if isinstance(b, Endpoint):
+                far = self.number[b.device]
+            elif isinstance(b, TransportEnd):
+                far = transports[b.transport]
+            else:
+                continue
+            self._ends.append((self.number[link.a.device], far, link.id))
         self._healthy: Reach | None = None
 
     def failures_of(self, targets: Iterable[Center]) -> Failures:
@@ -145,7 +158,8 @@ class Network:
         """
         if not failures.devices and not failures.links and self._healthy:
             return self._healthy
-        n = len(self.names)
+        n = self._nodes
+        devices = len(self.names)
         out = {self.number[d] for d in failures.devices if d in self.number}
         adjacent: list[list[tuple[int, int]]] = [[] for _ in range(n)]
         for li, (a, b, link_id) in enumerate(self._ends):
@@ -198,15 +212,17 @@ class Network:
         # In discovery order, every parent is settled before its children.
         chain: list[tuple[str, ...]] = [()] * n
         fragile: dict[str, tuple[str, ...]] = {}
+        # A transport is never named as the one device a path runs through.
         for v in order:
             p = parent[v]
             if p == ROOT:
                 continue
             above = chain[p]
-            chain[v] = (*above, self.names[p]) if low[v] >= disc[p] else above
-            if chain[v]:
+            single = p < devices and low[v] >= disc[p]
+            chain[v] = (*above, self.names[p]) if single else above
+            if chain[v] and v < devices:
                 fragile[self.names[v]] = chain[v]
-        found = Reach(frozenset(self.names[v] for v in order), fragile)
+        found = Reach(frozenset(self.names[v] for v in order if v < devices), fragile)
         if not failures.devices and not failures.links:
             self._healthy = found
         return found
@@ -256,7 +272,7 @@ class Network:
 
         def gone(link_id: str) -> bool:
             link = self.links.get(link_id)
-            ends = {link.a.device, link.b.device} if link else set()
+            ends = {e.device for e in device_ends(link)} if link else set()
             return (
                 before is not None and link_id in before.links
             ) or not ends <= reached

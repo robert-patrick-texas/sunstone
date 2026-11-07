@@ -32,7 +32,8 @@ links; a link's camera, if any, is where the map opens.
 	import { timed } from '../perf.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
-	import { fromLink, select, ui, type Selection } from '../state.svelte.ts';
+	import { fromLink, isPhysical, select, ui, type AnySelection } from '../state.svelte.ts';
+	import { footprint } from '../layers.ts';
 	import {
 		COLOR,
 		DRIFT_COLOR,
@@ -43,12 +44,13 @@ links; a link's camera, if any, is where the map opens.
 		ROLE_COLOR,
 		UTIL_BANDS
 	} from '../theme.ts';
-	import { siteOf, type TopologyIndex } from '../topology.ts';
+	import { deviceEnds, siteOf, type TopologyIndex } from '../topology.ts';
 	import {
 		DEVICE_ZOOM,
 		devicePositions,
 		deviceFeatures,
 		linkFeatures,
+		networkArcs,
 		pairKey,
 		seenFeatures,
 		siteFeatures,
@@ -80,13 +82,14 @@ links; a link's camera, if any, is where the map opens.
 	const FIT_PADDING = { top: 60, right: 60, bottom: 100, left: 60 };
 	const DEVICE_FOCUS_ZOOM = 16.5;
 	// Topmost first: the order clicks are resolved in when features overlap.
-	const SOURCES = ['devices', 'sites', 'seen', 'device-links', 'site-links'];
+	const SOURCES = ['devices', 'sites', 'seen', 'device-links', 'site-links', 'network-arcs'];
 	const LINE_STYLES = ['', '-dashed', '-dotted'];
 	const CLICKABLE = [
 		'devices',
 		'sites',
 		'seen-points',
 		'seen-lines',
+		'network-arcs',
 		...['device-links', 'site-links'].flatMap((s) => LINE_STYLES.map((style) => s + style))
 	];
 	const FONT = ['Noto Sans Regular'];
@@ -119,6 +122,8 @@ links; a link's camera, if any, is where the map opens.
 	const isSelected: ExpressionSpecification = ['boolean', ['feature-state', 'selected'], false];
 	const onPath: ExpressionSpecification = ['boolean', ['feature-state', 'path'], false];
 	const onDrift: ExpressionSpecification = ['boolean', ['feature-state', 'drift'], false];
+	/** Part of a named network shown. */
+	const inNetwork: ExpressionSpecification = ['boolean', ['feature-state', 'inNetwork'], false];
 	const FADED = 0.12;
 
 	// Live styling applies only to features that carry live properties.
@@ -294,6 +299,28 @@ links; a link's camera, if any, is where the map opens.
 				}
 			});
 		}
+		// Tunnels of the networks shown, as arcs between their sites.
+		m.addSource('network-arcs', {
+			type: 'geojson',
+			data: networkArcs(
+				index,
+				untrack(() => ui.networks),
+				l !== null
+			),
+			promoteId: 'id'
+		});
+		m.addLayer({
+			id: 'network-arcs',
+			type: 'line',
+			source: 'network-arcs',
+			layout: { 'line-cap': 'round' },
+			paint: {
+				'line-color': ['case', isSelected, COLOR.selected, ['get', 'color']],
+				'line-width': ['case', isSelected, 3, 1.8],
+				'line-opacity': 0.9,
+				'line-dasharray': [3, 2]
+			}
+		});
 		for (const style of LINE_STYLES) {
 			const dash = LINE_DASH[style];
 			m.addLayer({
@@ -474,6 +501,26 @@ links; a link's camera, if any, is where the map opens.
 				'text-halo-width': 1.5
 			}
 		});
+		// The transports each site has circuits into, under its name.
+		m.addLayer({
+			id: 'site-transports',
+			type: 'symbol',
+			source: 'sites',
+			maxzoom: DEVICE_ZOOM,
+			filter: ['has', 'transports'],
+			layout: {
+				'text-field': ['get', 'transports'],
+				'text-font': FONT,
+				'text-size': 10,
+				'text-offset': [0, 2.6],
+				'text-anchor': 'top'
+			},
+			paint: {
+				'text-color': COLOR.muted,
+				'text-halo-color': COLOR.background,
+				'text-halo-width': 1.5
+			}
+		});
 		m.addLayer({
 			id: 'device-labels',
 			type: 'symbol',
@@ -519,6 +566,12 @@ links; a link's camera, if any, is where the map opens.
 			case 'seen':
 				// Seen but not documented: the device it hangs off.
 				return select({ kind: 'device', id: String(p['device']) });
+			case 'network-arcs':
+				return select(
+					p['tunnel']
+						? { kind: 'tunnel', id: String(p['tunnel']) }
+						: { kind: 'fabric', id: String(p['fabric']) }
+				);
 			case 'site-links': {
 				const pair = pairs.find((x) => x.key === p['key']);
 				return select(pair ? { kind: 'links', ids: pair.linkIds } : null);
@@ -543,6 +596,14 @@ links; a link's camera, if any, is where the map opens.
 		return new Set(
 			checks.filter(([, c]) => c === 'mismatch' || c === 'not-seen').map(([id]) => id)
 		);
+	});
+
+	// Named networks chosen, or live state turned on or off, redraw their tunnels.
+	$effect(() => {
+		const [m, networks, liveShown] = [map, ui.networks, live !== null];
+		if (!m) return;
+		const source = m.getSource('network-arcs') as GeoJSONSource | undefined;
+		source?.setData(networkArcs(index, networks, liveShown));
 	});
 
 	// New snapshots, or a new impact or discovery to show, replace the features' properties.
@@ -587,9 +648,34 @@ links; a link's camera, if any, is where the map opens.
 				m.setFeatureState({ source: 'sites', id: siteOf(index, device) }, { drift: true });
 			}
 		}
+		// Named networks shown, when nothing else is: what is in them stands out.
+		const networks = ui.networks;
+		const inNetworks = !path && !impact && !discovery && networks.length > 0;
+		if (inNetworks) {
+			const part = (source: string, id: string) =>
+				m.setFeatureState({ source, id }, { inNetwork: true });
+			for (const name of networks) {
+				const where = footprint(index, { kind: 'network', id: name });
+				for (const site of where.sites) part('sites', site);
+				for (const device of where.devices) part('devices', device);
+				for (const id of where.links) {
+					part('device-links', id);
+					const pair = pairOfLink.get(id);
+					if (pair) part('site-links', pair);
+				}
+			}
+		}
 		const involved: ExpressionSpecification = ['any', onDrift, drifted];
 		const shown =
-			path !== null ? onPath : impact !== null ? hasImpact : discovery ? involved : null;
+			path !== null
+				? onPath
+				: impact !== null
+					? hasImpact
+					: discovery
+						? involved
+						: inNetworks
+							? inNetwork
+							: null;
 		fade(m, shown, live !== null);
 		const mark = (source: string, id: string) =>
 			m.setFeatureState({ source, id }, { selected: true });
@@ -600,6 +686,16 @@ links; a link's camera, if any, is where the map opens.
 			mark('sites', selection.id);
 		} else if (selection?.kind === 'links') {
 			for (const id of selection.ids) {
+				mark('device-links', id);
+				const pair = pairOfLink.get(id);
+				if (pair) mark('site-links', pair);
+			}
+		} else if (selection) {
+			// A network, transport, tunnel, and so on: everywhere it is.
+			const where = footprint(index, selection);
+			for (const site of where.sites) mark('sites', site);
+			for (const device of where.devices) mark('devices', device);
+			for (const id of where.links) {
 				mark('device-links', id);
 				const pair = pairOfLink.get(id);
 				if (pair) mark('site-links', pair);
@@ -672,7 +768,21 @@ links; a link's camera, if any, is where the map opens.
 		if (points.length) m.fitBounds(bounds(points), { padding: 120, maxZoom: 17 });
 	}
 
-	function focus(m: MapLibre, selection: Selection): void {
+	function focus(m: MapLibre, selection: AnySelection): void {
+		if (!isPhysical(selection)) {
+			const sites = [...footprint(index, selection).sites].flatMap(
+				(code) => index.sites.get(code) ?? []
+			);
+			const [one] = sites;
+			if (sites.length === 1 && one) {
+				m.flyTo({ center: [one.lon, one.lat], zoom: Math.max(m.getZoom(), SITE_FOCUS_ZOOM) });
+			} else if (one) {
+				m.fitBounds(bounds(sites.map((s) => [s.lon, s.lat] as LonLat)), {
+					padding: FIT_PADDING
+				});
+			}
+			return;
+		}
 		if (selection.kind === 'device') {
 			const at = positions.get(selection.id);
 			if (at) m.flyTo({ center: at, zoom: Math.max(m.getZoom(), DEVICE_FOCUS_ZOOM) });
@@ -684,7 +794,7 @@ links; a link's camera, if any, is where the map opens.
 		} else {
 			const ends = selection.ids.flatMap((id) => {
 				const link = index.links.get(id);
-				return link ? [link.a.device, link.b.device] : [];
+				return link ? deviceEnds(link).map((e) => e.device) : [];
 			});
 			fitDevices(m, ends);
 		}

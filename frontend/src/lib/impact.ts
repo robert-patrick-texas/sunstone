@@ -5,6 +5,7 @@
  * impact.py`), for problems and for "what if" questions alike.
  */
 import type { Link } from './api/topology.ts';
+import { deviceEnds } from './topology.ts';
 
 export interface Failures {
 	devices: Set<string>;
@@ -72,7 +73,7 @@ export function worstImpact(impact: Impact, devices: string[]): DeviceImpact | n
 export function linksImpact(impact: Impact, links: Link[]): LinkImpact | null {
 	const gone = (d: string) => impact.failed.devices.has(d) || impact.cutOff.has(d);
 	const lost = links.filter(
-		(l) => impact.failed.links.has(l.id) || gone(l.a.device) || gone(l.b.device)
+		(l) => impact.failed.links.has(l.id) || deviceEnds(l).some((e) => gone(e.device))
 	).length;
 	if (lost === 0) return null;
 	return lost === links.length ? 'lost' : 'partial';

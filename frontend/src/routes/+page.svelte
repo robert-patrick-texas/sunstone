@@ -37,6 +37,8 @@ open, and leaves it as it was when it closes.
 	import IncidentReport from '#lib/IncidentReport.svelte';
 	import type { Impact } from '#lib/impact.ts';
 	import TopologyView from '#lib/topo/TopologyView.svelte';
+	import LogicalView from '#lib/logical/LogicalView.svelte';
+	import NetworkMenu from '#lib/NetworkMenu.svelte';
 	import Legend from '#lib/Legend.svelte';
 	import { phaseOf } from '#lib/maintenance.ts';
 	import MaintenancePanel from '#lib/MaintenancePanel.svelte';
@@ -54,12 +56,14 @@ open, and leaves it as it was when it closes.
 		clearPath,
 		expandedSites,
 		fromLink,
+		isPhysical,
 		select,
 		showNeighborhood,
 		showProblem,
 		startPath,
 		topo,
 		ui,
+		type AnySelection,
 		type Selection,
 		type View
 	} from '#lib/state.svelte.ts';
@@ -81,7 +85,8 @@ open, and leaves it as it was when it closes.
 	const VIEWS: { id: View; label: string }[] = [
 		{ id: 'geo', label: 'Geographic' },
 		{ id: 'hierarchy', label: 'Hierarchy' },
-		{ id: 'topology', label: 'Topology' }
+		{ id: 'topology', label: 'Topology' },
+		{ id: 'logical', label: 'Logical' }
 	];
 
 	const POLL_MS = 10_000;
@@ -184,6 +189,7 @@ open, and leaves it as it was when it closes.
 		}
 		if (found.view) ui.view = found.view;
 		if (found.selection !== undefined) ui.selection = found.selection;
+		if (found.networks !== undefined) ui.networks = found.networks;
 		if (found.path !== undefined) ui.path = found.path;
 		if (found.whatIf) ui.whatIf = found.whatIf;
 		if (found.live !== undefined) {
@@ -206,6 +212,7 @@ open, and leaves it as it was when it closes.
 		return {
 			view: ui.view,
 			selection: ui.selection ? $state.snapshot(ui.selection) : null,
+			networks: [...ui.networks],
 			live: ui.live,
 			at: ui.at,
 			path: ui.path ? { ...ui.path } : null,
@@ -590,7 +597,7 @@ open, and leaves it as it was when it closes.
 	}
 
 	/** What each command does. */
-	const ACTIONS: Record<CommandId, (selection: Selection | null) => void> = {
+	const ACTIONS: Record<CommandId, (selection: AnySelection | null) => void> = {
 		search: () => searchBox?.focus(),
 		help: () => (helpOpen = true),
 		focus: () => ui.focusRequest++,
@@ -602,9 +609,10 @@ open, and leaves it as it was when it closes.
 		'view-geo': () => (ui.view = 'geo'),
 		'view-hierarchy': () => (ui.view = 'hierarchy'),
 		'view-topology': () => (ui.view = 'topology'),
-		neighborhood: (s) => s && showNeighborhood(s),
+		'view-logical': () => (ui.view = 'logical'),
+		neighborhood: (s) => s && isPhysical(s) && showNeighborhood(s),
 		'path-from': (s) => s?.kind === 'device' && startPath(s.id),
-		'what-if': (s) => s && addFailure(s),
+		'what-if': (s) => s && isPhysical(s) && addFailure(s),
 		live: () => (ui.live = !ui.live),
 		problems: () => toggleTab('problems'),
 		events: () => toggleTab('events'),
@@ -667,6 +675,7 @@ open, and leaves it as it was when it closes.
 					</button>
 				{/each}
 			</div>
+			{#if index && index.topology.networks.length > 0}<NetworkMenu {index} />{/if}
 			<button
 				class="live"
 				aria-pressed={ui.live}
@@ -823,12 +832,20 @@ open, and leaves it as it was when it closes.
 							<GeoView {index} {path} {impact} {live} discovery={drift} />
 						{:else if ui.view === 'hierarchy'}
 							<HierarchyView {index} {path} {impact} {live} discovery={drift} />
+						{:else if ui.view === 'logical'}
+							<LogicalView {index} {path} {impact} {live} />
 						{:else}
 							<TopologyView {index} {path} {impact} {live} discovery={drift} />
 						{/if}
 					{/key}
 				{/key}
-				<Legend live={live !== null} impact={impact !== null} discovery={drift !== null} />
+				<Legend
+					live={live !== null}
+					impact={impact !== null}
+					discovery={drift !== null}
+					layers={index.topology.networks.length > 0 &&
+						(ui.view === 'logical' || ui.networks.length > 0)}
+				/>
 				{#if ui.pathFrom}
 					<p class="picking" aria-live="polite">
 						Choose the destination for a path from <strong>{ui.pathFrom}</strong>: click a device or

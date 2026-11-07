@@ -104,7 +104,8 @@ install_share() {
     install -D -m 0644 /in/release-signers "$share/release-signers"
     install -D -m 0644 packaging/templates/config.toml "$share/templates/config.toml"
     install -D -m 0644 -t "$share/samples" data/sample/small.yaml data/sample/small.oncall.yaml \
-        data/sample/large.yaml data/sample/large.oncall.yaml
+        data/sample/large.yaml data/sample/large.oncall.yaml \
+        data/sample/layers.yaml data/sample/layers.oncall.yaml
     install -D -m 0644 -t "$share/doc" LICENSE NOTICE README.md CHANGELOG.md
     write_debian_changelog
 }

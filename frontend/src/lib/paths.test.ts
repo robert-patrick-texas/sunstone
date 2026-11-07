@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { linksBetween, MAX_LISTED, shortestPaths } from './paths.ts';
-import { fixture, fixtureIndex, link } from './test-fixture.ts';
+import { fixture, fixtureIndex, layeredFixture, link } from './test-fixture.ts';
 import { indexTopology } from './topology.ts';
 
 describe('shortestPaths', () => {
@@ -72,5 +72,25 @@ describe('linksBetween', () => {
 		const path = shortestPaths(index, 'c-acc-01', 'a-acc-01');
 		const ends = linksBetween(index, path, 'a-core-01', 'a-acc-01').map((l) => l.a.interface);
 		expect(ends).toEqual(['TenGigabitEthernet1/0/1', 'TenGigabitEthernet1/0/2']);
+	});
+});
+
+describe('paths across a transport', () => {
+	it('cross the Internet like a device, but never go through an external node', () => {
+		// Without its WAN links to the hubs, C reaches A only across the Internet.
+		const layered = indexTopology({
+			...structuredClone(layeredFixture),
+			links: layeredFixture.links.filter(
+				(l) => !(l.kind === 'wan' && l.a.device === 'c-wan-01' && 'device' in l.b)
+			)
+		});
+		const path = shortestPaths(layered, 'c-acc-01', 'a-core-01');
+		expect(path.listed).toEqual([
+			['c-acc-01', 'c-wan-01', 'transport:INET', 'a-wan-01', 'a-core-01']
+		]);
+		expect(linksBetween(layered, path, 'transport:INET', 'a-wan-01').map((l) => l.id)).toEqual([
+			'a-wan-01:GigabitEthernet0/0/0--transport:INET'
+		]);
+		expect(shortestPaths(layered, 'c-acc-02', 'a-core-01').hops).toBe(4);
 	});
 });

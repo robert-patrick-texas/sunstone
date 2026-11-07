@@ -30,7 +30,7 @@ from collections.abc import Set
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
-from sunstone.model import Endpoint, Link, Topology
+from sunstone.model import Endpoint, Link, Topology, device_b
 from sunstone.problems import natural
 
 UNKNOWN_PLATFORM = "WS-C2960X-24TS"
@@ -93,7 +93,7 @@ class Cabling:
         """Cables no one documented, some to devices not in the topology."""
         self._used: dict[str, set[str]] = {}
         for ln in topology.links:
-            for end in (ln.a, ln.b):
+            for end in (ln.a, device_b(ln)):
                 self._used.setdefault(end.device, set()).add(end.interface)
         if watched is not None:
             self._drift(watched, random.Random(seed))
@@ -172,7 +172,7 @@ class Cabling:
         return zlib.crc32(f"{name}|{block}".encode()) % 2 == 0
 
     def _real(self, link: Link) -> Cable:
-        a, b = link.a, link.b
+        a, b = link.a, device_b(link)
         if link.id in self.moved:
             end = self.moved[link.id]
             a, b = (end, b) if a.device == end.device else (a, end)
@@ -186,7 +186,7 @@ class Cabling:
         find the documented ports no cable reaches."""
         on: dict[tuple[str, str], Link] = {}
         for ln in self.topology.links:
-            for end in (ln.a, ln.b):
+            for end in (ln.a, device_b(ln)):
                 on[(end.device, end.interface)] = ln
         cabled: set[tuple[str, str]] = set()
         carried: set[str] = set()
@@ -201,7 +201,7 @@ class Cabling:
             if link is None:
                 # Not documented (any more): a link made up for it.
                 own = wire.link
-                if {own.a, own.b} != {wire.a, wire.b}:
+                if {own.a, device_b(own)} != {wire.a, wire.b}:
                     own = Link(
                         a=wire.a, b=wire.b, speed_mbps=own.speed_mbps, kind=own.kind
                     )
@@ -210,8 +210,8 @@ class Cabling:
                 carried.add(link.id)
                 # Ends in the same order as the link's.
                 flip = ends[1] == (link.a.device, link.a.interface) or ends[0] == (
-                    link.b.device,
-                    link.b.interface,
+                    device_b(link).device,
+                    device_b(link).interface,
                 )
                 a, b = (wire.b, wire.a) if flip else (wire.a, wire.b)
                 cable = replace(wire, a=a, b=b, link=link, documented=True)
@@ -221,7 +221,7 @@ class Cabling:
         self._dangling = [
             (end, ln)
             for ln in self.topology.links
-            for end in (ln.a, ln.b)
+            for end in (ln.a, device_b(ln))
             if (end.device, end.interface) not in cabled
         ]
 
@@ -244,7 +244,7 @@ class Cabling:
                 ln
                 for ln in topology.links
                 if ln.kind == "lan"
-                and {devices[ln.a.device].role, devices[ln.b.device].role}
+                and {devices[ln.a.device].role, devices[device_b(ln).device].role}
                 == {"access", "distribution"}
             ),
             key=lambda ln: ln.id,
@@ -258,16 +258,18 @@ class Cabling:
             for ln in uplinks:
                 if len(chosen) == count:
                     break
-                if {ln.a.device, ln.b.device} & taken:
+                if {ln.a.device, device_b(ln).device} & taken:
                     continue
-                taken.update({ln.a.device, ln.b.device})
+                taken.update({ln.a.device, device_b(ln).device})
                 chosen.append(ln)
             return chosen
 
         def ends(ln: Link) -> tuple[Endpoint, Endpoint]:
             """The access end, then the distribution end."""
             return (
-                (ln.a, ln.b) if devices[ln.a.device].role == "access" else (ln.b, ln.a)
+                (ln.a, device_b(ln))
+                if devices[ln.a.device].role == "access"
+                else (device_b(ln), ln.a)
             )
 
         self.hidden = {ln.id for ln in pick(many)}

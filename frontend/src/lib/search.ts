@@ -1,7 +1,10 @@
 /**
  * One search over everything Sunstone knows by name: sites, devices, links
- * (by circuit, carrier, or the device and interface at either end),
- * problems, maintenance windows, on-call teams and people, and commands.
+ * (by circuit, carrier, or the device and interface at either end), named
+ * networks, transports, external nodes, tunnels, fabrics, and tenants (by
+ * name, tag, or technology, and by the organization's own word for what
+ * they are), problems, maintenance windows, on-call teams and people, and
+ * commands.
  *
  * Every word typed must match something about an entry. A match counts for
  * more when it is a whole name than when it starts one, when it starts a
@@ -18,23 +21,47 @@ import type { Window } from './api/operations.ts';
 import type { Command, CommandId } from './commands.ts';
 import { span, targetName } from './maintenance.ts';
 import { KINDS } from './problem-kinds.ts';
-import type { Selection } from './state.svelte.ts';
+import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
+import {
+	isPhysical,
+	type AnySelection,
+	type LayerSelection,
+	type Selection
+} from './state.svelte.ts';
+import { term, termWords } from './terms.ts';
 import {
 	compareNatural,
+	deviceEnds,
+	endName,
 	formatSpeed,
+	isDeviceEnd,
+	portName,
 	ROLE_LABEL,
 	shortInterface,
 	siteOf,
 	type TopologyIndex
 } from './topology.ts';
-import { readItem, writeItem } from './url.ts';
+import { readAnyItem, writeItem } from './url.ts';
 
 export type EntryKind =
-	'problem' | 'site' | 'device' | 'link' | 'window' | 'team' | 'person' | 'command';
+	| 'problem'
+	| 'network'
+	| 'site'
+	| 'device'
+	| 'link'
+	| 'transport'
+	| 'external'
+	| 'tunnel'
+	| 'fabric'
+	| 'tenant'
+	| 'window'
+	| 'team'
+	| 'person'
+	| 'command';
 
 /** What choosing an entry goes to. */
 export type Target =
-	| { kind: 'item'; item: Selection }
+	| { kind: 'item'; item: AnySelection }
 	| { kind: 'problem'; problem: Problem }
 	| { kind: 'window'; window: Window }
 	| { kind: 'team'; team: string }
@@ -85,9 +112,15 @@ const CONTEXT = 1;
 
 const GROUPS: { kind: EntryKind; label: string; limit: number }[] = [
 	{ kind: 'problem', label: 'Problems', limit: 5 },
+	{ kind: 'network', label: 'Networks', limit: 5 },
 	{ kind: 'site', label: 'Sites', limit: 5 },
 	{ kind: 'device', label: 'Devices', limit: 8 },
 	{ kind: 'link', label: 'Links', limit: 6 },
+	{ kind: 'transport', label: 'Transports', limit: 4 },
+	{ kind: 'external', label: 'Externals', limit: 5 },
+	{ kind: 'tunnel', label: 'Tunnels', limit: 6 },
+	{ kind: 'fabric', label: 'Fabrics', limit: 4 },
+	{ kind: 'tenant', label: 'Tenants', limit: 4 },
 	{ kind: 'window', label: 'Maintenance', limit: 4 },
 	{ kind: 'team', label: 'Teams', limit: 4 },
 	{ kind: 'person', label: 'People', limit: 5 },
@@ -139,13 +172,138 @@ function range(text: string): [number, number] | null {
 }
 
 /**
- * The entry for a device, site, or links.
+ * Group labels in the organization's own words for what is layered over
+ * the links, where it has them.
  *
  * @param index - Topology index.
- * @param item - The device, site, or links.
+ * @returns Labels to use in place of the usual ones.
+ */
+export function groupLabels(index: TopologyIndex): Partial<Record<EntryKind, string>> {
+	return {
+		network: term(index, 'network', true),
+		transport: term(index, 'transport', true),
+		external: term(index, 'external', true),
+		tunnel: term(index, 'tunnel', true),
+		fabric: term(index, 'fabric', true),
+		tenant: term(index, 'tenant', true)
+	};
+}
+
+/**
+ * The entry for a transport, external node, network, tunnel, fabric, or tenant.
+ *
+ * @param index - Topology index.
+ * @param item - The selection.
  * @returns The entry, or null if it is not in the network.
  */
-export function itemEntry(index: TopologyIndex, item: Selection): Entry | null {
+function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
+	const target: Target = { kind: 'item', item };
+	const head = (label: string, detail: string) => ({
+		kind: item.kind,
+		key: writeItem(item),
+		label,
+		detail
+	});
+	const words = (key: Parameters<typeof termWords>[1]) =>
+		termWords(index, key).flatMap((w) => field(w, CONTEXT, 'words'));
+	const tags = (list: string[]) => list.flatMap((t) => field(t, ALIAS));
+	if (item.kind === 'network') {
+		const n = index.networks.get(item.id);
+		const s = layersOf(index).slices.get(item.id);
+		if (!n || !s) return null;
+		const detail = [
+			n.description,
+			s.rides.size ? `over ${[...s.rides].join(', ')}` : '',
+			`${s.sites.size} sites`
+		];
+		return entry(head(n.name, detail.filter(Boolean).join(' · ')), target, [
+			...field(n.name, NAME),
+			...field(n.description, CONTEXT, 'words'),
+			...field(n.tenant, ALIAS),
+			...words('network'),
+			...tags(n.tags)
+		]);
+	}
+	if (item.kind === 'transport') {
+		const t = index.transports.get(item.id);
+		if (!t) return null;
+		const circuits = index.linksByNode.get(`transport:${t.name}`)?.length ?? 0;
+		const detail = [t.description, t.provider, `${circuits} circuits`];
+		return entry(head(t.name, detail.filter(Boolean).join(' · ')), target, [
+			...field(t.name, NAME),
+			...field(t.provider, ALIAS),
+			...field(t.description, CONTEXT, 'words'),
+			...field(t.kind === 'internet' ? 'Internet' : 'private WAN', CONTEXT, 'words'),
+			...words('transport'),
+			...tags(t.tags)
+		]);
+	}
+	if (item.kind === 'external') {
+		const e = index.externals.get(item.id);
+		if (!e) return null;
+		const kind = term(index, e.kind);
+		const detail = [kind, e.tenant, e.platform, e.description];
+		return entry(head(e.name, detail.filter(Boolean).join(' · ')), target, [
+			...field(e.name, NAME),
+			...field(e.tenant, ALIAS),
+			...field(e.platform, PART),
+			...field(e.description, CONTEXT, 'words'),
+			...words(e.kind),
+			...words('external'),
+			...tags(e.tags)
+		]);
+	}
+	if (item.kind === 'tunnel') {
+		const t = index.tunnels.get(item.id);
+		if (!t) return null;
+		const far = 'device' in t.b ? t.b.device : t.b.external;
+		const detail = [t.network, t.technology, `${t.a.device} – ${far}`, `over ${t.rides}`];
+		return entry(head(t.name, detail.filter(Boolean).join(' · ')), target, [
+			...field(t.name, NAME),
+			...field(t.network, ALIAS),
+			...field(t.technology, PART),
+			...field(t.a.device, CONTEXT),
+			...field(far, CONTEXT),
+			...interfaceFields(t.a.interface, CONTEXT),
+			...words('tunnel'),
+			...tags(t.tags)
+		]);
+	}
+	if (item.kind === 'fabric') {
+		const f = index.fabrics.get(item.id);
+		if (!f) return null;
+		const tunnels = fabricTunnels(f).length + onDemand(f);
+		const detail = [f.network, f.technology, `${f.members.length} members`, `${tunnels} tunnels`];
+		return entry(head(f.name, detail.filter(Boolean).join(' · ')), target, [
+			...field(f.name, NAME),
+			...field(f.network, ALIAS),
+			...field(f.technology, PART),
+			...words('fabric'),
+			...tags(f.tags)
+		]);
+	}
+	const t = index.tenants.get(item.id);
+	if (!t) return null;
+	const networks = index.topology.networks.filter((n) => n.tenant === t.name).map((n) => n.name);
+	const detail = [t.description, networks.join(', ')];
+	return entry(head(t.name, detail.filter(Boolean).join(' · ')), target, [
+		...field(t.name, NAME),
+		...field(t.description, CONTEXT, 'words'),
+		...networks.flatMap((n) => field(n, ALIAS)),
+		...words('tenant')
+	]);
+}
+
+/**
+ * The entry for anything that can be selected.
+ *
+ * @param index - Topology index.
+ * @param item - A device, site, or links, or a transport, external node,
+ *   network, tunnel, fabric, or tenant.
+ * @returns The entry, or null if it is not in the network.
+ */
+export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | null {
+	if (!isPhysical(item)) return layerEntry(index, item);
 	const target: Target = { kind: 'item', item };
 	const key = writeItem(item);
 	if (item.kind === 'site') {
@@ -195,25 +353,24 @@ export function itemEntry(index: TopologyIndex, item: Selection): Entry | null {
 	if (!link) return null;
 	if (links.length > 1) {
 		// Only ever recent: a bundle selected on the map, not something search finds.
-		const sites = new Set(
-			links.flatMap((l) => [l.a.device, l.b.device].map((d) => siteOf(index, d)))
-		);
+		const sites = new Set(links.flatMap((l) => deviceEnds(l).map((e) => siteOf(index, e.device))));
 		return entry(
 			{ kind: 'link', key, label: targetName(index, item), detail: [...sites].join(' – ') },
 			target,
 			[]
 		);
 	}
-	const ends = `${link.a.device} ${shortInterface(link.a.interface)} – ${link.b.device} ${shortInterface(link.b.interface)}`;
+	const ends = `${portName(link.a)} – ${portName(link.b)}`;
 	const speed = formatSpeed(link.speed_mbps);
-	const lag = link.a.lag ?? link.b.lag;
+	const far = isDeviceEnd(link.b) ? link.b : null;
+	const lag = link.a.lag ?? far?.lag;
 	return entry(
 		{
 			kind: 'link',
 			key,
 			label: link.circuit ? `Circuit ${link.circuit.circuit_id}` : ends,
 			detail: link.circuit
-				? `${link.circuit.provider} · ${link.a.device} – ${link.b.device} · ${speed}`
+				? `${link.circuit.provider} · ${link.a.device} – ${endName(link.b)} · ${speed}`
 				: [speed, lag].filter(Boolean).join(' · ')
 		},
 		target,
@@ -221,11 +378,12 @@ export function itemEntry(index: TopologyIndex, item: Selection): Entry | null {
 			...field(link.circuit?.circuit_id, NAME),
 			...field(link.circuit?.provider, ALIAS),
 			...field(link.a.device, PART),
-			...field(link.b.device, PART),
+			...field(endName(link.b), PART),
 			...interfaceFields(link.a.interface, PART),
-			...interfaceFields(link.b.interface, PART),
+			...interfaceFields(far?.interface, PART),
 			...interfaceFields(link.a.lag, CONTEXT),
-			...interfaceFields(link.b.lag, CONTEXT)
+			...interfaceFields(far?.lag, CONTEXT),
+			...carried(index, link).flatMap((n) => field(n, CONTEXT))
 		]
 	);
 }
@@ -237,10 +395,17 @@ export function itemEntry(index: TopologyIndex, item: Selection): Entry | null {
  * @returns The entries.
  */
 export function topologyEntries(index: TopologyIndex): Entry[] {
-	const items: Selection[] = [
+	const { networks, transports, externals, tunnels, fabrics, tenants } = index.topology;
+	const items: AnySelection[] = [
 		...index.topology.sites.map((s) => ({ kind: 'site' as const, id: s.code })),
 		...index.topology.devices.map((d) => ({ kind: 'device' as const, id: d.name })),
-		...index.topology.links.map((l) => ({ kind: 'links' as const, ids: [l.id] }))
+		...index.topology.links.map((l) => ({ kind: 'links' as const, ids: [l.id] })),
+		...networks.map((n) => ({ kind: 'network' as const, id: n.name })),
+		...transports.map((t) => ({ kind: 'transport' as const, id: t.name })),
+		...externals.map((e) => ({ kind: 'external' as const, id: e.name })),
+		...tunnels.map((t) => ({ kind: 'tunnel' as const, id: t.name })),
+		...fabrics.map((f) => ({ kind: 'fabric' as const, id: f.name })),
+		...tenants.map((t) => ({ kind: 'tenant' as const, id: t.name }))
 	];
 	return items.flatMap((item) => itemEntry(index, item) ?? []);
 }
@@ -251,7 +416,7 @@ function namesOf(index: TopologyIndex, item: Selection): string[] {
 	if (item.kind === 'site') return [item.id, index.sites.get(item.id)?.name ?? ''];
 	return item.ids.flatMap((id) => {
 		const link = index.links.get(id);
-		return link ? [link.circuit?.circuit_id ?? '', link.a.device, link.b.device] : [];
+		return link ? [link.circuit?.circuit_id ?? '', link.a.device, endName(link.b)] : [];
 	});
 }
 
@@ -382,7 +547,7 @@ export function commandEntries(commands: Command[]): Entry[] {
  */
 export function recentEntries(index: TopologyIndex, recent: string[]): Entry[] {
 	return recent.flatMap((r) => {
-		const item = readItem(r, index);
+		const item = readAnyItem(r, index);
 		return (item && itemEntry(index, item)) ?? [];
 	});
 }
@@ -444,7 +609,11 @@ function score(entry: Entry, words: Word[]): number {
  * @returns Groups with any matches, the one with the best match first (problems
  *   first among equals); within each, best match first. Empty for an empty query.
  */
-export function search(query: string, lists: Entry[][]): Group[] {
+export function search(
+	query: string,
+	lists: Entry[][],
+	labels: Partial<Record<EntryKind, string>> = {}
+): Group[] {
 	const words: Word[] = query
 		.toLowerCase()
 		.split(/[\s,]+/)
@@ -470,7 +639,12 @@ export function search(query: string, lists: Entry[][]): Group[] {
 				compareNatural(x.entry.label, y.entry.label)
 		);
 		const entries = matches.slice(0, limit).map((m) => m.entry);
-		const group: Group = { kind, label, entries, more: matches.length - entries.length };
+		const group: Group = {
+			kind,
+			label: labels[kind] ?? label,
+			entries,
+			more: matches.length - entries.length
+		};
 		return entries.length ? [{ group, best: matches[0]?.score ?? 0 }] : [];
 	});
 	// Stable, so equally good groups keep the order of GROUPS, problems first.

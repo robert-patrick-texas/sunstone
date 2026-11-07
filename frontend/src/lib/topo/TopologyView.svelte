@@ -32,7 +32,15 @@ the backend and opened again later.
 	import type { PathResult } from '../paths.ts';
 	import { timed, timedAsync } from '../perf.ts';
 	import { siteNodeId } from '../graph/model.ts';
-	import { expandedSites, select, topo, ui, type Selection } from '../state.svelte.ts';
+	import {
+		expandedSites,
+		isPhysical,
+		select,
+		topo,
+		ui,
+		type AnySelection,
+		type Selection
+	} from '../state.svelte.ts';
 	import { siteOf, type TopologyIndex } from '../topology.ts';
 	import {
 		neighborhoodGraph,
@@ -227,6 +235,7 @@ the backend and opened again later.
 					})
 				)
 			);
+			c.separateBeyond();
 			c.fitFrames();
 			c.drawGhosts();
 			busy = unplaced = false;
@@ -300,8 +309,8 @@ the backend and opened again later.
 		}
 	}
 
-	function onFocusRequest(c: GraphCanvas, selection: Selection): void {
-		if (topo.scope === 'neighborhood' && selection.kind !== 'links') {
+	function onFocusRequest(c: GraphCanvas, selection: AnySelection): void {
+		if (topo.scope === 'neighborhood' && isPhysical(selection) && selection.kind !== 'links') {
 			// Search in a neighborhood moves the neighborhood; the redraw fits it.
 			if (JSON.stringify(topo.center) !== JSON.stringify(selection)) {
 				topo.center = selection;
@@ -318,7 +327,7 @@ the backend and opened again later.
 		focusOn(c, selection);
 	}
 
-	function focusOn(c: GraphCanvas, selection: Selection): void {
+	function focusOn(c: GraphCanvas, selection: AnySelection): void {
 		const eles = c.elementsFor(selection);
 		if (eles.empty()) return;
 		if (selection.kind === 'device') {
@@ -335,7 +344,7 @@ the backend and opened again later.
 	}
 
 	function toNeighborhood(): void {
-		if (ui.selection) topo.center = ui.selection;
+		if (ui.selection && isPhysical(ui.selection)) topo.center = ui.selection;
 		topo.scope = 'neighborhood';
 	}
 

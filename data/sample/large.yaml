@@ -21063,3 +21063,393 @@ links:
   speed_mbps: 1000
   kind: wan
   circuit: {provider: Harbor Transit, circuit_id: HA-915525}
+- a: {device: dal-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-196033}
+- a: {device: iad-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-976084}
+- a: {device: hou-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-363804}
+- a: {device: aus-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-137470}
+- a: {device: sat-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-769485}
+- a: {device: ftw-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-490133}
+- a: {device: elp-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-381270}
+- a: {device: okc-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-481696}
+- a: {device: tul-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-498474}
+- a: {device: lit-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-272478}
+- a: {device: msy-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Bluebonnet Telecom, circuit_id: BL-341804}
+- a: {device: btr-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Bluebonnet Telecom, circuit_id: BL-440937}
+- a: {device: mem-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Bluebonnet Telecom, circuit_id: BL-634948}
+- a: {device: bna-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-807243}
+- a: {device: atl-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-935463}
+- a: {device: bhm-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-899943}
+- a: {device: jax-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-470972}
+- a: {device: mco-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-269014}
+- a: {device: tpa-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-786723}
+- a: {device: mia-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-392659}
+- a: {device: clt-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-640427}
+- a: {device: rdu-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-583406}
+- a: {device: ric-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-861145}
+- a: {device: dca-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-790891}
+- a: {device: bwi-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-954257}
+- a: {device: phl-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-381162}
+- a: {device: nyc-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-418029}
+- a: {device: ewr-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-866435}
+- a: {device: bos-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-636757}
+- a: {device: bdl-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-179036}
+- a: {device: pvd-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-954651}
+- a: {device: alb-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-161613}
+- a: {device: buf-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-720442}
+- a: {device: pit-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-891014}
+- a: {device: cle-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-356724}
+- a: {device: cmh-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-543461}
+- a: {device: cvg-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-479958}
+- a: {device: dtw-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Bluebonnet Telecom, circuit_id: BL-361621}
+- a: {device: ind-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-220820}
+- a: {device: sdf-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-142860}
+- a: {device: ord-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-368110}
+- a: {device: mke-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Bluebonnet Telecom, circuit_id: BL-870480}
+- a: {device: msp-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-825085}
+- a: {device: dsm-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-718091}
+- a: {device: stl-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Bluebonnet Telecom, circuit_id: BL-258775}
+- a: {device: mci-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-460920}
+- a: {device: oma-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-453594}
+- a: {device: ict-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-423365}
+- a: {device: den-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-903177}
+- a: {device: abq-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-892369}
+- a: {device: phx-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-839607}
+- a: {device: tus-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-336482}
+- a: {device: las-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-979127}
+- a: {device: slc-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-569575}
+- a: {device: boi-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-713370}
+- a: {device: lax-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-639809}
+- a: {device: san-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Bluebonnet Telecom, circuit_id: BL-457617}
+- a: {device: sfo-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Crestline Networks, circuit_id: CR-735518}
+- a: {device: sjc-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-833451}
+- a: {device: smf-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-365255}
+- a: {device: pdx-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Bluebonnet Telecom, circuit_id: BL-268993}
+- a: {device: sea-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Northwind Fiber, circuit_id: NO-575413}
+- a: {device: geg-wan-01, interface: GigabitEthernet0/0/0}
+  b: {transport: INET}
+  speed_mbps: 500
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-842489}
+networks:
+- {name: black, boundary: outside, description: Circuits}
+- {name: corp, description: Offices and data centers}
+transports:
+- {name: INET, kind: internet, network: black}
+fabrics:
+- name: DMVPN-INET
+  network: corp
+  rides: black
+  shape: hub-spoke-dynamic
+  technology: DMVPN phase 3
+  members:
+  - {device: dal-wan-01, interface: Tunnel100, role: hub, source: GigabitEthernet0/0/0}
+  - {device: iad-wan-01, interface: Tunnel100, role: hub, source: GigabitEthernet0/0/0}
+  - {device: hou-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: aus-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: sat-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: ftw-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: elp-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: okc-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: tul-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: lit-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: msy-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: btr-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: mem-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: bna-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: atl-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: bhm-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: jax-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: mco-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: tpa-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: mia-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: clt-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: rdu-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: ric-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: dca-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: bwi-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: phl-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: nyc-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: ewr-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: bos-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: bdl-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: pvd-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: alb-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: buf-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: pit-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: cle-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: cmh-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: cvg-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: dtw-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: ind-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: sdf-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: ord-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: mke-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: msp-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: dsm-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: stl-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: mci-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: oma-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: ict-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: den-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: abq-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: phx-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: tus-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: las-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: slc-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: boi-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: lax-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: san-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: sfo-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: sjc-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: smf-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: pdx-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: sea-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
+  - {device: geg-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}

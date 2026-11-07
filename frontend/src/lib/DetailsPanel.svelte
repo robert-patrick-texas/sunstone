@@ -18,7 +18,7 @@ links that select and bring that item into view.
 	import { acknowledge, unacknowledge, type Window } from './api/operations.ts';
 	import { joinIncident, openIncident, type IncidentSummary } from './api/incidents.ts';
 	import { fetchHistory, type DeviceHistory, type InterfaceHistory } from './api/state.ts';
-	import type { Endpoint, Link } from './api/topology.ts';
+	import type { Endpoint, FarEnd, Link } from './api/topology.ts';
 	import { clock, linkHistory } from './history.ts';
 	import { phaseOf, span, windowsFor } from './maintenance.ts';
 	import type { Impact } from './impact.ts';
@@ -43,8 +43,12 @@ links that select and bring that item into view.
 		startPath,
 		topo,
 		ui,
+		isPhysical,
+		type AnySelection,
 		type Selection
 	} from './state.svelte.ts';
+	import LayerDetails from './LayerDetails.svelte';
+	import { term } from './terms.ts';
 	import DiscoveryFor from './DiscoveryFor.svelte';
 	import OnCallFor from './OnCallFor.svelte';
 	import Routing from './Routing.svelte';
@@ -53,6 +57,10 @@ links that select and bring that item into view.
 	import TimeChart from './TimeChart.svelte';
 	import {
 		compareNatural,
+		deviceEnds,
+		endLetters,
+		endName,
+		isDeviceEnd,
 		formatSpeed,
 		linkName,
 		neighborsOf,
@@ -171,7 +179,10 @@ links that select and bring that item into view.
 		return `${Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000))} min ago`;
 	}
 
-	const selection = $derived(ui.selection);
+	// Devices, sites, and links; and the rest (networks, transports, tunnels,
+	// and so on), which have details of their own.
+	const selection = $derived(ui.selection && isPhysical(ui.selection) ? ui.selection : null);
+	const layer = $derived(ui.selection && !isPhysical(ui.selection) ? ui.selection : null);
 	const replayed = $derived(ui.at ? Date.parse(ui.at) : null);
 
 	/** History is fetched again this often while the same device stays selected. */
@@ -187,7 +198,8 @@ links that select and bring that item into view.
 		if (selection.kind === 'device') return live.devices.has(selection.id) ? selection.id : null;
 		if (selection.kind !== 'links' || selection.ids.length !== 1) return null;
 		const link = index.links.get(selection.ids[0] ?? '');
-		return link ? ([link.a.device, link.b.device].find((d) => live.devices.has(d)) ?? null) : null;
+		const ends = link ? deviceEnds(link).map((e) => e.device) : [];
+		return ends.find((d) => live.devices.has(d)) ?? null;
 	});
 	let history = $state.raw<DeviceHistory | null>(null);
 	let historyProblem = $state<string | null>(null);
@@ -310,14 +322,14 @@ links that select and bring that item into view.
 	}
 
 	/** Select a name in the panel; the click must not also reach its row, which selects the link. */
-	function follow(e: MouseEvent, target: Selection): void {
+	function follow(e: MouseEvent, target: AnySelection): void {
 		e.stopPropagation();
 		select(target, true);
 	}
 
 	/** Interfaces of `device` on the given links, with their LAG if bundled. */
 	function interfacesOf(links: Link[], device: string): string {
-		const ends = links.map((l) => (l.a.device === device ? l.a : l.b));
+		const ends = links.map((l) => (l.a.device === device || !isDeviceEnd(l.b) ? l.a : l.b));
 		const lag = ends[0]?.lag;
 		const names = ends.map((e) => shortInterface(e.interface)).join(', ');
 		return lag ? `${names} (${shortInterface(lag)})` : names;
@@ -328,9 +340,11 @@ links that select and bring that item into view.
 		ui.view = 'topology';
 	}
 
-	function siteWanLinks(code: string): { local: Endpoint; remote: Endpoint; link: Link }[] {
+	function siteWanLinks(code: string): { local: Endpoint; remote: FarEnd; link: Link }[] {
 		return (index.devicesBySite.get(code) ?? []).flatMap((d) =>
-			neighborsOf(index, d.name).filter((n) => siteOf(index, n.remote.device) !== code)
+			neighborsOf(index, d.name).filter(
+				(n) => !isDeviceEnd(n.remote) || siteOf(index, n.remote.device) !== code
+			)
 		);
 	}
 </script>
@@ -430,13 +444,29 @@ links that select and bring that item into view.
 	{/if}
 {/snippet}
 
-{#snippet endpoint(end: Endpoint)}
-	{@render deviceLink(end.device)}
-	<span class="mono">{shortInterface(end.interface)}</span>
-	{#if end.lag}<span class="tag">{shortInterface(end.lag)}</span>{/if}
+{#snippet endpoint(end: FarEnd)}
+	{#if isDeviceEnd(end)}
+		{@render deviceLink(end.device)}
+		<span class="mono">{shortInterface(end.interface)}</span>
+		{#if end.lag}<span class="tag">{shortInterface(end.lag)}</span>{/if}
+	{:else}
+		{@render beyondLink(end)}
+		{#if 'external' in end && end.interface}<span class="mono">{end.interface}</span>{/if}
+	{/if}
 {/snippet}
 
-{#if selection || path || ui.pathFrom || impact || problem || (ui.whatIf.length && whatIfProblem)}
+{#snippet beyondLink(end: FarEnd)}
+	{@const target: AnySelection =
+		'transport' in end
+			? { kind: 'transport', id: end.transport }
+			: { kind: 'external', id: endName(end) }}
+	<button class="link" onclick={(e) => follow(e, target)}>{endName(end)}</button>
+	<span class="tag outside"
+		>{'transport' in end ? term(index, 'transport') : term(index, 'external')}</span
+	>
+{/snippet}
+
+{#if selection || layer || path || ui.pathFrom || impact || problem || (ui.whatIf.length && whatIfProblem)}
 	<aside class="details" aria-label="Details">
 		{#if ui.pathFrom}
 			<section class="path" aria-label="Path">
@@ -711,8 +741,15 @@ links that select and bring that item into view.
 											{shortInterface(n.local.interface)}
 											{#if n.local.lag}<span class="tag">{shortInterface(n.local.lag)}</span>{/if}
 										</td>
-										<td>{@render deviceLink(n.remote.device)}</td>
-										<td class="mono">{shortInterface(n.remote.interface)}</td>
+										{#if isDeviceEnd(n.remote)}
+											<td>{@render deviceLink(n.remote.device)}</td>
+											<td class="mono">{shortInterface(n.remote.interface)}</td>
+										{:else}
+											<td>{@render beyondLink(n.remote)}</td>
+											<td class="mono"
+												>{'external' in n.remote ? (n.remote.interface ?? '') : ''}</td
+											>
+										{/if}
 										<td>
 											{formatSpeed(n.link.speed_mbps)}
 											{#if n.link.kind === 'wan'}<span class="tag wan">WAN</span>{/if}
@@ -798,7 +835,9 @@ links that select and bring that item into view.
 									<tr onclick={() => select({ kind: 'links', ids: [n.link.id] }, true)}>
 										<td>{@render endpoint(n.local)}</td>
 										<td
-											>{@render siteLink(siteOf(index, n.remote.device))}
+											>{#if isDeviceEnd(n.remote)}{@render siteLink(
+													siteOf(index, n.remote.device)
+												)}{/if}
 											{@render endpoint(n.remote)}</td
 										>
 										<td>{formatSpeed(n.link.speed_mbps)}</td>
@@ -826,6 +865,7 @@ links that select and bring that item into view.
 					{/if}
 				{:else}
 					{@const links = selection.ids.flatMap((id) => index.links.get(id) ?? [])}
+					{@const ends = endLetters(links)}
 					{@const total = links.reduce((s, l) => s + l.speed_mbps, 0)}
 					<h2>{links.length === 1 ? 'Link' : `${links.length} links`}</h2>
 					<p class="muted">{formatSpeed(total)} total capacity</p>
@@ -845,8 +885,11 @@ links that select and bring that item into view.
 					<table>
 						<thead>
 							<tr>
-								<th>A end</th><th>B end</th><th>Speed</th>
-								{#if live}<th title="Percent of capacity, A to B and B to A">A→B / B→A</th>{/if}
+								<th>{ends.a} {ends.word}</th><th>{ends.b} {ends.word}</th><th>Speed</th>
+								{#if live}<th
+										title="Percent of capacity, {ends.a} to {ends.b} and {ends.b} to {ends.a}"
+										>{ends.a}→{ends.b} / {ends.b}→{ends.a}</th
+									>{/if}
 							</tr>
 						</thead>
 						<tbody>
@@ -882,8 +925,8 @@ links that select and bring that item into view.
 								start={Date.parse(history.start)}
 								step={history.step_s * 1000}
 								series={[
-									{ label: 'A→B', color: SERIES_COLOR[0], values: series.aToB },
-									{ label: 'B→A', color: SERIES_COLOR[1], values: series.bToA }
+									{ label: `${ends.a}→${ends.b}`, color: SERIES_COLOR[0], values: series.aToB },
+									{ label: `${ends.b}→${ends.a}`, color: SERIES_COLOR[1], values: series.bToA }
 								]}
 								unit="%"
 								max={100}
@@ -897,6 +940,12 @@ links that select and bring that item into view.
 						<p class="muted">History unavailable: {historyProblem}</p>
 					{/if}
 				{/if}
+			</section>
+		{/if}
+		{#if layer}
+			<section aria-label="Selection">
+				<button class="close" onclick={() => select(null)} aria-label="Close details">×</button>
+				<LayerDetails {index} selection={layer} {live} />
 			</section>
 		{/if}
 	</aside>
@@ -1102,6 +1151,10 @@ links that select and bring that item into view.
 	.tag.wan {
 		color: var(--accent);
 		border-color: var(--accent);
+	}
+	.tag.outside {
+		border-style: dashed;
+		border-color: var(--muted);
 	}
 	.role {
 		display: inline-block;

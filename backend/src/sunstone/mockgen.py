@@ -10,6 +10,9 @@ a team for WAN circuits, one for the hub data centers, one per area of the
 country, and a NOC team for everything else, each with fictional people on
 a rotation, and contacts for the fictional carriers.
 
+``--preset layers`` writes the layered sample instead: transports,
+tunnels, fabrics, and networks stacked over them (see ``mocklayers``).
+
 Usage::
 
     uv run python -m sunstone.mockgen --preset large -o ../data/sample/large.yaml \
@@ -25,7 +28,20 @@ from pathlib import Path
 
 import yaml
 
-from sunstone.model import Circuit, Device, Endpoint, Link, Role, Site, Topology
+from sunstone.model import (
+    Circuit,
+    Device,
+    Endpoint,
+    Fabric,
+    FabricMember,
+    Link,
+    NamedNetwork,
+    Role,
+    Site,
+    Topology,
+    Transport,
+    TransportEnd,
+)
 from sunstone.oncall import (
     DEFAULT_URGENCY,
     Carrier,
@@ -164,6 +180,8 @@ class Preset:
     hub_dist_pairs: int
     hub_access_per_pair: int
     branch_access: tuple[int, int]
+    internet: bool = False
+    """Also an Internet circuit at every site, and a DMVPN fabric over it."""
 
 
 PRESETS = {
@@ -171,7 +189,11 @@ PRESETS = {
         sites=5, hub_dist_pairs=1, hub_access_per_pair=6, branch_access=(4, 8)
     ),
     "large": Preset(
-        sites=63, hub_dist_pairs=3, hub_access_per_pair=16, branch_access=(20, 66)
+        sites=63,
+        hub_dist_pairs=3,
+        hub_access_per_pair=16,
+        branch_access=(20, 66),
+        internet=True,
     ),
 }
 
@@ -340,13 +362,80 @@ def generate(preset: Preset, seed: int) -> Topology:
     hub_wans = [_build_site(b, s, True, preset) for s in sites[:2]]
     for i in range(2):
         b.link(hub_wans[0][i], hub_wans[1][i], 100_000, circuit=b.circuit())
+    spokes = []
     for site in sites[2:]:
         wans = _build_site(b, site, False, preset)
         # Dual-homed: wan-01 to the first hub, wan-02 to the second.
         for i in range(2):
             speed = rng.choice([1_000, 10_000])
             b.link(wans[i], hub_wans[i][i], speed, circuit=b.circuit())
-    return Topology(sites=sites, devices=b.devices, links=b.links)
+        spokes.append(wans[0])
+    if not preset.internet:
+        return Topology(sites=sites, devices=b.devices, links=b.links)
+    return _with_internet(b, sites, ([w[0] for w in hub_wans], spokes), seed)
+
+
+def _with_internet(
+    b: _Builder, sites: list[Site], routers: tuple[list[str], list[str]], seed: int
+) -> Topology:
+    """Add an Internet circuit to each site's first WAN router, and a DMVPN
+    fabric over the Internet with the hubs' routers as its hubs.
+
+    Args:
+        b: The builder, with every site built.
+        sites: Every site.
+        routers: The hubs' first WAN routers, then the branches'.
+        seed: Random seed.
+
+    Returns:
+        The topology, with the Internet as a transport.
+
+    Raises:
+        None
+    """
+    # Its own random numbers, so the rest of the topology stays as it was.
+    rng = random.Random(seed + 1)
+    hubs, spokes = routers
+    port = "GigabitEthernet0/0/0"
+    for device in hubs + spokes:
+        provider = rng.choice(PROVIDERS)
+        number = rng.randrange(100_000, 1_000_000)
+        b.links.append(
+            Link(
+                a=Endpoint(device=device, interface=port),
+                b=TransportEnd(transport="INET"),
+                speed_mbps=rng.choice([500, 1_000]),
+                kind="wan",
+                circuit=Circuit(
+                    provider=provider, circuit_id=f"{provider[:2].upper()}-{number}"
+                ),
+            )
+        )
+    members = [
+        FabricMember(device=d, interface="Tunnel100", role=role, source=port)
+        for role, devices in (("hub", hubs), ("spoke", spokes))
+        for d in devices
+    ]
+    return Topology(
+        sites=sites,
+        devices=b.devices,
+        links=b.links,
+        networks=[
+            NamedNetwork(name="black", boundary="outside", description="Circuits"),
+            NamedNetwork(name="corp", description="Offices and data centers"),
+        ],
+        transports=[Transport(name="INET", kind="internet", network="black")],
+        fabrics=[
+            Fabric(
+                name="DMVPN-INET",
+                network="corp",
+                rides="black",
+                shape="hub-spoke-dynamic",
+                technology="DMVPN phase 3",
+                members=members,
+            )
+        ],
+    )
 
 
 def generate_directory(topology: Topology, seed: int) -> Directory:
@@ -484,13 +573,21 @@ def main() -> None:
         SystemExit: On invalid arguments.
     """
     parser = argparse.ArgumentParser(description="Generate a mock Sunstone topology.")
-    parser.add_argument("--preset", choices=sorted(PRESETS), default="small")
+    parser.add_argument(
+        "--preset", choices=[*sorted(PRESETS), "layers"], default="small"
+    )
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("-o", "--output", type=Path, required=True)
     parser.add_argument("--oncall", type=Path, help="also write an on-call directory")
     args = parser.parse_args()
 
-    topology = generate(PRESETS[args.preset], args.seed)
+    if args.preset == "layers":
+        # Imported here: the layered sample builds on this module's cities.
+        from sunstone.mocklayers import generate_layers
+
+        topology = generate_layers(args.seed)
+    else:
+        topology = generate(PRESETS[args.preset], args.seed)
     header = (
         f"Mock data, not a real network. Generated by: "
         f"sunstone.mockgen --preset {args.preset} --seed {args.seed}"

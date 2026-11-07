@@ -35,7 +35,7 @@ from pydantic import (
 )
 
 from sunstone.layouts import Center
-from sunstone.model import Link, LinkKind, Role, Topology
+from sunstone.model import Link, LinkKind, Role, Topology, device_ends
 from sunstone.problems import Ack, Note, PersonName, Problem, ProblemKind
 
 Id = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9-]{0,39}$")]
@@ -592,11 +592,11 @@ def ownership(directory: Directory, topology: Topology) -> Ownership:
         return {"sites": {site}, "regions": {found} if found else set()}
 
     def link_labels(link: Link) -> dict[str, Set[str]]:
-        ends = [devices[e.device] for e in (link.a, link.b)]
-        a, b = (place(d.site) for d in ends)
+        ends = [devices[e.device] for e in device_ends(link)]
+        places = [place(d.site) for d in ends]
         return {
-            "sites": a["sites"] | b["sites"],
-            "regions": a["regions"] | b["regions"],
+            "sites": set().union(*(p["sites"] for p in places)),
+            "regions": set().union(*(p["regions"] for p in places)),
             "roles": {d.role for d in ends},
             "kinds": {link.kind},
             "providers": {link.circuit.provider} if link.circuit else set(),

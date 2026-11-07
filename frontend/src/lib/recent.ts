@@ -4,7 +4,7 @@
  * write them (`device:dal-core-01`), so anything since gone from the network
  * is skipped when read back.
  */
-import type { Selection } from './state.svelte.ts';
+import type { AnySelection } from './state.svelte.ts';
 import { writeItem } from './url.ts';
 
 export const MAX_RECENT = 8;
@@ -17,7 +17,7 @@ const KEY = 'sunstone.recent';
  * @param item - What was just looked at.
  * @returns A new list, newest first, without repeats, at most {@link MAX_RECENT} long.
  */
-export function withRecent(recent: string[], item: Selection): string[] {
+export function withRecent(recent: string[], item: AnySelection): string[] {
 	const written = writeItem(item);
 	return [written, ...recent.filter((r) => r !== written)].slice(0, MAX_RECENT);
 }
