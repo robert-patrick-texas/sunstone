@@ -305,7 +305,7 @@ links; a link's camera, if any, is where the map opens.
 			data: networkArcs(
 				index,
 				untrack(() => ui.networks),
-				l !== null
+				l
 			),
 			promoteId: 'id'
 		});
@@ -316,7 +316,7 @@ links; a link's camera, if any, is where the map opens.
 			layout: { 'line-cap': 'round' },
 			paint: {
 				'line-color': ['case', isSelected, COLOR.selected, ['get', 'color']],
-				'line-width': ['case', isSelected, 3, 1.8],
+				'line-width': ['case', isSelected, 3, ['get', 'dynamic'], 1, 1.8],
 				'line-opacity': 0.9,
 				'line-dasharray': [3, 2]
 			}
@@ -600,10 +600,10 @@ links; a link's camera, if any, is where the map opens.
 
 	// Named networks chosen, or live state turned on or off, redraw their tunnels.
 	$effect(() => {
-		const [m, networks, liveShown] = [map, ui.networks, live !== null];
+		const [m, networks, l] = [map, ui.networks, live];
 		if (!m) return;
 		const source = m.getSource('network-arcs') as GeoJSONSource | undefined;
-		source?.setData(networkArcs(index, networks, liveShown));
+		source?.setData(networkArcs(index, networks, l));
 	});
 
 	// New snapshots, or a new impact or discovery to show, replace the features' properties.

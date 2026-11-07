@@ -4,14 +4,21 @@ Details of something layered over the links, or beyond them: a named
 network (what it rides, what rides it, its sites, tunnels, and fabrics), a
 transport and the circuits into it, an external node and what reaches it, a
 tunnel's two ends, a fabric's members, or a tenant's networks and nodes.
-What is outside the boundary says so. Names are links that select and bring
-that item into view; a network can be shown in every view from here.
+What is outside the boundary says so. With live state, a network's status:
+operational, degraded, or offline, why, what is degraded beneath it, and
+its regions, sites, and locations that are not operational; a tunnel's
+state; and a fabric's tunnels down and those built spoke to spoke now.
+Names are links that select and bring that item into view; a network can be
+shown in every view from here.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { Fabric, Link } from './api/topology.ts';
 	import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
+	import type { StatusReport } from './api/status.ts';
+	import { tunnelName } from './history.ts';
 	import { HEALTH_LABEL, linkLive, type LiveIndex } from './live.ts';
+	import { STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL, statusOf, statusWord } from './status.ts';
 	import {
 		select,
 		showNetwork,
@@ -33,12 +40,24 @@ that item into view; a network can be shown in every view from here.
 	const {
 		index,
 		selection,
-		live
+		live,
+		status = null
 	}: {
 		index: TopologyIndex;
 		selection: LayerSelection;
 		live: LiveIndex | null;
+		/** Every network's status, while live state is shown. */
+		status?: StatusReport | null;
 	} = $props();
+
+	/** Tunnels the source reports for a fabric, by state. */
+	function fabricLive(name: string): { down: string[]; built: string[] } {
+		const mine = [...(live?.tunnels.values() ?? [])].filter((t) => t.tunnel.startsWith(`${name}:`));
+		return {
+			down: mine.filter((t) => t.status === 'down').map((t) => t.tunnel),
+			built: mine.filter((t) => t.dynamic && t.status === 'up').map((t) => t.tunnel)
+		};
+	}
 
 	const layers = $derived(layersOf(index));
 	const SHAPE: Record<Fabric['shape'], string> = {
@@ -114,6 +133,32 @@ that item into view; a network can be shown in every view from here.
 		</h2>
 		<p>{@render boundary(network.boundary === 'outside')}</p>
 		{#if network.description}<p class="muted">{network.description}</p>{/if}
+		{#if statusOf(status, network.name)}
+			{@const now = statusOf(status, network.name)!}
+			<p class="now" style:--c={STATUS_COLOR[now.status]}>
+				<i aria-hidden="true">{STATUS_GLYPH[now.status]}</i><b>{statusWord(now)}</b>
+				<span class="muted">· {now.reached} of {now.sites} sites reached</span>
+			</p>
+			{#each now.reasons as reason (reason)}<p class="reason">{reason}</p>{/each}
+			{#each now.caveats as caveat (caveat)}<p class="reason muted">* {caveat}</p>{/each}
+			{#if now.groups.length}
+				<h3>Not operational ({now.groups.length})</h3>
+				<table>
+					<tbody>
+						{#each now.groups as g (g.kind + g.id)}
+							<tr
+								onclick={() =>
+									g.kind === 'site' ? select({ kind: 'site', id: g.id }, true) : undefined}
+							>
+								<td>{g.name}<span class="muted"> {g.kind}</span></td>
+								<td style:color={STATUS_COLOR[g.status]}>{STATUS_LABEL[g.status]}</td>
+								<td class="muted">{g.reasons[0] ?? ''}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+		{/if}
 		<p class="actions">
 			<button
 				onclick={() =>
@@ -354,6 +399,13 @@ that item into view; a network can be shown in every view from here.
 			<dd>{@render networkLink(tunnel.rides)}</dd>
 			{#if tunnel.technology}<dt>Technology</dt>
 				<dd>{tunnel.technology}</dd>{/if}
+			{#if live}
+				{@const now = live.tunnels.get(tunnel.name)}
+				<dt>Now</dt>
+				<dd style:color={now?.status === 'down' ? STATUS_COLOR.offline : undefined}>
+					{now ? (now.status === 'up' ? 'Up' : 'Down') : 'Not reported'}
+				</dd>
+			{/if}
 		</dl>
 		<table>
 			<thead><tr><th>End</th><th>Interface</th><th>Source</th></tr></thead>
@@ -407,6 +459,15 @@ that item into view; a network can be shown in every view from here.
 				{pairs}{#if dynamic}, and up to {dynamic} more spoke to spoke on demand{/if}
 			</dd>
 		</dl>
+		{#if live}
+			{@const now = fabricLive(fabric.name)}
+			<p class:reason={now.down.length > 0}>
+				{now.down.length ? `${now.down.length} down` : 'All up'}{#if dynamic}
+					· {now.built.length} spoke to spoke now{/if}
+			</p>
+			{#each now.down as t (t)}<p class="reason">{tunnelName(t)} down</p>{/each}
+			{#each now.built as t (t)}<p class="muted">{tunnelName(t)}</p>{/each}
+		{/if}
 		<h3>Members ({fabric.members.length})</h3>
 		<table>
 			<thead><tr><th>Device</th><th>Site</th><th>Role</th><th>Interface</th></tr></thead>
@@ -558,6 +619,19 @@ that item into view; a network can be shown in every view from here.
 	}
 	.hub {
 		font-weight: 600;
+	}
+	.now {
+		display: flex;
+		align-items: baseline;
+		gap: 5px;
+		color: var(--c);
+	}
+	.now i {
+		font-style: normal;
+		font-weight: 700;
+	}
+	.reason {
+		font-size: 12px;
 	}
 	.actions {
 		display: flex;

@@ -1,14 +1,16 @@
 <!--
 @component
 The NOC wall display, for a screen no one sits at. A bar across the top
-gives the time, how fresh live state is, and how many problems of each kind
-no one is on yet; below it, the views show in turn an overview of the
+gives the time, how fresh live state is, how many problems of each kind
+no one is on yet, and the networks degraded or offline; below it, the views show in turn an overview of the
 network, with a small label, then each of those problems close up, with a
 large caption saying where it is and who is on call for it, and a bar
 showing how long until the next. Moving the mouse shows controls; Space
 pauses, the arrow keys step, and Escape leaves.
 -->
 <script lang="ts">
+	import type { StatusReport } from './api/status.ts';
+	import { needing, STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL } from './status.ts';
 	import { onMount, untrack } from 'svelte';
 	import type { Problem } from './api/analysis.ts';
 	import type { OnCall } from './api/oncall.ts';
@@ -24,14 +26,21 @@ pauses, the arrow keys step, and Escape leaves.
 		problems,
 		live,
 		liveProblem,
-		oncall
+		oncall,
+		status = null
 	}: {
 		index: TopologyIndex;
 		problems: Problem[];
 		live: LiveIndex | null;
 		liveProblem: string | null;
 		oncall: OnCall | null;
+		/** Every network's status, if known. */
+		status?: StatusReport | null;
 	} = $props();
+	// Networks not working as they should, worst first.
+	const troubled = $derived(
+		status ? needing(status).filter((n) => n.status !== 'operational') : []
+	);
 
 	const CONTROLS_MS = 3000;
 
@@ -159,6 +168,13 @@ pauses, the arrow keys step, and Escape leaves.
 			>
 		{/each}
 		{#if counts.handled}<span class="handled">{counts.handled} being handled</span>{/if}
+		{#each troubled as n (n.network ?? '')}
+			<span class="count"
+				><i style:--c={STATUS_COLOR[n.status]} aria-hidden="true">{STATUS_GLYPH[n.status]}</i
+				>{n.name}
+				{STATUS_LABEL[n.status].toLowerCase()}</span
+			>
+		{/each}
 	</span>
 	<span class="time">
 		<b>{time(now)}</b>

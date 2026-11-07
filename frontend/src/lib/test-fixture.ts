@@ -57,6 +57,8 @@ export const fixture: Topology = {
 		link('c-wan-01:Te1/0/1', 'c-acc-01:Te1/0/49'),
 		link('c-wan-01:Te1/0/2', 'c-acc-02:Te1/0/49')
 	],
+	regions: [],
+	locations: [],
 	networks: [],
 	transports: [],
 	externals: [],
@@ -102,11 +104,19 @@ export const layeredFixture: Topology = {
 		}
 	],
 	networks: [
-		{ name: 'black', boundary: 'outside', rides: [], tags: [] },
-		{ name: 'blue', boundary: 'inside', rides: [], tags: [] },
-		{ name: 'grey', boundary: 'inside', rides: [], tags: [] },
-		{ name: 'corp', boundary: 'inside', rides: [], tags: [] },
-		{ name: 'red', boundary: 'inside', tenant: 'T1', rides: ['grey'], tags: [] }
+		{ name: 'black', boundary: 'outside', rides: [], anchors: [], regions: {}, tags: [] },
+		{ name: 'blue', boundary: 'inside', rides: [], anchors: [], regions: {}, tags: [] },
+		{ name: 'grey', boundary: 'inside', rides: [], anchors: [], regions: {}, tags: [] },
+		{ name: 'corp', boundary: 'inside', rides: [], anchors: [], regions: {}, tags: [] },
+		{
+			name: 'red',
+			boundary: 'inside',
+			tenant: 'T1',
+			rides: ['grey'],
+			anchors: [],
+			regions: {},
+			tags: []
+		}
 	],
 	transports: [{ name: 'INET', kind: 'internet', network: 'black', tags: [] }],
 	externals: [

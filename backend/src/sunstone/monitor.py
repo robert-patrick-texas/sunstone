@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from sunstone.impact import Failures, Network
 from sunstone.live import StateSource
 from sunstone.problems import LiveView, ProblemList, current_failures, find_problems
+from sunstone.status import Statuses, StatusReport
 
 POLL = timedelta(seconds=10)
 # Moments kept: the present and recent past for live viewers, plus a few
@@ -40,6 +41,8 @@ class Moment:
     problems: ProblemList
     failures: Failures
     """Devices and links down in it, for "what if" questions asked about it."""
+    status: StatusReport
+    """The whole network's status, and each named network's."""
 
 
 class Monitor:
@@ -57,6 +60,7 @@ class Monitor:
         """
         self.network = network
         self.source = source
+        self.statuses = Statuses(network.topology)
         self._moments: OrderedDict[datetime, Moment] = OrderedDict()
         self._lock = threading.Lock()
         self._asked: datetime | None = None
@@ -100,6 +104,7 @@ class Monitor:
                 gzipped=gzip.compress(body, compresslevel=6),
                 problems=ProblemList(at=at, problems=find_problems(self.network, view)),
                 failures=current_failures(self.network, view),
+                status=self.statuses.report(at, view),
             )
             self._moments[at] = found
             while len(self._moments) > KEPT_MOMENTS:

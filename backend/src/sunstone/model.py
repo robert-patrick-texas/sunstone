@@ -58,6 +58,22 @@ class Site(_Record):
     lon: float = Field(ge=-180, le=180)
 
 
+class Region(_Record):
+    """A region sites are in, inside another region or at the top."""
+
+    name: str
+    parent: str | None = None
+
+
+class Location(_Record):
+    """A part of a site, such as a building, floor, or data hall, inside
+    another location of the site or at the top (a location, in NetBox)."""
+
+    site: str
+    name: str
+    parent: str | None = None
+
+
 class Device(_Record):
     """A network device at one site."""
 
@@ -66,6 +82,8 @@ class Device(_Record):
     role: Role
     platform: str | None = None
     mgmt_ip: str | None = None
+    location: str | None = None
+    """The location at its site it is in, if the site has locations."""
 
 
 class Endpoint(_Record):
@@ -198,6 +216,13 @@ class NamedNetwork(_Record):
     rides: list[str] = []
     """Networks it rides that are not said by tunnels or fabrics of its own,
     as for a tenant's network over one of ours."""
+    anchors: list[str] = []
+    """Sites it is reached from, such as its hubs; without any, its sites
+    with core devices, or else the largest group of its sites that reach
+    each other."""
+    regions: dict[str, list[str]] = {}
+    """Its own regions, each with its sites, when they are not the sites'
+    own regions."""
     description: str | None = None
     tags: list[str] = []
 
@@ -290,9 +315,15 @@ class Topology(_Record):
     """A whole network: every site, device, and link, and what is layered
     over them."""
 
+    name: str | None = None
+    """The whole network's name, such as Enterprise, Global, or Nationwide."""
     sites: list[Site]
     devices: list[Device]
     links: list[Link]
+    regions: list[Region] = []
+    """Regions with their parents; without any, regions are just the names
+    sites give."""
+    locations: list[Location] = []
     networks: list[NamedNetwork] = []
     transports: list[Transport] = []
     externals: list[External] = []
@@ -359,6 +390,7 @@ class Topology(_Record):
             if n > 1
         ]
         problems += self._layer_problems(device_names, set(used))
+        problems += self._group_problems()
         if problems:
             raise ValueError("\n".join(problems))
         return self
@@ -464,6 +496,78 @@ class Topology(_Record):
         problems += _cycles(self._rides())
         return problems
 
+    def _group_problems(self) -> list[str]:
+        """Problems with regions, locations, and networks' own groups.
+
+        Returns:
+            One message per problem found.
+        """
+        problems = [
+            f"duplicate region name {name!r}"
+            for name, n in Counter(r.name for r in self.regions).items()
+            if n > 1
+        ]
+        regions = {r.name: r.parent for r in self.regions}
+        problems += [
+            f"region {name!r} is in unknown region {parent!r}"
+            for name, parent in regions.items()
+            if parent is not None and parent not in regions
+        ]
+        problems += [
+            f"region {name!r} is inside itself" for name in _inside_themselves(regions)
+        ]
+        if regions:
+            problems += [
+                f"site {s.code!r} is in unknown region {s.region!r}"
+                for s in self.sites
+                if s.region is not None and s.region not in regions
+            ]
+        problems += [
+            f"duplicate location {name!r} at {site!r}"
+            for (site, name), n in Counter(
+                (x.site, x.name) for x in self.locations
+            ).items()
+            if n > 1
+        ]
+        site_codes = {s.code for s in self.sites}
+        located = {(x.site, x.name): x.parent for x in self.locations}
+        for x in self.locations:
+            if x.site not in site_codes:
+                problems.append(f"location {x.name!r} is at unknown site {x.site!r}")
+            if x.parent is not None and (x.site, x.parent) not in located:
+                problems.append(
+                    f"location {x.name!r} at {x.site} is in unknown location "
+                    f"{x.parent!r}"
+                )
+        for site in sorted({x.site for x in self.locations}):
+            tree = {n: p for (s, n), p in located.items() if s == site}
+            problems += [
+                f"location {name!r} at {site} is inside itself"
+                for name in _inside_themselves(tree)
+            ]
+        problems += [
+            f"device {d.name!r} is in unknown location {d.location!r} at {d.site}"
+            for d in self.devices
+            if d.location is not None and (d.site, d.location) not in located
+        ]
+        for n in self.networks:
+            problems += [
+                f"network {n.name!r} names unknown anchor site {code!r}"
+                for code in n.anchors
+                if code not in site_codes
+            ]
+            listed = [code for sites in n.regions.values() for code in sites]
+            problems += [
+                f"network {n.name!r} puts unknown site {code!r} in a region"
+                for code in sorted(set(listed) - site_codes)
+            ]
+            problems += [
+                f"network {n.name!r} puts site {code!r} in {k} regions"
+                for code, k in Counter(listed).items()
+                if k > 1
+            ]
+        return problems
+
     def _tunnel_ends(
         self,
     ) -> Iterator[tuple[str, str, str, list[TunnelEnd | TunnelPeer]]]:
@@ -530,6 +634,30 @@ def _carried_at(
         for end in device_ends(link):
             carried[(end.device, end.interface)] = nets
     return carried
+
+
+def _inside_themselves(parents: dict[str, str | None]) -> list[str]:
+    """Names whose chain of parents comes back to them.
+
+    Args:
+        parents: Each name's parent, or None at the top.
+
+    Returns:
+        The names in a loop, sorted.
+    """
+    looped = []
+    for start in sorted(parents):
+        seen = {start}
+        at = parents.get(start)
+        while at is not None and at in parents:
+            if at == start:
+                looped.append(start)
+                break
+            if at in seen:
+                break
+            seen.add(at)
+            at = parents.get(at)
+    return looped
 
 
 def _cycles(rides: dict[str, set[str]]) -> list[str]:

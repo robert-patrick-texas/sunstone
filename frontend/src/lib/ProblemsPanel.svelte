@@ -1,8 +1,10 @@
 <!--
 @component
 Problems in the live state shown (now, or a replayed moment), most urgent
-first, grouped by kind. The server finds them, once per moment for every
-viewer. Within each kind, problems someone has acknowledged, then ones that
+first, grouped by kind, after the networks that are not working as they
+should: the whole network and named networks degraded or offline, or
+working over something degraded. The server finds them, once per moment
+for every viewer. Within each kind, problems someone has acknowledged, then ones that
 planned maintenance accounts for, come after the rest, dimmed and marked.
 Clicking one selects it, brings it into view, and shows its impact in every
 view; clicking it again stops showing the impact.
@@ -13,13 +15,23 @@ view; clicking it again stops showing the impact.
 	import type { Window } from './api/operations.ts';
 	import { personOf } from './oncall.ts';
 	import { grouped, handling, MARK } from './problem-kinds.ts';
-	import { showProblem, ui } from './state.svelte.ts';
+	import type { StatusReport } from './api/status.ts';
+	import { showNetwork, showProblem, ui } from './state.svelte.ts';
+	import { needing, STATUS_COLOR, STATUS_GLYPH, statusWord } from './status.ts';
 
 	const {
 		problems,
 		windows,
-		oncall
-	}: { problems: Problem[]; windows: Window[]; oncall: OnCall | null } = $props();
+		oncall,
+		status = null
+	}: {
+		problems: Problem[];
+		windows: Window[];
+		oncall: OnCall | null;
+		/** Every network's status, if known. */
+		status?: StatusReport | null;
+	} = $props();
+	const networks = $derived(status ? needing(status) : []);
 	const name = (id: string) => (oncall ? personOf(oncall, id).name : id);
 
 	const groups = $derived(grouped(problems));
@@ -38,6 +50,30 @@ view; clicking it again stops showing the impact.
 		<p class="muted">Nothing wrong {ui.at ? 'at this moment' : 'in the latest snapshot'}.</p>
 	{:else}
 		<p class="muted">Click one to see it and what it affects.</p>
+	{/if}
+	{#if networks.length}
+		<h3>Networks ({networks.length})</h3>
+		<ul>
+			{#each networks as n (n.network ?? '')}
+				<li>
+					<button
+						class="problem"
+						aria-pressed={n.network !== null &&
+							ui.networks.length === 1 &&
+							ui.networks[0] === n.network}
+						onclick={() => (n.network ? showNetwork(n.network) : (ui.networks = []))}
+					>
+						<i style:--c={STATUS_COLOR[n.status]} aria-hidden="true"
+							>{STATUS_GLYPH[n.status] || '*'}</i
+						>
+						<span>
+							<span class="title">{n.name} {statusWord(n).toLowerCase()}</span>
+							<span class="detail">{[...n.reasons, ...n.caveats].slice(0, 2).join(' · ')}</span>
+						</span>
+					</button>
+				</li>
+			{/each}
+		</ul>
 	{/if}
 	{#each groups as group (group.kind)}
 		<h3>{group.label} ({group.items.length})</h3>

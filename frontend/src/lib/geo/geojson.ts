@@ -16,9 +16,16 @@ import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import type { SeenLink } from '../api/discovery.ts';
 import type { Link } from '../api/topology.ts';
 import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
-import { bundleLive, deviceHealth, groupHealth, linkLive, type LiveIndex } from '../live.ts';
+import {
+	bundleLive,
+	deviceHealth,
+	groupHealth,
+	linkLive,
+	tunnelsLive,
+	type LiveIndex
+} from '../live.ts';
 import { fabricTunnels, layersOf } from '../layers.ts';
-import { depthColor, HEALTH_GLYPH, IMPACT_GLYPH, TUNNEL_LIVE } from '../theme.ts';
+import { depthColor, HEALTH_GLYPH, IMPACT_GLYPH, TUNNEL_COLOR } from '../theme.ts';
 import { farDevice, ROLES, siteOf, type TopologyIndex } from '../topology.ts';
 
 /** How long, in degrees, the stub drawn for a circuit into a transport is. */
@@ -165,52 +172,76 @@ const ARC_POINTS = 24;
  * Tunnels of named networks as arcs between their sites: each network's own
  * tunnels, and the tunnels its fabrics are made of. Arcs of different
  * networks between the same two sites bow out on alternate sides, further
- * each time. A tunnel to an external node has no place on the map.
+ * each time. A tunnel to an external node has no place on the map. With
+ * live state, arcs take their tunnels' health, and spoke-to-spoke tunnels
+ * built now are drawn too, thinner.
  *
  * @param index - Topology index.
  * @param networks - The networks to draw.
- * @param live - Draw them neutral, as while live state is shown.
- * @returns One arc per network and site pair, with its network, color, and
- *   the tunnel or fabric to select for it.
+ * @param live - Live state, or null for structure only.
+ * @returns One arc per network and site pair, with its network, color, the
+ *   tunnel or fabric to select for it, and whether it was built on demand.
  */
 export function networkArcs(
 	index: TopologyIndex,
 	networks: string[],
-	live = false
+	live: LiveIndex | null = null
 ): FeatureCollection<LineString> {
 	const layers = layersOf(index);
-	const arcs = new Map<string, { a: string; b: string; properties: Record<string, string> }>();
-	const add = (x: string, y: string, network: string, ref: Record<string, string>) => {
+	const arcs = new Map<
+		string,
+		{ a: string; b: string; tunnels: string[]; properties: Record<string, string | boolean> }
+	>();
+	const add = (
+		x: string,
+		y: string,
+		network: string,
+		id: string,
+		ref: Record<string, string | boolean>
+	) => {
 		const [a, b] = [siteOf(index, x), siteOf(index, y)];
-		const key = `${network}|${pairKey(a, b)}`;
-		if (a === b || arcs.has(key)) return;
-		const depth = layers.slices.get(network)?.depth ?? 0;
-		const color = live ? TUNNEL_LIVE : depthColor(depth);
-		arcs.set(key, { a, b, properties: { id: key, network, color, ...ref } });
+		if (a === b) return;
+		const key = `${network}|${pairKey(a, b)}${ref['dynamic'] ? '|on demand' : ''}`;
+		const found = arcs.get(key);
+		if (found) {
+			found.tunnels.push(id);
+			return;
+		}
+		arcs.set(key, { a, b, tunnels: [id], properties: { id: key, network, ...ref } });
 	};
 	for (const name of networks) {
 		const slice = layers.slices.get(name);
 		if (!slice) continue;
 		for (const t of slice.tunnels) {
-			if ('device' in t.b) add(t.a.device, t.b.device, name, { tunnel: t.name });
+			if ('device' in t.b) add(t.a.device, t.b.device, name, t.name, { tunnel: t.name });
 		}
 		for (const f of slice.fabrics) {
-			for (const { a, b } of fabricTunnels(f)) add(a.device, b.device, name, { fabric: f.name });
+			for (const { a, b } of fabricTunnels(f)) {
+				add(a.device, b.device, name, `${f.name}:${a.device}~${b.device}`, { fabric: f.name });
+			}
+		}
+		for (const t of live?.tunnels.values() ?? []) {
+			if (t.network !== name || !t.dynamic || t.status !== 'up') continue;
+			const fabric = t.tunnel.slice(0, t.tunnel.indexOf(':'));
+			const [a, b] = t.tunnel.slice(fabric.length + 1).split('~');
+			if (a && b) add(a, b, name, t.tunnel, { fabric, dynamic: true });
 		}
 	}
 	const seen = new Map<string, number>();
-	const features = [...arcs.values()].flatMap(({ a, b, properties }) => {
+	const features = [...arcs.values()].flatMap(({ a, b, tunnels, properties }) => {
 		const [from, to] = [index.sites.get(a), index.sites.get(b)];
 		if (!from || !to) return [];
 		const n = seen.get(pairKey(a, b)) ?? 0;
 		seen.set(pairKey(a, b), n + 1);
 		// Bow to alternate sides, further for each network after the first two.
 		const bow = BOW * (1 + Math.floor(n / 2)) * (n % 2 ? -1 : 1);
+		const depth = layers.slices.get(String(properties['network']))?.depth ?? 0;
+		const color = live ? TUNNEL_COLOR[tunnelsLive(live, tunnels)] : depthColor(depth);
 		return [
 			{
 				type: 'Feature' as const,
 				geometry: { type: 'LineString' as const, coordinates: arc(from, to, bow) },
-				properties
+				properties: { ...properties, color, dynamic: properties['dynamic'] === true }
 			}
 		];
 	});

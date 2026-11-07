@@ -21,7 +21,7 @@ import {
 	type GraphEdge,
 	type GraphNode
 } from '../graph/model.ts';
-import { beneath, layersOf, type Slice } from '../layers.ts';
+import { beneath, fabricTunnels, layersOf, type Slice } from '../layers.ts';
 import { depthColor } from '../theme.ts';
 import { deviceEnds, isDeviceEnd, nodeKey, siteOf, type TopologyIndex } from '../topology.ts';
 
@@ -135,11 +135,18 @@ export function logicalGraph(
 			}
 			for (const f of slice.fabrics) {
 				const node = `fabric:${f.name}`;
+				// Each member's way in stands for the fabric's tunnels it ends.
+				const ends = new Map<string, string[]>();
+				for (const { a, b } of fabricTunnels(f)) {
+					const id = `${f.name}:${a.device}~${b.device}`;
+					for (const d of [a.device, b.device]) ends.set(d, [...(ends.get(d) ?? []), id]);
+				}
 				for (const m of f.members) {
 					if (!here(m.device)) continue;
 					devices.add(m.device);
 					add(slice, faint, 'fabric', [nodeOf(m.device), node], {
 						fabric: f.name,
+						tunnels: ends.get(m.device) ?? [],
 						...(m.role === 'hub' ? { label: 'hub' } : {})
 					});
 				}

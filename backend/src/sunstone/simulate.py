@@ -42,6 +42,7 @@ from typing import Literal, Protocol
 from sunstone.cabling import Cabling
 from sunstone.discovery import Visibility
 from sunstone.impact import Failures
+from sunstone.layers import Layers, fabric_tunnel_id, fabric_tunnels, spoke_pairs
 from sunstone.live import (
     DeviceHistory,
     DeviceState,
@@ -52,6 +53,7 @@ from sunstone.live import (
     NetworkState,
     Reachability,
     StateEvent,
+    TunnelState,
 )
 from sunstone.model import (
     Endpoint,
@@ -59,6 +61,7 @@ from sunstone.model import (
     Site,
     Topology,
     TransportEnd,
+    TunnelEnd,
     cabled,
     device_ends,
     end_key,
@@ -75,6 +78,8 @@ ISOLATED_RUN = 6
 ISOLATED_SHARE = 0.3
 HIGH_PCT, CRITICAL_PCT = 80, 95
 MAX_CACHED_WINDOWS = 1000
+# One pair of spokes in this many has a tunnel built on demand at a time.
+DYNAMIC_SHARE = 20
 
 
 def _unit(*parts: object) -> float:
@@ -164,6 +169,8 @@ class _Faults:
     """Monitored devices not reporting, with the time of their last reading."""
     lossy: frozenset[str]
     cut: frozenset[str]
+    tunnels: frozenset[str] = frozenset()
+    """Tunnels down: what they ride broken, or failing of their own accord."""
 
     @property
     def silent(self) -> frozenset[str]:
@@ -297,6 +304,24 @@ class SimulatedState:
         # Links whose load can cross the high mark, for load events; not those
         # half without a cable, which read as down.
         uncabled = {link.id for _, link in cabling.dangling}
+        # Tunnels: those always there, with the devices at their ends, and the
+        # spoke-to-spoke ones fabrics can build on demand.
+        self.layers = Layers(topology)
+        self.tunnel_ids = self.layers.all_tunnels()
+        self.tunnel_ends: dict[str, set[str]] = {}
+        self.dynamic: dict[str, str] = {}
+        for t in topology.tunnels:
+            ends = {t.a.device}
+            if isinstance(t.b, TunnelEnd):
+                ends.add(t.b.device)
+            self.tunnel_ends[t.name] = ends
+        for f in topology.fabrics:
+            for a, b in fabric_tunnels(f):
+                self.tunnel_ends[fabric_tunnel_id(f, a, b)] = {a.device, b.device}
+            for a, b in spoke_pairs(f):
+                tid = fabric_tunnel_id(f, a, b)
+                self.dynamic[tid] = f.network
+                self.tunnel_ends[tid] = {a.device, b.device}
         self.loaded = [
             link
             for link in topology.links
@@ -343,7 +368,47 @@ class SimulatedState:
             positions=self.positions,
             devices=devices,
             interfaces=interfaces,
+            tunnels=self._tunnels(now, faults),
         )
+
+    def _tunnels(self, now: datetime, faults: _Faults) -> list[TunnelState]:
+        """Every tunnel a watched device ends, and the spoke-to-spoke tunnels
+        built on demand at a moment: those that could be built, up."""
+        tunnels = [
+            TunnelState(
+                tunnel=tid,
+                network=network,
+                status="down" if tid in faults.tunnels else "up",
+            )
+            for tid, network in self.tunnel_ids
+            if self._watched_tunnel(tid)
+        ]
+        built = self._built(now)
+        if built:
+            up = self.layers.tunnels_up(
+                set(faults.down), set(faults.cut), faults.tunnels, built
+            )
+            tunnels += [
+                TunnelState(
+                    tunnel=tid, network=self.dynamic[tid], status="up", dynamic=True
+                )
+                for tid in sorted(built)
+                if up.get(tid)
+            ]
+        return tunnels
+
+    def _watched_tunnel(self, tid: str) -> bool:
+        """Whether a device at either end of a tunnel is watched."""
+        return bool(self.tunnel_ends.get(tid, set()) & self.watched)
+
+    def _built(self, now: datetime) -> set[str]:
+        """Spoke-to-spoke tunnels built on demand at a moment: a few pairs of
+        spokes trading traffic, changing every 15 minutes."""
+        if not self.dynamic:
+            return set()
+        window = int(now.timestamp() // LOAD_WINDOW_S)
+        ids = sorted(self.dynamic)
+        return _pick(ids, max(1, len(ids) // DYNAMIC_SHARE), "spoke-to-spoke", window)
 
     def events(self, since: datetime, until: datetime) -> list[StateEvent]:
         """Report what changed at each 5-minute step after one moment, up to another.
@@ -454,6 +519,20 @@ class SimulatedState:
             cut |= planned.links
         unreachable = self._unreachable(down, cut)
         silent = down | unreachable
+        failing = (
+            set(
+                _incidents(
+                    [t for t, _ in self.tunnel_ids],
+                    max(1, len(self.tunnel_ids) // 40),
+                    "tunnel",
+                    window,
+                )
+            )
+            if self.tunnel_ids
+            else set()
+        )
+        up = self.layers.tunnels_up(down, cut, failing)
+        tunnels = frozenset(t for t, ok in up.items() if not ok)
         stale = {
             name: _at(start) - STALE_AGE
             for name, start in _incidents(
@@ -472,6 +551,7 @@ class SimulatedState:
             stale=stale,
             lossy=frozenset(lossy),
             cut=frozenset(cut),
+            tunnels=tunnels,
         )
         if len(self._faults_by_window) >= MAX_CACHED_WINDOWS:
             self._faults_by_window.clear()
@@ -544,6 +624,9 @@ class SimulatedState:
         note(before.lossy - now.lossy - silent, "loss-cleared")
         note(now.cut - before.cut, "link-down", "link")
         note(before.cut - now.cut, "link-up", "link")
+        watched = {t for t, _ in self.tunnel_ids if self._watched_tunnel(t)}
+        note((now.tunnels - before.tunnels) & watched, "tunnel-down", "tunnel")
+        note((before.tunnels - now.tunnels) & watched, "tunnel-up", "tunnel")
         return events
 
     def _device(self, name: str, now: datetime, faults: _Faults) -> DeviceState:

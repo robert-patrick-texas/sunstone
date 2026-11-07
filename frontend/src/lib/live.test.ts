@@ -25,6 +25,7 @@ function reading(dev: string, ifname: string, extra: Partial<InterfaceState> = {
 function live(devices: DeviceState[], interfaces: InterfaceState[]) {
 	const state: NetworkState = {
 		source: 'test',
+		tunnels: [],
 		generated_at: AT,
 		positions: [{ name: 'west', site: 'A' }],
 		devices,

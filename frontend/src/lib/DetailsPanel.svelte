@@ -19,6 +19,7 @@ links that select and bring that item into view.
 	import { joinIncident, openIncident, type IncidentSummary } from './api/incidents.ts';
 	import { fetchHistory, type DeviceHistory, type InterfaceHistory } from './api/state.ts';
 	import type { Endpoint, FarEnd, Link } from './api/topology.ts';
+	import type { StatusReport } from './api/status.ts';
 	import { clock, linkHistory } from './history.ts';
 	import { phaseOf, span, windowsFor } from './maintenance.ts';
 	import type { Impact } from './impact.ts';
@@ -84,7 +85,8 @@ links that select and bring that item into view.
 		ownership,
 		comparison,
 		changes,
-		incidents
+		incidents,
+		status = null
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
@@ -105,6 +107,8 @@ links that select and bring that item into view.
 		changes: Change[];
 		/** Every incident, newest first, for adding a problem to one. */
 		incidents: IncidentSummary[];
+		/** Every network's status, while live state is shown. */
+		status?: StatusReport | null;
 	} = $props();
 
 	const HEALTHS: DeviceHealth[] = ['down', 'degraded', 'nodata', 'up', 'unmonitored'];
@@ -945,7 +949,7 @@ links that select and bring that item into view.
 		{#if layer}
 			<section aria-label="Selection">
 				<button class="close" onclick={() => select(null)} aria-label="Close details">×</button>
-				<LayerDetails {index} selection={layer} {live} />
+				<LayerDetails {index} selection={layer} {live} {status} />
 			</section>
 		{/if}
 	</aside>
