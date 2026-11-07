@@ -118,6 +118,7 @@ from sunstone.operations import (
 )
 from sunstone.problems import Ack, AckIn, Problem
 from sunstone.simulate import SimulatedState, monitored
+from sunstone.status import StatusReport, needing
 
 NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
 HANDOVER_GRACE = timedelta(minutes=1)
@@ -397,6 +398,17 @@ def create_app(
         d = docs
         return routed(d, moment_at(d, at))
 
+    @app.get("/api/status")
+    def get_status(at: datetime | None = None) -> StatusReport:
+        """Return whether the whole network and each named network, and
+        their regions, sites, and locations, are operational, degraded, or
+        offline, now or at an earlier moment, with why.
+
+        Pass the ``generated_at`` of the state being shown, so the two match.
+        """
+        d = docs
+        return d.monitor.moment(moment_at(d, at)).status
+
     def routed(d: _Documented, when: datetime) -> RoutedProblemList:
         """The problems at a moment, each with the maintenance that accounts
         for it, who is on it, the team that owns it, and its page."""
@@ -501,6 +513,7 @@ def create_app(
             timezone=times.timezone if times else "UTC",
             notes=[n for n in operations.notes() if start <= n.at < until],
             problems=problems,
+            networks=needing(d.monitor.moment(when).status),
             incidents=[
                 line
                 for i in incidents.incidents()

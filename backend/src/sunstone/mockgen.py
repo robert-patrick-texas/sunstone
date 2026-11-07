@@ -35,7 +35,9 @@ from sunstone.model import (
     Fabric,
     FabricMember,
     Link,
+    Location,
     NamedNetwork,
+    Region,
     Role,
     Site,
     Topology,
@@ -168,6 +170,23 @@ AREAS = [
     ),
     ("network-west", "Network West", ["West", "Mountain"], "America/Denver"),
 ]
+# Regions inside larger ones, for nested groups. Areas without sites are left out.
+PARENT_REGIONS = {
+    "South": "Central",
+    "Midwest": "Central",
+    "Southeast": "Eastern",
+    "Northeast": "Eastern",
+    "Mid-Atlantic": "Eastern",
+    "West": "Western",
+    "Mountain": "Western",
+}
+# Data center halls: the WAN edge and core in one, the rest in the other.
+HALLS: dict[Role, str] = {
+    "wan-edge": "Hall A",
+    "core": "Hall A",
+    "distribution": "Hall B",
+    "access": "Hall B",
+}
 # A Monday, when every rotation's first turn began.
 ROTATIONS_START = date(2026, 1, 5)
 
@@ -371,8 +390,48 @@ def generate(preset: Preset, seed: int) -> Topology:
             b.link(wans[i], hub_wans[i][i], speed, circuit=b.circuit())
         spokes.append(wans[0])
     if not preset.internet:
-        return Topology(sites=sites, devices=b.devices, links=b.links)
-    return _with_internet(b, sites, ([w[0] for w in hub_wans], spokes), seed)
+        return with_groups(Topology(sites=sites, devices=b.devices, links=b.links))
+    return with_groups(
+        _with_internet(b, sites, ([w[0] for w in hub_wans], spokes), seed)
+    )
+
+
+def with_groups(topology: Topology) -> Topology:
+    """Name the whole network, nest its regions, and put the hubs' devices
+    in halls.
+
+    Args:
+        topology: A generated topology, its first two sites the hubs.
+
+    Returns:
+        The same network as Enterprise, with each region inside a larger
+        one and two halls at each hub.
+
+    Raises:
+        None
+    """
+    used = sorted({s.region for s in topology.sites if s.region})
+    parents = sorted({PARENT_REGIONS[r] for r in used})
+    hubs = [s.code for s in topology.sites[:2]]
+    return Topology.model_validate(
+        {
+            **dict(topology),
+            "name": "Enterprise",
+            "regions": [Region(name=p) for p in parents]
+            + [Region(name=r, parent=PARENT_REGIONS[r]) for r in used],
+            "locations": [
+                Location(site=h, name=hall)
+                for h in hubs
+                for hall in ("Hall A", "Hall B")
+            ],
+            "devices": [
+                d.model_copy(update={"location": HALLS[d.role]})
+                if d.site in hubs
+                else d
+                for d in topology.devices
+            ],
+        }
+    )
 
 
 def _with_internet(

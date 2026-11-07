@@ -21,7 +21,7 @@ what their colors and dashes mean.
 		LINK_UNMONITORED,
 		DEPTH_COLOR,
 		ROLE_COLOR,
-		TUNNEL_LIVE,
+		TUNNEL_COLOR,
 		UTIL_BANDS
 	} from './theme.ts';
 	import { ROLE_LABEL, ROLES } from './topology.ts';
@@ -107,11 +107,13 @@ what their colors and dashes mean.
 			{#each DEPTHS as label, i (label)}
 				<span><i class="swatch round" style:background={DEPTH_COLOR[i]}></i>{label}</span>
 			{/each}
-			<span
-				><i class="line dashed" style:color={live ? TUNNEL_LIVE : DEPTH_COLOR[0]}></i>Tunnel{live
-					? ', no health yet'
-					: ''}</span
-			>
+			{#if live}
+				<span><i class="line dashed" style:color={TUNNEL_COLOR.up}></i>Tunnel up</span>
+				<span><i class="line dashed" style:color={TUNNEL_COLOR.down}></i>Down</span>
+				<span><i class="line dashed" style:color={TUNNEL_COLOR.unknown}></i>Not reported</span>
+			{:else}
+				<span><i class="line dashed" style:color={DEPTH_COLOR[0]}></i>Tunnel</span>
+			{/if}
 			<span><i class="outside"></i>Outside the boundary</span>
 		</div>
 	{/if}

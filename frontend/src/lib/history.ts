@@ -9,7 +9,7 @@
  */
 import type { DeviceHistory, StateEvent } from './api/state.ts';
 import type { Link } from './api/topology.ts';
-import type { Selection } from './state.svelte.ts';
+import type { AnySelection } from './state.svelte.ts';
 import { isDeviceEnd, linkName, siteOf, type TopologyIndex } from './topology.ts';
 
 export const STEP_MS = 5 * 60_000;
@@ -17,12 +17,13 @@ export const STEP_MS = 5 * 60_000;
 const GROUP_FROM = 3;
 
 export type EventKind = StateEvent['kind'];
-export type EventCategory = 'devices' | 'links' | 'load' | 'loss' | 'nodata';
+export type EventCategory = 'devices' | 'links' | 'tunnels' | 'load' | 'loss' | 'nodata';
 type Severity = 'critical' | 'warning' | 'minor' | 'resolved';
 
 export const EVENT_CATEGORIES: { category: EventCategory; label: string }[] = [
 	{ category: 'devices', label: 'Down and up' },
 	{ category: 'links', label: 'Links' },
+	{ category: 'tunnels', label: 'Tunnels' },
 	{ category: 'load', label: 'Load' },
 	{ category: 'loss', label: 'Packet loss' },
 	{ category: 'nodata', label: 'No data' }
@@ -33,6 +34,8 @@ const CATEGORY: Record<EventKind, EventCategory> = {
 	up: 'devices',
 	'link-down': 'links',
 	'link-up': 'links',
+	'tunnel-down': 'tunnels',
+	'tunnel-up': 'tunnels',
 	busy: 'load',
 	congested: 'load',
 	'load-normal': 'load',
@@ -45,12 +48,14 @@ const CATEGORY: Record<EventKind, EventCategory> = {
 const SEVERITY: Record<EventKind, Severity> = {
 	down: 'critical',
 	'link-down': 'critical',
+	'tunnel-down': 'critical',
 	congested: 'critical',
 	busy: 'warning',
 	loss: 'warning',
 	nodata: 'minor',
 	up: 'resolved',
 	'link-up': 'resolved',
+	'tunnel-up': 'resolved',
 	'load-normal': 'resolved',
 	'loss-cleared': 'resolved',
 	reporting: 'resolved'
@@ -62,7 +67,7 @@ export interface EventRow {
 	kind: EventKind;
 	title: string;
 	/** What to select to look at it. */
-	target: Selection;
+	target: AnySelection;
 	count: number;
 	/** Maintenance open at the time accounts for it. */
 	planned: boolean;
@@ -101,6 +106,17 @@ export function eventRows(
 			};
 			group.devices.push(e.device);
 			groups.set(key, group);
+			continue;
+		}
+		if (e.tunnel) {
+			rows.push({
+				at: e.at,
+				kind: e.kind,
+				title: `${tunnelName(e.tunnel)} ${e.kind === 'tunnel-down' ? 'down' : 'back up'}`,
+				target: tunnelTarget(index, e.tunnel),
+				count: 1,
+				planned: e.planned
+			});
 			continue;
 		}
 		const link = e.link ? index.links.get(e.link) : undefined;
@@ -163,6 +179,31 @@ const GROUP_TEXT: Partial<Record<EventKind, string>> = {
 	nodata: 'devices stopped reporting',
 	reporting: 'devices reporting again'
 };
+
+/**
+ * A tunnel as people say it.
+ *
+ * @param tunnel - A tunnel's name, or `FABRIC:a~b` for one a fabric is made of.
+ * @returns The name, or for a fabric's, the fabric and its two ends.
+ */
+export function tunnelName(tunnel: string): string {
+	const colon = tunnel.indexOf(':');
+	if (colon < 0) return tunnel;
+	const [a, b] = tunnel.slice(colon + 1).split('~');
+	return `${tunnel.slice(0, colon)}: ${a} – ${b}`;
+}
+
+/**
+ * What to select for a tunnel: itself, or the fabric it is part of.
+ *
+ * @param index - Topology index.
+ * @param tunnel - A tunnel's name, or `FABRIC:a~b`.
+ * @returns The selection.
+ */
+export function tunnelTarget(index: TopologyIndex, tunnel: string): AnySelection {
+	if (index.tunnels.has(tunnel)) return { kind: 'tunnel', id: tunnel };
+	return { kind: 'fabric', id: tunnel.slice(0, tunnel.indexOf(':')) };
+}
 
 function linkTitle(link: Link, e: StateEvent): string {
 	const name = linkName(link);

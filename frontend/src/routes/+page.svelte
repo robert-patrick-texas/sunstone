@@ -16,6 +16,7 @@ open, and leaves it as it was when it closes.
 	import { onMount, untrack } from 'svelte';
 	import { pushState, replaceState } from '$app/navigation';
 	import { fetchProblems, fetchWhatIf, type Problem } from '#lib/api/analysis.ts';
+	import { fetchStatus, type StatusReport } from '#lib/api/status.ts';
 	import { fetchChanges, type Change } from '#lib/api/changes.ts';
 	import { fetchDiscovery, type Comparison } from '#lib/api/discovery.ts';
 	import { fetchOnCall, fetchOwnership, type OnCall, type Ownership } from '#lib/api/oncall.ts';
@@ -132,6 +133,8 @@ open, and leaves it as it was when it closes.
 	const path = $derived(index && ui.path ? shortestPaths(index, ui.path.from, ui.path.to) : null);
 	// Problems come with each snapshot, found once on the server for every viewer.
 	let problems = $state.raw<Problem[]>([]);
+	/** Every network's status, while live state is shown. */
+	let status = $state.raw<StatusReport | null>(null);
 	let whatIf = $state.raw<Impact | null>(null);
 	let whatIfProblem = $state<string | null>(null);
 	const focused = $derived(problems.find((p) => p.id === ui.problem) ?? null);
@@ -310,6 +313,7 @@ open, and leaves it as it was when it closes.
 		if (!ui.live) {
 			live = null;
 			problems = [];
+			status = null;
 			liveProblem = null;
 			ui.problem = null;
 			ui.at = null;
@@ -321,10 +325,13 @@ open, and leaves it as it was when it closes.
 		const load = async () => {
 			try {
 				const state = await timedAsync('live fetch', () => fetchState(at ?? undefined));
-				const found = await timedAsync('problems fetch', () => fetchProblems(state.generated_at));
+				const [found, report] = await timedAsync('problems fetch', () =>
+					Promise.all([fetchProblems(state.generated_at), fetchStatus(state.generated_at)])
+				);
 				if (stopped) return;
 				live = timed('live index', () => indexState(state));
 				problems = found;
+				status = report;
 				liveProblem = null;
 			} catch (e) {
 				if (!stopped) liveProblem = e instanceof Error ? e.message : String(e);
@@ -664,7 +671,7 @@ open, and leaves it as it was when it closes.
 
 <div class="app" class:wall={ui.wall.on}>
 	{#if ui.wall.on}
-		{#if index}<WallDisplay {index} {problems} {live} {liveProblem} {oncall} />{/if}
+		{#if index}<WallDisplay {index} {problems} {live} {liveProblem} {oncall} {status} />{/if}
 	{:else}
 		<header>
 			<h1><img src="/favicon.svg" alt="" width="22" height="22" />Sunstone</h1>
@@ -675,7 +682,7 @@ open, and leaves it as it was when it closes.
 					</button>
 				{/each}
 			</div>
-			{#if index && index.topology.networks.length > 0}<NetworkMenu {index} />{/if}
+			{#if index && index.topology.networks.length > 0}<NetworkMenu {index} {status} />{/if}
 			<button
 				class="live"
 				aria-pressed={ui.live}
@@ -818,7 +825,7 @@ open, and leaves it as it was when it closes.
 					{:else if ui.sideTab === 'maintenance'}
 						<MaintenancePanel {index} {windows} problem={windowsProblem} onchange={refetch} />
 					{:else if ui.sideTab === 'problems'}
-						<ProblemsPanel {problems} {windows} {oncall} />
+						<ProblemsPanel {problems} {windows} {oncall} {status} />
 					{:else}
 						<EventsPanel {index} log={events} problem={eventsProblem} />
 					{/if}
@@ -868,6 +875,7 @@ open, and leaves it as it was when it closes.
 					{comparison}
 					{changes}
 					{incidents}
+					{status}
 				/>
 			{/if}
 		{/if}

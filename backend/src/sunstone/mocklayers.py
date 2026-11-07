@@ -25,7 +25,7 @@ rides black directly. Everything is fictional.
 import random
 from collections import Counter
 
-from sunstone.mockgen import CITIES
+from sunstone.mockgen import CITIES, with_groups
 from sunstone.model import (
     Carried,
     Circuit,
@@ -57,6 +57,7 @@ INTERNET = [
 ]
 MPLS_PROVIDER = "Mesa Carrier"
 INET, MPLS = "INET", "Mesa MPLS"
+HUBS = ["DAL", "IAD"]
 BLACK_VLAN, GREY_VLAN = 30, 200
 PLATFORM = {
     "wan": "ASR1001-X",
@@ -546,7 +547,7 @@ def generate_layers(seed: int) -> Topology:
         for code in sites:
             g.encryptor(tenant, code, secure[code]["gsw"])
 
-    return Topology(
+    topology = Topology(
         sites=list(g.sites.values()),
         devices=g.devices,
         links=g.links,
@@ -554,13 +555,30 @@ def generate_layers(seed: int) -> Topology:
             NamedNetwork(
                 name="black", boundary="outside", description="Circuits and transports"
             ),
-            NamedNetwork(name="corp", description="Offices and data centers"),
-            NamedNetwork(name="dci", description="Data center interconnect"),
-            NamedNetwork(name="blue", description="Outer encryption, first fabric"),
             NamedNetwork(
-                name="blue2", description="Outer encryption where blue does not reach"
+                name="corp", anchors=HUBS, description="Offices and data centers"
             ),
-            NamedNetwork(name="grey", description="Inner encryption, second fabric"),
+            NamedNetwork(
+                name="dci", anchors=HUBS, description="Data center interconnect"
+            ),
+            NamedNetwork(
+                name="blue", anchors=HUBS, description="Outer encryption, first fabric"
+            ),
+            NamedNetwork(
+                name="blue2",
+                anchors=["DAL"],
+                description="Outer encryption where blue does not reach",
+            ),
+            NamedNetwork(
+                name="grey",
+                anchors=HUBS,
+                # Its own regions, rather than the sites'.
+                regions={
+                    "grey-west": ["DAL", "HOU", "OKC", "TPA"],
+                    "grey-east": ["IAD", "ATL", "CLT", "MEM", "BNA", "RDU"],
+                },
+                description="Inner encryption, second fabric",
+            ),
             NamedNetwork(
                 name="red-alpha",
                 tenant="Alpha",
@@ -595,6 +613,7 @@ def generate_layers(seed: int) -> Topology:
         tunnels=g.tunnels,
         fabrics=fabrics,
     )
+    return with_groups(topology)
 
 
 def _fabric(

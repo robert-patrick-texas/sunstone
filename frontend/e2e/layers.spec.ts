@@ -86,3 +86,14 @@ test("a cable's ends are its A and B ends", async ({ page }) => {
 	await expect(details(page).getByRole('columnheader', { name: 'A end' })).toBeVisible();
 	await expect(details(page).getByRole('columnheader', { name: 'B end' })).toBeVisible();
 });
+
+test('with live state, networks say whether they work, and why', async ({ page }) => {
+	await page.goto('/?live=1&network=grey&select=network:grey');
+	await expect(details(page).getByText(/\d+ of 10 sites reached/)).toBeVisible();
+	// The whole network always has something down in the simulation.
+	await expect(page.getByRole('heading', { name: /^Networks \(\d+\)$/ })).toBeVisible();
+	await expect(page.getByRole('button', { name: /^Enterprise (degraded|offline)/ })).toBeVisible();
+	await page.getByRole('button', { name: /^grey/ }).first().click();
+	const menu = page.getByRole('dialog', { name: 'Networks' });
+	await expect(menu.getByText(/^(Operational\*?|Degraded|Offline)$/).first()).toBeVisible();
+});

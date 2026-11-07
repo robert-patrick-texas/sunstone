@@ -31,7 +31,14 @@ import cytoscape, {
 } from 'cytoscape';
 import type { Comparison } from '../api/discovery.ts';
 import { deviceImpact, linksImpact, worstImpact, type Impact } from '../impact.ts';
-import { bundleLive, deviceHealth, groupHealth, linkLive, type LiveIndex } from '../live.ts';
+import {
+	bundleLive,
+	deviceHealth,
+	groupHealth,
+	linkLive,
+	tunnelsLive,
+	type LiveIndex
+} from '../live.ts';
 import type { PathResult } from '../paths.ts';
 import { footprint } from '../layers.ts';
 import { isPhysical, select, type AnySelection } from '../state.svelte.ts';
@@ -45,7 +52,7 @@ import {
 	LINK_NODATA,
 	LINK_UNMONITORED,
 	ROLE_COLOR,
-	TUNNEL_LIVE,
+	TUNNEL_COLOR,
 	utilColor
 } from '../theme.ts';
 import { siteOf, type TopologyIndex } from '../topology.ts';
@@ -665,9 +672,11 @@ export class GraphCanvas {
 				n.addClass(`live live-${health}`);
 			});
 			core.edges().forEach((e) => {
-				// Tunnels have no health of their own yet: neutral, still dashed.
+				// Tunnels by their own health, still dashed; a fabric member's way in
+				// by the tunnels it ends; one the source does not report is neutral.
 				if (['tunnel', 'fabric', 'reach'].includes(e.data('kind'))) {
-					e.data('liveColor', TUNNEL_LIVE);
+					const health = tunnelsLive(live, e.data('tunnels') ?? []);
+					e.data('liveColor', TUNNEL_COLOR[health]);
 					e.addClass('live');
 					return;
 				}

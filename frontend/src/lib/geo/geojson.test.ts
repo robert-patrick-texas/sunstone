@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureIndex, layeredIndex } from '../test-fixture.ts';
-import { DEPTH_COLOR, TUNNEL_LIVE } from '../theme.ts';
+import { DEPTH_COLOR, TUNNEL_COLOR } from '../theme.ts';
 import type { NetworkState } from '../api/state.ts';
 import type { Impact } from '../impact.ts';
 import { indexState } from '../live.ts';
@@ -59,6 +59,7 @@ describe('live properties', () => {
 	const AT = '2026-10-27T15:00:00Z';
 	const state: NetworkState = {
 		source: 'test',
+		tunnels: [],
 		generated_at: AT,
 		positions: [],
 		devices: [
@@ -170,8 +171,19 @@ describe('networks on the map', () => {
 			.filter((a) => String(a.properties?.['id']).endsWith('A|C'))
 			.map((a) => JSON.stringify(a.geometry.coordinates[12]));
 		expect(new Set(middles).size).toBe(3);
-		expect(networkArcs(layered, ['grey'], true).features[0]?.properties?.['color']).toBe(
-			TUNNEL_LIVE
-		);
+	});
+
+	it('colors arcs by their tunnels with live state, neutral when not reported', () => {
+		const live = indexState({
+			source: 'test',
+			generated_at: '2026-10-27T15:00:00Z',
+			positions: [],
+			devices: [],
+			interfaces: [],
+			tunnels: [{ tunnel: 'GREY-A-C', network: 'grey', status: 'down', dynamic: false }]
+		});
+		const color = (network: string) =>
+			networkArcs(layered, [network], live).features[0]?.properties?.['color'];
+		expect([color('grey'), color('blue')]).toEqual([TUNNEL_COLOR.down, TUNNEL_COLOR.unknown]);
 	});
 });

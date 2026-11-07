@@ -49,11 +49,13 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		rememberName,
 		select,
 		showDiscovery,
+		showNetwork,
 		showProblem,
 		showTeam,
 		ui,
 		type Selection
 	} from './state.svelte.ts';
+	import { STATUS_COLOR, STATUS_GLYPH, statusWord } from './status.ts';
 	import { DEFAULT_HANDOVER_H } from './url.ts';
 
 	const {
@@ -194,6 +196,16 @@ and shows it: a problem with its impact, an outage at the moment it began.
 			ui.at = at;
 		}
 		if (target) select(target, true);
+	}
+
+	/** Leave the handover for a network, as it was at the end of the span. */
+	function goNetwork(network: string | null): void {
+		const at = saved ? replayable(handover?.until) : null;
+		close();
+		ui.live = true;
+		ui.at = at;
+		if (network) showNetwork(network);
+		else ui.networks = [];
 	}
 
 	function goProblem(p: { id: string; target: Selection }): void {
@@ -542,6 +554,30 @@ and shows it: a problem with its impact, an outage at the moment it began.
 						{/each}
 					</ul>
 				</section>
+
+				{#if handover.networks.length}
+					<section aria-label="Networks">
+						<h2>Networks ({handover.networks.length})</h2>
+						<ul class="rows">
+							{#each handover.networks as n (n.network ?? '')}
+								<li>
+									<button class="row open" onclick={() => goNetwork(n.network)}>
+										<span class="what">
+											<i style:--c={STATUS_COLOR[n.status]} aria-hidden="true"
+												>{STATUS_GLYPH[n.status] || '*'}</i
+											>
+											{n.name}
+											{statusWord(n).toLowerCase()}
+											{#if n.reasons.length || n.caveats.length}<span class="muted">
+													· {[...n.reasons, ...n.caveats].slice(0, 2).join(' · ')}</span
+												>{/if}
+										</span>
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</section>
+				{/if}
 
 				{#if handover.oncall}
 					<section aria-label={saved ? 'On call at handover' : 'On call now'}>

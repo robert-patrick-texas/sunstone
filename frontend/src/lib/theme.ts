@@ -107,8 +107,16 @@ export function utilColor(pct: number): string {
 // with their network, and turn gray while live state is shown.
 export const DEPTH_COLOR = ['#199e70', '#9085e9', '#d95926'] as const;
 
-/** A tunnel's color while live state is shown: neutral, until tunnels have health of their own. */
+/** A tunnel's color while live state is shown: neutral when the source does not report it. */
 export const TUNNEL_LIVE = '#5c6b80';
+
+/** Tunnels by health while live state is shown, as devices are colored. */
+export const TUNNEL_COLOR: Record<'up' | 'down' | 'partial' | 'unknown', string> = {
+	up: HEALTH_COLOR.up,
+	down: HEALTH_COLOR.down,
+	partial: HEALTH_COLOR.degraded,
+	unknown: TUNNEL_LIVE
+};
 
 /**
  * A named network's color.

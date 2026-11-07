@@ -91,6 +91,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Status
+         * @description Return whether the whole network and each named network, and
+         *     their regions, sites, and locations, are operational, degraded, or
+         *     offline, now or at an earlier moment, with why.
+         *
+         *     Pass the ``generated_at`` of the state being shown, so the two match.
+         */
+        get: operations["get_status_api_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/impact": {
         parameters: {
             query?: never;
@@ -979,6 +1003,8 @@ export interface components {
             platform?: string | null;
             /** Mgmt Ip */
             mgmt_ip?: string | null;
+            /** Location */
+            location?: string | null;
         };
         /**
          * DeviceCenter
@@ -1252,6 +1278,28 @@ export interface components {
             before?: components["schemas"]["Link"] | null;
             after?: components["schemas"]["Link"] | null;
         };
+        /**
+         * GroupStatus
+         * @description A region, site, or location that is not working as it should.
+         */
+        GroupStatus: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "network" | "region" | "site" | "location";
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "operational" | "degraded" | "offline";
+            /** Reasons */
+            reasons: string[];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1286,6 +1334,11 @@ export interface components {
             notes: components["schemas"]["ShiftNote"][];
             /** Problems */
             problems: components["schemas"]["RoutedProblem"][];
+            /**
+             * Networks
+             * @default []
+             */
+            networks: components["schemas"]["NetworkStatus"][];
             /**
              * Incidents
              * @default []
@@ -1679,6 +1732,19 @@ export interface components {
             ids: string[];
         };
         /**
+         * Location
+         * @description A part of a site, such as a building, floor, or data hall, inside
+         *     another location of the site or at the top (a location, in NetBox).
+         */
+        Location: {
+            /** Site */
+            site: string;
+            /** Name */
+            name: string;
+            /** Parent */
+            parent?: string | null;
+        };
+        /**
          * Member
          * @description One problem in an incident, as it was when it joined.
          */
@@ -1754,6 +1820,18 @@ export interface components {
              * @default []
              */
             rides: string[];
+            /**
+             * Anchors
+             * @default []
+             */
+            anchors: string[];
+            /**
+             * Regions
+             * @default {}
+             */
+            regions: {
+                [key: string]: string[];
+            };
             /** Description */
             description?: string | null;
             /**
@@ -1780,6 +1858,38 @@ export interface components {
             devices: components["schemas"]["DeviceState"][];
             /** Interfaces */
             interfaces: components["schemas"]["InterfaceState"][];
+            /**
+             * Tunnels
+             * @default []
+             */
+            tunnels: components["schemas"]["TunnelState"][];
+        };
+        /**
+         * NetworkStatus
+         * @description The whole network, or one named network, and its groups.
+         */
+        NetworkStatus: {
+            /** Network */
+            network: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "operational" | "degraded" | "offline";
+            /** Reasons */
+            reasons: string[];
+            /** Caveats */
+            caveats: string[];
+            /** Groups */
+            groups: components["schemas"]["GroupStatus"][];
+            /** Sites */
+            sites: number;
+            /** Reached */
+            reached: number;
+            /** Tunnels Down */
+            tunnels_down: string[];
         };
         /**
          * Notice
@@ -1990,6 +2100,16 @@ export interface components {
             rtt_ms: number | null;
             /** Loss Pct */
             loss_pct: number | null;
+        };
+        /**
+         * Region
+         * @description A region sites are in, inside another region or at the top.
+         */
+        Region: {
+            /** Name */
+            name: string;
+            /** Parent */
+            parent?: string | null;
         };
         /**
          * Review
@@ -2236,7 +2356,7 @@ export interface components {
         };
         /**
          * StateEvent
-         * @description A change a source saw: a device or link going down or coming back,
+         * @description A change a source saw: a device, link, or tunnel going down or coming back,
          *     readings stopping or resuming, packet loss starting or clearing, or a
          *     link's load crossing 80% or 95% (``pct`` is the load after the change).
          */
@@ -2250,11 +2370,13 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "down" | "up" | "nodata" | "reporting" | "loss" | "loss-cleared" | "link-down" | "link-up" | "busy" | "congested" | "load-normal";
+            kind: "down" | "up" | "nodata" | "reporting" | "loss" | "loss-cleared" | "link-down" | "link-up" | "busy" | "congested" | "load-normal" | "tunnel-down" | "tunnel-up";
             /** Device */
             device?: string | null;
             /** Link */
             link?: string | null;
+            /** Tunnel */
+            tunnel?: string | null;
             /** Pct */
             pct?: number | null;
             /**
@@ -2262,6 +2384,20 @@ export interface components {
              * @default false
              */
             planned: boolean;
+        };
+        /**
+         * StatusReport
+         * @description Every network's status at a moment.
+         */
+        StatusReport: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            whole: components["schemas"]["NetworkStatus"];
+            /** Networks */
+            networks: components["schemas"]["NetworkStatus"][];
         };
         /**
          * Step
@@ -2312,12 +2448,24 @@ export interface components {
          *     over them.
          */
         Topology: {
+            /** Name */
+            name?: string | null;
             /** Sites */
             sites: components["schemas"]["Site"][];
             /** Devices */
             devices: components["schemas"]["Device"][];
             /** Links */
             links: components["schemas"]["Link"][];
+            /**
+             * Regions
+             * @default []
+             */
+            regions: components["schemas"]["Region"][];
+            /**
+             * Locations
+             * @default []
+             */
+            locations: components["schemas"]["Location"][];
             /**
              * Networks
              * @default []
@@ -2433,6 +2581,26 @@ export interface components {
             external: string;
             /** Peer */
             peer?: string | null;
+        };
+        /**
+         * TunnelState
+         * @description Whether a tunnel is up, as its ends see it.
+         */
+        TunnelState: {
+            /** Tunnel */
+            tunnel: string;
+            /** Network */
+            network: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "up" | "down";
+            /**
+             * Dynamic
+             * @default false
+             */
+            dynamic: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -2634,6 +2802,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RoutedProblemList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_status_api_status_get: {
+        parameters: {
+            query?: {
+                at?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusReport"];
                 };
             };
             /** @description Validation Error */

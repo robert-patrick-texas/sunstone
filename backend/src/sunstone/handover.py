@@ -42,6 +42,7 @@ from sunstone.model import Topology, device_ends
 from sunstone.oncall import HandoverTimes, OnCall, Page, RoutedProblem
 from sunstone.operations import ShiftNote, Window
 from sunstone.problems import Ack, Note, PersonName, link_name, natural
+from sunstone.status import NetworkStatus
 
 # Saved handovers kept: a month of 12-hour shifts. Each is about 80 KB on
 # the 3,000-device sample.
@@ -120,6 +121,9 @@ class Handover(_Record):
     worked out now, the notes written since the last shift change."""
     problems: list[RoutedProblem]
     """Everything wrong now, most urgent first, with who is on it."""
+    networks: list[NetworkStatus] = []
+    """The whole network and named networks degraded or offline at the end
+    of the span, or working over something degraded, worst first."""
     incidents: list[IncidentLine] = []
     """Incidents open at the end of the span, or opened, cleared, or closed
     in it, newest first."""
@@ -591,6 +595,12 @@ def _message(h: Handover) -> Message:
         parts += [teams.get(p.team, p.team)] if p.team else []
         lines.append(f"- {' · '.join([*parts, standing(p)])}")
     text += more(lines, len(h.problems))
+    if h.networks:
+        text += ["", f"Networks ({len(h.networks)} not as they should be)"]
+        for n in h.networks:
+            word = n.status if n.status != "operational" else "operational, but"
+            why = " · ".join([*n.reasons, *n.caveats][:2])
+            text.append(f"- {n.name} {word}{': ' + why if why else ''}")
     # Whole sites and links first: single devices are most of them.
     ordered = sorted(h.outages, key=lambda o: o.target.kind == "device")
     text += ["", f"Outages ({len(h.outages)} began or ended, {down} still down)"]

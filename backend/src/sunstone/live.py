@@ -6,7 +6,9 @@ tools such as vakr produce:
 - per device: up or down, and round-trip time and loss as measured from
   each monitoring position;
 - per interface, keyed by device name and interface name: operational status
-  and utilization in each direction.
+  and utilization in each direction;
+- per tunnel: up or down, by name, or for a tunnel a fabric is made of by
+  ``FABRIC:a~b``, with the spoke-to-spoke tunnels built on demand at the time.
 
 Sunstone works out each link's state from the interfaces at its two ends.
 
@@ -65,6 +67,18 @@ class InterfaceState(_Record):
     stale: bool
 
 
+class TunnelState(_Record):
+    """Whether a tunnel is up, as its ends see it."""
+
+    tunnel: str
+    """A point-to-point tunnel's name, or ``FABRIC:a~b`` for one a fabric is
+    made of or built on demand, by its members' devices."""
+    network: str
+    status: Literal["up", "down"]
+    dynamic: bool = False
+    """Built on demand, spoke to spoke; it is listed only while it is up."""
+
+
 class NetworkState(_Record):
     """One snapshot of everything a source monitors."""
 
@@ -73,6 +87,8 @@ class NetworkState(_Record):
     positions: list[MonitoringPosition]
     devices: list[DeviceState]
     interfaces: list[InterfaceState]
+    tunnels: list[TunnelState] = []
+    """Tunnels it sees; one it does not report is taken to be up."""
 
 
 EventKind = Literal[
@@ -87,11 +103,13 @@ EventKind = Literal[
     "busy",
     "congested",
     "load-normal",
+    "tunnel-down",
+    "tunnel-up",
 ]
 
 
 class StateEvent(_Record):
-    """A change a source saw: a device or link going down or coming back,
+    """A change a source saw: a device, link, or tunnel going down or coming back,
     readings stopping or resuming, packet loss starting or clearing, or a
     link's load crossing 80% or 95% (``pct`` is the load after the change).
     """
@@ -100,6 +118,7 @@ class StateEvent(_Record):
     kind: EventKind
     device: str | None = None
     link: str | None = None
+    tunnel: str | None = None
     pct: float | None = None
     planned: bool = False
     """Maintenance open at the time accounts for it."""

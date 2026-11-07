@@ -6,13 +6,16 @@ from the bottom of the stack up, each with what it rides and its color, which
 says how deep it sits. A network's name selects it.
 -->
 <script lang="ts">
+	import type { StatusReport } from './api/status.ts';
 	import { layersOf } from './layers.ts';
+	import { STATUS_COLOR, STATUS_GLYPH, statusOf, statusWord } from './status.ts';
 	import { select, ui } from './state.svelte.ts';
 	import { term } from './terms.ts';
 	import { depthColor } from './theme.ts';
 	import { compareNatural, type TopologyIndex } from './topology.ts';
 
-	const { index }: { index: TopologyIndex } = $props();
+	const { index, status = null }: { index: TopologyIndex; status?: StatusReport | null } = $props();
+	const troubled = $derived(status?.networks.filter((n) => n.status !== 'operational').length ?? 0);
 
 	let root: HTMLDivElement;
 	let open = $state(false);
@@ -48,7 +51,7 @@ says how deep it sits. A network's name selects it.
 		title="Show named networks in every view"
 		onclick={() => (open = !open)}
 	>
-		{label}
+		{label}{#if troubled}<span class="count" title="Networks not operational">{troubled}</span>{/if}
 	</button>
 	{#if open}
 		<div class="popover" role="dialog" aria-label={term(index, 'network', true)}>
@@ -78,6 +81,11 @@ says how deep it sits. A network's name selects it.
 							{n.rides.size ? `over ${[...n.rides].sort(compareNatural).join(', ')}` : 'circuits'}
 							· {n.sites.size} sites
 						</span>
+						{#if statusOf(status, n.name)}{@const now = statusOf(status, n.name)!}
+							<span class="status" style:--c={STATUS_COLOR[now.status]}
+								><i aria-hidden="true">{STATUS_GLYPH[now.status]}</i>{statusWord(now)}</span
+							>
+						{/if}
 					</li>
 				{/each}
 			</ul>
@@ -151,6 +159,28 @@ says how deep it sits. A network's name selects it.
 		color: var(--muted);
 		font-size: 12px;
 		margin: 0;
+	}
+	.status {
+		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		font-size: 12px;
+		color: var(--c);
+		white-space: nowrap;
+	}
+	.status i {
+		font-style: normal;
+		font-weight: 700;
+	}
+	.count {
+		margin-left: 6px;
+		padding: 0 5px;
+		border-radius: 8px;
+		background: var(--down);
+		color: var(--bg);
+		font-size: 11px;
+		font-weight: 700;
 	}
 	.actions {
 		display: flex;

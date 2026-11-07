@@ -32,12 +32,14 @@ what changed. Categories can be turned off.
 	const MARK: Record<EventKind, { color: string; glyph: string }> = {
 		down: { color: HEALTH_COLOR.down, glyph: '×' },
 		'link-down': { color: HEALTH_COLOR.down, glyph: '×' },
+		'tunnel-down': { color: HEALTH_COLOR.down, glyph: '×' },
 		congested: { color: HEALTH_COLOR.down, glyph: '%' },
 		busy: { color: HEALTH_COLOR.degraded, glyph: '%' },
 		loss: { color: HEALTH_COLOR.degraded, glyph: '!' },
 		nodata: { color: HEALTH_COLOR.nodata, glyph: '?' },
 		up: RESOLVED,
 		'link-up': RESOLVED,
+		'tunnel-up': RESOLVED,
 		'load-normal': RESOLVED,
 		'loss-cleared': RESOLVED,
 		reporting: RESOLVED

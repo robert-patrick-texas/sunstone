@@ -34,6 +34,26 @@ export interface LiveIndex {
 	state: NetworkState;
 	devices: Map<string, DeviceState>;
 	interfaces: Map<string, InterfaceState>;
+	/** Tunnels the source reports, by name or `FABRIC:a~b`. */
+	tunnels: Map<string, NetworkState['tunnels'][number]>;
+}
+
+/** A tunnel's health: one the source does not report is not known. */
+export type TunnelHealth = 'up' | 'down' | 'unknown';
+
+/**
+ * Several tunnels drawn as one edge or arc: down when all are, partly down
+ * when some are.
+ *
+ * @param live - Live index.
+ * @param ids - The tunnels, by name or `FABRIC:a~b`.
+ * @returns Their health together, `partial` when only some are down.
+ */
+export function tunnelsLive(live: LiveIndex, ids: string[]): TunnelHealth | 'partial' {
+	const known = ids.flatMap((id) => live.tunnels.get(id) ?? []);
+	if (known.length === 0) return 'unknown';
+	const down = known.filter((t) => t.status === 'down').length;
+	return down === 0 ? 'up' : down === known.length ? 'down' : 'partial';
 }
 
 export interface LinkLive {
@@ -57,7 +77,8 @@ export function indexState(state: NetworkState): LiveIndex {
 	return {
 		state,
 		devices: new Map(state.devices.map((d) => [d.device, d])),
-		interfaces: new Map(state.interfaces.map((i) => [key(i.device, i.interface), i]))
+		interfaces: new Map(state.interfaces.map((i) => [key(i.device, i.interface), i])),
+		tunnels: new Map(state.tunnels.map((t) => [t.tunnel, t]))
 	};
 }
 

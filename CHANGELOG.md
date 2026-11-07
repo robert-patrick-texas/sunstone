@@ -3,6 +3,31 @@
 Release notes, newest first. `tools/release` takes each release's notes from
 its section here.
 
+## 0.4.0
+
+- Network status. With Live on, the whole network and each named network,
+  and their regions, sites, and locations, are operational, degraded, or
+  offline: a device down degrades its group; a link or tunnel down, the
+  group it belongs to and the groups below holding its ends; a group no
+  anchor reaches is offline and every group above it degraded; a group
+  split inside is partitioned. A network is offline when no two of its
+  sites reach each other, and reads operational* while what it rides is
+  degraded at its sites. `GET /api/status`.
+- Problems lists the networks not working as they should first; the
+  Networks menu shows each one's state; a network's details say why and
+  which of its groups are not operational; the wall display and the
+  handover, message included, name them too.
+- Tunnels in live state and history: up when their ends reach each other
+  through what they ride, worked out from the circuits up, with some
+  failing on their own and spokes building tunnels to each other on demand.
+  Tunnels take their health's color in the graph views and on the map, and
+  Events lists them going down and coming back.
+- The topology can name the whole network (`name`), nest regions
+  (`regions`), and divide sites into locations (`locations`, and a device's
+  `location`); a named network can name its `anchors` and its own
+  `regions`. The samples are called Enterprise, with nested regions, halls
+  at the data centers, and anchors in the layered sample.
+
 ## 0.3.0
 
 - WAN transports and the networks layered over them. A link can go from a

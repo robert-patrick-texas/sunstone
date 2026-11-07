@@ -32,9 +32,11 @@ test('a problem becomes an incident, with notes, a timeline, and a postmortem', 
 	// Closed, the report leaves the problem marked as in the incident.
 	await report.getByRole('button', { name: 'Close', exact: true }).click();
 	await expect(report).toHaveCount(0);
-	await expect(problems.getByRole('button').filter({ hasText: title })).toContainText(
-		/Incident \d+/
-	);
+	await expect(
+		problems
+			.getByRole('button')
+			.filter({ has: page.locator('.title').getByText(title, { exact: true }) })
+	).toContainText(/Incident \d+/);
 	await expect(impact.getByRole('button', { name: 'Show it' })).toBeVisible();
 
 	// i opens it again; the postmortem closes it.

@@ -139,6 +139,54 @@
     }
    }
   },
+  "/api/status": {
+   "get": {
+    "summary": "Get Status",
+    "description": "Return whether the whole network and each named network, and\ntheir regions, sites, and locations, are operational, degraded, or\noffline, now or at an earlier moment, with why.\n\nPass the ``generated_at`` of the state being shown, so the two match.",
+    "operationId": "get_status_api_status_get",
+    "parameters": [
+     {
+      "name": "at",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "At"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StatusReport"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/impact": {
    "post": {
     "summary": "Post Impact",
@@ -2085,6 +2133,17 @@
        }
       ],
       "title": "Mgmt Ip"
+     },
+     "location": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Location"
      }
     },
     "additionalProperties": false,
@@ -2794,6 +2853,55 @@
     "title": "Fix",
     "description": "A change to the documentation that makes it say what discovery sees,\nor for ``expect``, that records a finding as expected."
    },
+   "GroupStatus": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "network",
+       "region",
+       "site",
+       "location"
+      ],
+      "title": "Kind"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "operational",
+       "degraded",
+       "offline"
+      ],
+      "title": "Status"
+     },
+     "reasons": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Reasons"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "kind",
+     "id",
+     "name",
+     "status",
+     "reasons"
+    ],
+    "title": "GroupStatus",
+    "description": "A region, site, or location that is not working as it should."
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -2849,6 +2957,14 @@
       },
       "type": "array",
       "title": "Problems"
+     },
+     "networks": {
+      "items": {
+       "$ref": "#/components/schemas/NetworkStatus"
+      },
+      "type": "array",
+      "title": "Networks",
+      "default": []
      },
      "incidents": {
       "items": {
@@ -3866,6 +3982,37 @@
     "title": "LinksCenter",
     "description": "A neighborhood built around the ends of some links."
    },
+   "Location": {
+    "properties": {
+     "site": {
+      "type": "string",
+      "title": "Site"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "parent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parent"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "site",
+     "name"
+    ],
+    "title": "Location",
+    "description": "A part of a site, such as a building, floor, or data hall, inside\nanother location of the site or at the top (a location, in NetBox)."
+   },
    "Member": {
     "properties": {
      "problem": {
@@ -4058,6 +4205,25 @@
       "title": "Rides",
       "default": []
      },
+     "anchors": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Anchors",
+      "default": []
+     },
+     "regions": {
+      "additionalProperties": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "type": "object",
+      "title": "Regions",
+      "default": {}
+     },
      "description": {
       "anyOf": [
        {
@@ -4117,6 +4283,14 @@
       },
       "type": "array",
       "title": "Interfaces"
+     },
+     "tunnels": {
+      "items": {
+       "$ref": "#/components/schemas/TunnelState"
+      },
+      "type": "array",
+      "title": "Tunnels",
+      "default": []
      }
     },
     "additionalProperties": false,
@@ -4130,6 +4304,85 @@
     ],
     "title": "NetworkState",
     "description": "One snapshot of everything a source monitors."
+   },
+   "NetworkStatus": {
+    "properties": {
+     "network": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Network"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "operational",
+       "degraded",
+       "offline"
+      ],
+      "title": "Status"
+     },
+     "reasons": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Reasons"
+     },
+     "caveats": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Caveats"
+     },
+     "groups": {
+      "items": {
+       "$ref": "#/components/schemas/GroupStatus"
+      },
+      "type": "array",
+      "title": "Groups"
+     },
+     "sites": {
+      "type": "integer",
+      "title": "Sites"
+     },
+     "reached": {
+      "type": "integer",
+      "title": "Reached"
+     },
+     "tunnels_down": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tunnels Down"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "network",
+     "name",
+     "status",
+     "reasons",
+     "caveats",
+     "groups",
+     "sites",
+     "reached",
+     "tunnels_down"
+    ],
+    "title": "NetworkStatus",
+    "description": "The whole network, or one named network, and its groups."
    },
    "Notice": {
     "properties": {
@@ -4675,6 +4928,32 @@
     ],
     "title": "Reachability",
     "description": "Round-trip time and loss to a device from one monitoring position."
+   },
+   "Region": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "parent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parent"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "Region",
+    "description": "A region sites are in, inside another region or at the top."
    },
    "Review": {
     "properties": {
@@ -5313,7 +5592,9 @@
        "link-up",
        "busy",
        "congested",
-       "load-normal"
+       "load-normal",
+       "tunnel-down",
+       "tunnel-up"
       ],
       "title": "Kind"
      },
@@ -5339,6 +5620,17 @@
       ],
       "title": "Link"
      },
+     "tunnel": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tunnel"
+     },
      "pct": {
       "anyOf": [
        {
@@ -5363,7 +5655,35 @@
      "kind"
     ],
     "title": "StateEvent",
-    "description": "A change a source saw: a device or link going down or coming back,\nreadings stopping or resuming, packet loss starting or clearing, or a\nlink's load crossing 80% or 95% (``pct`` is the load after the change)."
+    "description": "A change a source saw: a device, link, or tunnel going down or coming back,\nreadings stopping or resuming, packet loss starting or clearing, or a\nlink's load crossing 80% or 95% (``pct`` is the load after the change)."
+   },
+   "StatusReport": {
+    "properties": {
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "whole": {
+      "$ref": "#/components/schemas/NetworkStatus"
+     },
+     "networks": {
+      "items": {
+       "$ref": "#/components/schemas/NetworkStatus"
+      },
+      "type": "array",
+      "title": "Networks"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "at",
+     "whole",
+     "networks"
+    ],
+    "title": "StatusReport",
+    "description": "Every network's status at a moment."
    },
    "Step": {
     "properties": {
@@ -5484,6 +5804,17 @@
    },
    "Topology": {
     "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
      "sites": {
       "items": {
        "$ref": "#/components/schemas/Site"
@@ -5504,6 +5835,22 @@
       },
       "type": "array",
       "title": "Links"
+     },
+     "regions": {
+      "items": {
+       "$ref": "#/components/schemas/Region"
+      },
+      "type": "array",
+      "title": "Regions",
+      "default": []
+     },
+     "locations": {
+      "items": {
+       "$ref": "#/components/schemas/Location"
+      },
+      "type": "array",
+      "title": "Locations",
+      "default": []
      },
      "networks": {
       "items": {
@@ -5780,6 +6127,40 @@
     ],
     "title": "TunnelPeer",
     "description": "A tunnel's far end that someone else runs: known by name, and its\naddress if known."
+   },
+   "TunnelState": {
+    "properties": {
+     "tunnel": {
+      "type": "string",
+      "title": "Tunnel"
+     },
+     "network": {
+      "type": "string",
+      "title": "Network"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "up",
+       "down"
+      ],
+      "title": "Status"
+     },
+     "dynamic": {
+      "type": "boolean",
+      "title": "Dynamic",
+      "default": false
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "tunnel",
+     "network",
+     "status"
+    ],
+    "title": "TunnelState",
+    "description": "Whether a tunnel is up, as its ends see it."
    },
    "ValidationError": {
     "properties": {
