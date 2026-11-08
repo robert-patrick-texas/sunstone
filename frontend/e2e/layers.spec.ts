@@ -145,3 +145,62 @@ test("a network's shared risks, and what one of them failing does", async ({ pag
 	const shared = details(page).locator('table.risks tr').filter({ hasText: 'hou-blu-01' });
 	await expect(shared).toContainText('with GREY-HOU-IAD · cuts off HOU');
 });
+
+/** A recent moment, every 15 minutes back over the day, where `wanted` finds something. */
+async function momentWith<A, T>(
+	page: Page,
+	ask: (at: string) => string,
+	wanted: (answer: A) => T | undefined
+): Promise<{ at: string; found: T }> {
+	const now = Date.parse((await (await page.request.get('/api/state')).json()).generated_at);
+	for (let minutes = 0; minutes < 24 * 60; minutes += 15) {
+		const at = new Date(now - minutes * 60_000).toISOString();
+		const found = wanted((await (await page.request.get(ask(at))).json()) as A);
+		if (found !== undefined) return { at, found };
+	}
+	throw new Error('no moment in the day has it');
+}
+
+interface Lost {
+	network: string | null;
+	tunnels_lost: string[];
+	sites_lost: string[];
+}
+
+test('a problem says what fixing it would bring back to each network', async ({ page }) => {
+	const { at, found } = await momentWith(
+		page,
+		(at) => `/api/problems?at=${encodeURIComponent(at)}`,
+		(answer: { problems: { title: string; networks: Lost[] }[] }) =>
+			answer.problems.find((p) =>
+				p.networks.some((n) => n.tunnels_lost.length || n.sites_lost.length)
+			)?.title
+	);
+	await page.goto(`/?live=1&at=${encodeURIComponent(at)}`);
+	const problem = page
+		.getByRole('region', { name: 'Problems' })
+		.getByRole('button', { name: found });
+	// The list names each network it takes something from, and what.
+	await expect(problem).toContainText(/[\w-]+: .*(tunnel|cut off)/);
+	await problem.click();
+	const impact = details(page).getByRole('region', { name: 'Impact' });
+	await expect(impact.getByRole('heading', { name: /^Networks \(\d+\)$/ })).toBeVisible();
+	await expect(impact.getByText('What fixing it would bring back to each network')).toBeVisible();
+});
+
+test('with live state, shared risk counts what is down, new risks first', async ({ page }) => {
+	const { at, found } = await momentWith(
+		page,
+		(at) => `/api/risks?at=${encodeURIComponent(at)}`,
+		(answer: { networks: { network: string; risks: { new: boolean }[] }[] }) =>
+			answer.networks.find((n) => n.risks.some((r) => r.new))?.network
+	);
+	await page.goto(`/?live=1&at=${encodeURIComponent(at)}&select=network:${found}`);
+	await expect(heading(page)).toHaveText(found);
+	await expect(
+		details(page).getByText(/^With what is down at .*, only what is still up counts/)
+	).toBeVisible();
+	await expect(
+		details(page).locator('table.risks tr').first().getByText('New', { exact: true })
+	).toBeVisible();
+});

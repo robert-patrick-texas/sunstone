@@ -6,10 +6,12 @@ should: the whole network and named networks degraded or offline, or
 working over something degraded. The server finds them, once per moment
 for every viewer. Within each kind, problems someone has acknowledged, then ones that
 planned maintenance accounts for, come after the rest, dimmed and marked.
-Clicking one selects it, brings it into view, and shows its impact in every
+An outage or link down names the networks it takes something from, and
+what: what fixing it would bring back. Clicking one selects it, brings it into view, and shows its impact in every
 view; clicking it again stops showing the impact.
 -->
 <script lang="ts">
+	import { problemNetworks } from './across.ts';
 	import type { Problem } from './api/analysis.ts';
 	import type { OnCall } from './api/oncall.ts';
 	import type { Window } from './api/operations.ts';
@@ -18,13 +20,16 @@ view; clicking it again stops showing the impact.
 	import type { StatusReport } from './api/status.ts';
 	import { showNetwork, showProblem, ui } from './state.svelte.ts';
 	import { needing, STATUS_COLOR, STATUS_GLYPH, statusWord } from './status.ts';
+	import type { TopologyIndex } from './topology.ts';
 
 	const {
+		index,
 		problems,
 		windows,
 		oncall,
 		status = null
 	}: {
+		index: TopologyIndex;
 		problems: Problem[];
 		windows: Window[];
 		oncall: OnCall | null;
@@ -79,6 +84,7 @@ view; clicking it again stops showing the impact.
 		<h3>{group.label} ({group.items.length})</h3>
 		<ul>
 			{#each group.items as problem (problem.id)}
+				{@const across = problemNetworks(index, problem.networks)}
 				<li>
 					<button
 						class="problem"
@@ -91,6 +97,7 @@ view; clicking it again stops showing the impact.
 						<span>
 							<span class="title">{problem.title}</span>
 							{#if problem.detail}<span class="detail">{problem.detail}</span>{/if}
+							{#if across}<span class="detail">{across}</span>{/if}
 							{#if problem.planned.length}
 								<span class="tag planned"
 									>Planned: {problem.planned

@@ -17,8 +17,8 @@ dev-api: ## API on :8000, restarting on code or topology changes (TOPOLOGY=file)
 dev-web: ## Vite dev server on :5173, proxying /api to dev-api
 	cd frontend && npm run dev
 
-dev-up: ## Dev instance in a container on 127.0.0.1:8000, rebuilt as the tree changes
-	docker compose -f tools/dev-instance/compose.yaml up -d --build
+dev-up: ## (Re)start the dev instance in a container on 127.0.0.1:8000, rebuilt as the tree changes
+	docker compose -f tools/dev-instance/compose.yaml up -d --build --force-recreate
 
 dev-down: ## Stop the dev instance; its saved state is kept
 	docker compose -f tools/dev-instance/compose.yaml down

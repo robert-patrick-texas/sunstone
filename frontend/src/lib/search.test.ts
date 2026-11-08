@@ -52,6 +52,7 @@ function problem(id: string, extra: Partial<Problem> = {}): Problem {
 		team: null,
 		urgency: 'high',
 		paging: null,
+		networks: [],
 		...extra
 	};
 }

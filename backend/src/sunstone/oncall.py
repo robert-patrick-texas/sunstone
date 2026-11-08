@@ -34,6 +34,7 @@ from pydantic import (
     model_validator,
 )
 
+from sunstone.across import NetworkImpact
 from sunstone.layouts import Center
 from sunstone.model import Link, LinkKind, Role, Topology, device_ends
 from sunstone.problems import Ack, Note, PersonName, Problem, ProblemKind
@@ -658,6 +659,10 @@ class RoutedProblem(Problem):
     """Its page as it stands, if it has been paged."""
     incident: int | None = None
     """The incident not yet closed it is in, if any."""
+    networks: list[NetworkImpact] = []
+    """What fixing it would bring back to each named network, with everything
+    else still down: ``before`` is with it fixed, ``after`` as things are
+    (outages and links down only)."""
 
 
 class RoutedProblemList(_Record):

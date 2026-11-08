@@ -67,7 +67,8 @@ describe('standing', () => {
 		ack: null,
 		team: null,
 		urgency: 'high',
-		paging: null
+		paging: null,
+		networks: []
 	} as Problem;
 
 	it('says who is on a problem, or that no one is', () => {

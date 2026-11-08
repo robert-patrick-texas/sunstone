@@ -17,6 +17,7 @@ function problem(id: string, kind: Problem['kind'], extra: Partial<Problem> = {}
 		team: null,
 		urgency: 'high',
 		paging: null,
+		networks: [],
 		...extra
 	};
 }

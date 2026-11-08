@@ -4,6 +4,20 @@ Release notes, newest first. `tools/release` takes each release's notes from
 its section here, and from the sections of any versions since the last
 release that were never released on their own.
 
+## 0.7.0
+
+- Problems say what they do to each network. An outage or link down names
+  each named network it takes something from, and what: "corp: 2 of 63
+  tunnels · BNA cut off". It is what fixing it would bring back, with
+  everything else still down, so two circuits down at one branch each say
+  they would bring the branch back. Its details list those networks as a
+  "what if" does. `GET /api/problems` gives each problem's `networks`.
+- Shared risk as things stand now. With Live on, a network's shared risks
+  are worked out on top of what is down at the moment shown, and a risk
+  only because of it is marked New and listed first: with IAD's Northwind
+  circuit down, the Bluebonnet one beside it alone would take 7 of grey's
+  15 tunnels. `GET /api/risks?at=<time>`.
+
 ## 0.6.0
 
 - "What if" is worked out only when asked. The details panel no longer

@@ -146,7 +146,8 @@ open, and leaves it as it was when it closes.
 	/** What the "what if" failures do to the whole network and each named network. */
 	let whatIfNetworks = $state.raw<NetworkImpact[]>([]);
 	let whatIfProblem = $state<string | null>(null);
-	/** Each named network's shared risks, for the network as documented. */
+	/** Each named network's shared risks, for the network as documented or,
+	 * while live state is shown, on top of what is down in it. */
 	let risks = $state.raw<RiskReport | null>(null);
 	const focused = $derived(problems.find((p) => p.id === ui.problem) ?? null);
 	// Problems someone is on, or that planned work accounts for, are handled.
@@ -390,11 +391,13 @@ open, and leaves it as it was when it closes.
 		};
 	});
 
-	// Shared risks follow the documentation: asked again whenever it changes.
+	// Shared risks follow the documentation, and while live state is shown,
+	// what is down in it: asked again whenever either changes.
 	$effect(() => {
 		if (!index) return;
+		const at = live?.state.generated_at;
 		let stopped = false;
-		fetchRisks().then(
+		fetchRisks(at).then(
 			(found) => {
 				if (!stopped) risks = found;
 			},
@@ -854,7 +857,7 @@ open, and leaves it as it was when it closes.
 					{:else if ui.sideTab === 'maintenance'}
 						<MaintenancePanel {index} {windows} problem={windowsProblem} onchange={refetch} />
 					{:else if ui.sideTab === 'problems'}
-						<ProblemsPanel {problems} {windows} {oncall} {status} />
+						<ProblemsPanel {index} {problems} {windows} {oncall} {status} />
 					{:else}
 						<EventsPanel {index} log={events} problem={eventsProblem} />
 					{/if}
