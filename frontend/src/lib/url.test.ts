@@ -129,6 +129,7 @@ describe('writeItem and readItem', () => {
 			circuit: { provider: 'Mesa Carrier', circuit_id: { a: 'ME-1', z: null }, type: 'carrier' },
 			carries: [],
 			edges: [],
+			neighbors: [],
 			id: mpls
 		});
 		const index = indexTopology(topology);

@@ -341,7 +341,9 @@ def test_the_api_answers_across_the_layers(tmp_path: Path) -> None:
     ).json()
     corp = next(n for n in answer["networks"] if n["network"] == "corp")
     assert corp["sites_lost"] == ["BNA", "FTW", "MEM"]
-    assert len(corp["tunnels_lost"]) == 28
+    # 28 over Mesa's MPLS, and the 4 MACsec connections over its E-LAN.
+    assert len(corp["tunnels_lost"]) == 32
+    assert sum(t.startswith("MACSEC-") for t in corp["tunnels_lost"]) == 4
     risks = client.get("/api/risks").json()["networks"]
     grey = next(n for n in risks if n["network"] == "grey")
     first = grey["risks"][0]

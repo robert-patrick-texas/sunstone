@@ -14,12 +14,13 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 -->
 <script lang="ts">
 	import { revertChange, type Change } from './api/changes.ts';
-	import type { Comparison, Finding, LinkCheck } from './api/discovery.ts';
+	import type { Comparison, Finding, LinkCheck, TunnelCheck } from './api/discovery.ts';
 	import {
 		changedTarget,
 		changeLine,
 		CHECK_LABEL,
 		EXPECTABLE,
+		TUNNEL_CHECK_LABEL,
 		findingTarget,
 		groupFindings,
 		seenWhen
@@ -76,6 +77,18 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 		return [...found].filter(([, n]) => n > 0);
 	});
 
+	/** Tunnels CDP runs over, and MACsec: how many are confirmed, and the rest by check. */
+	const tunnels = $derived.by(() => {
+		const found = new Map<TunnelCheck, number>();
+		for (const check of Object.values(comparison?.tunnels ?? {})) {
+			if (check) found.set(check, (found.get(check) ?? 0) + 1);
+		}
+		const total = [...found.values()].reduce((sum, n) => sum + n, 0);
+		const confirmed = found.get('confirmed') ?? 0;
+		found.delete('confirmed');
+		return { total, confirmed, rest: [...found] };
+	});
+
 	const endpoints = $derived(
 		Object.values(comparison?.endpoints ?? {}).reduce((sum, n) => sum + n, 0)
 	);
@@ -110,6 +123,14 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 					>{` · ${endpoints} endpoints on access ports`}</span
 				>{/if}
 		</p>
+		{#if tunnels.total}
+			<p class="summary">
+				<b>{tunnels.confirmed}</b> of {tunnels.total} tunnels confirmed over CDP or inside MACsec{#each tunnels.rest as [check, n] (check)}<span
+						class="muted"
+						>{` · ${n} ${TUNNEL_CHECK_LABEL[check].charAt(0).toLowerCase()}${TUNNEL_CHECK_LABEL[check].slice(1)}`}</span
+					>{/each}
+			</p>
+		{/if}
 		<p class="actions">
 			<button
 				aria-pressed={ui.discovery}

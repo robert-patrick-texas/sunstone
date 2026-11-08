@@ -4,7 +4,7 @@
  * fixes they offer: what a review of one says, and the change set's lines.
  */
 import type { Change, PortNow, Review } from './api/changes.ts';
-import type { Comparison, Finding, FindingKind, LinkCheck } from './api/discovery.ts';
+import type { Comparison, Finding, FindingKind, LinkCheck, TunnelCheck } from './api/discovery.ts';
 import type { Link } from './api/topology.ts';
 import { showsOf } from './connections.ts';
 import { clock } from './history.ts';
@@ -14,6 +14,7 @@ import { deviceEnds, portName, shortInterface, type TopologyIndex } from './topo
 /** Kinds in the order the server ranks them, most misleading first. */
 export const FINDING_KINDS: { kind: FindingKind; label: string }[] = [
 	{ kind: 'boundary', label: 'Our own devices across the boundary' },
+	{ kind: 'leaf', label: 'E-Tree leaves that see each other' },
 	{ kind: 'wrong-neighbor', label: 'Another device on the port' },
 	{ kind: 'wrong-port', label: 'On another port' },
 	{ kind: 'not-seen', label: 'Documented, not seen' },
@@ -34,6 +35,28 @@ export const CHECK_LABEL: Record<LinkCheck, string> = {
 	unchecked: 'Not checked',
 	unstated: 'Not said what it shows',
 	differs: 'Not as documented'
+};
+
+/** A tunnel's check, over CDP on its tunnel interface, or for MACsec, inside it. */
+export const TUNNEL_CHECK_LABEL: Record<TunnelCheck, string> = {
+	confirmed: 'Confirmed',
+	mismatch: 'Not as documented',
+	quiet: 'Without CDP',
+	'not-seen': 'Not seen inside',
+	'not-inside': 'Not checked inside it',
+	down: 'Down, so not seen',
+	unchecked: 'Not checked'
+};
+
+/** What a tunnel's check means. */
+export const TUNNEL_CHECK_DETAIL: Record<TunnelCheck, string> = {
+	confirmed: 'its far end seen over CDP',
+	mismatch: 'CDP over it shows another far end',
+	quiet: 'CDP does not run over it, which is not a finding',
+	'not-seen': 'LLDP and CDP run inside it, yet its far end is not seen: its circuit says why',
+	'not-inside': 'LLDP and CDP do not run inside it, so discovery cannot vouch for the encryption',
+	down: 'it is down',
+	unchecked: 'neither end answers discovery'
 };
 
 /** What a link's check means, where its label alone does not say. */
@@ -132,10 +155,9 @@ export function deviceCheck(
 	device: string
 ): DeviceCheck {
 	// Links documented to show nothing, or that do not say, have nothing to confirm.
-	const links = (index.linksByDevice.get(device) ?? []).filter((l) => {
-		const shows = showsOf(l);
-		return shows === 'far-end' || shows === 'provider';
-	});
+	const links = (index.linksByDevice.get(device) ?? []).filter((l) =>
+		showsOf(l).some((s) => s === 'far-end' || s === 'provider')
+	);
 	return {
 		polled: comparison.polled.includes(device),
 		links: links.length,
@@ -159,6 +181,7 @@ export const EXPECTABLE: ReadonlySet<FindingKind> = new Set([
 
 /** Why discovery offers no fix, for the kinds it never offers one for. */
 export const NO_FIX: Partial<Record<FindingKind, string>> = {
+	leaf: 'The carrier must keep its leaves apart, or the roles are documented wrong.',
 	'unknown-device': 'Document the device first, or unplug it.',
 	'no-neighbors': 'Turn LLDP or CDP on, and its links can be checked.'
 };

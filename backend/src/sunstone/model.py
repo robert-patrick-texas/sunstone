@@ -39,6 +39,7 @@ from pydantic import (
     ConfigDict,
     Field,
     computed_field,
+    field_validator,
     model_validator,
 )
 
@@ -57,7 +58,23 @@ Edge = Literal[
 EDGES: tuple[Edge, ...] = get_args(Edge)
 Neighbors = Literal["far-end", "provider", "nothing"]
 """What LLDP and CDP show on our port: the device at the far end (ours or
-someone else's), the provider's own equipment (an NTU or PE), or nothing."""
+someone else's; across a layer-2 transport, our devices on the same
+service), the provider's own equipment (an NTU or PE), or nothing."""
+Service = Literal["e-lan", "e-tree"]
+"""A layer-2 transport's service: many to many (E-LAN: VPLS, EVPN), or one
+to many (E-Tree: EVPN with root and leaf policies)."""
+CircuitService = Literal["e-line", "e-access"]
+"""A point-to-point layer-2 circuit's service: E-Line (VPWS, a pseudowire),
+or E-Access (from a UNI to another operator's NNI)."""
+TreeRole = Literal["root", "leaf"]
+Secured = Literal["inside", "alongside", "none"]
+"""How LLDP and CDP relate to a MACsec connection: they run ``inside`` it,
+so its far end seen proves the encryption works; ``alongside`` it, in clear,
+so its far end seen proves only the circuit; or they do not reach its far
+end at all (``none``)."""
+TunnelKind = Literal["ip", "macsec"]
+"""``ip``: packets in packets (GRE, IPsec, WireGuard), on a tunnel interface
+of its own. ``macsec``: frames encrypted on the physical port itself."""
 FabricShape = Literal["hub-spoke", "hub-spoke-dynamic", "full-mesh", "group"]
 MemberRole = Literal["hub", "spoke", "peer"]
 Term = Literal[
@@ -128,6 +145,9 @@ class TransportEnd(_Record):
     """The far end of a circuit into a transport."""
 
     transport: str
+    role: TreeRole | None = None
+    """Into an E-Tree: a root, or a leaf (the default), which reaches only
+    the roots."""
 
 
 class ExternalEnd(_Record):
@@ -196,6 +216,11 @@ class Circuit(_Record):
     type: CircuitType = "carrier"
     """``carrier``: a communications service, whose path the provider runs.
     ``cross-connect``: the provider's cable, as between co-location cages."""
+    service: CircuitService | None = None
+    """For a point-to-point layer-2 circuit, its service; into a transport,
+    the transport's service is the circuit's."""
+    technology: str | None = None
+    """A label, such as ``VPWS``, ``pseudowire``, or ``802.1Q-in-Q``."""
 
 
 class SegmentIds(_Record):
@@ -243,9 +268,25 @@ class Link(_Record):
     edges: list[Edge] = []
     """Its roles at the edge of the enterprise, as routing policy sets them;
     without any, ``link_roles`` implies them where the far end leaves no doubt."""
-    neighbors: Neighbors | None = None
-    """What LLDP and CDP show on our port; without it, the far end between
-    two of our devices, and not said otherwise."""
+    neighbors: list[Neighbors] = []
+    """What LLDP and CDP show on our port, one or more (the provider's NTU
+    over LLDP while CDP passes through to the far end); without it, the far
+    end between two of our devices, and not said otherwise."""
+
+    @field_validator("neighbors", mode="before")
+    @classmethod
+    def _one_or_more(cls, value: Any) -> Any:
+        """Read a single value as a list of one, and none as not said.
+
+        Args:
+            value: What was written.
+
+        Returns:
+            A list, or the value as it was for validation to judge.
+        """
+        if value is None:
+            return []
+        return [value] if isinstance(value, str) else value
 
     @model_validator(mode="before")
     @classmethod
@@ -361,6 +402,10 @@ class Transport(_Record):
     network: str | None = None
     """The named network its circuits are in."""
     provider: str | None = None
+    service: Service | None = None
+    """A layer-2 service, E-LAN or E-Tree; without one, it is routed."""
+    technology: str | None = None
+    """A label, such as ``VPLS``, ``MPLS EVPN``, or ``VXLAN EVPN``."""
     description: str | None = None
     tags: list[str] = []
 
@@ -386,8 +431,10 @@ class TunnelEnd(_Record):
 
     device: str
     interface: str
+    """Its tunnel interface; for MACsec, the physical port it is on."""
     source: str | None = None
-    """The interface its packets leave from, physical or a loopback."""
+    """The interface its packets leave from, physical or a loopback; none
+    for MACsec."""
 
 
 class TunnelPeer(_Record):
@@ -399,13 +446,25 @@ class TunnelPeer(_Record):
 
 
 class Tunnel(_Record):
-    """A point-to-point tunnel: a link in one network that rides another."""
+    """A point-to-point tunnel: a link in one network that rides another.
+
+    MACsec (``kind: macsec``) is a connection of its own too, though it is
+    configured on the physical port: its ends are the ports of the link it
+    rides, or of two circuits into one layer-2 transport, and it is up
+    while they are. What the port shows is its link's to say (``neighbors``
+    on the link); the MACsec connection says only how LLDP and CDP relate
+    to it.
+    """
 
     name: str
     network: str
     rides: str
+    kind: TunnelKind = "ip"
     technology: str | None = None
-    """A label, such as ``GRE+IPsec`` or ``WireGuard``."""
+    """A label, such as ``GRE+IPsec``, ``WireGuard``, or ``GCM-AES-XPN-256``."""
+    neighbors: Secured | None = None
+    """For MACsec, how LLDP and CDP relate to it; not said, discovery cannot
+    vouch for it."""
     a: TunnelEnd
     b: TunnelEnd | TunnelPeer
     tags: list[str] = []
@@ -444,6 +503,39 @@ class Fabric(_Record):
     edges: list[Edge] = []
 
 
+class LagEnd(_Record):
+    """A port channel on one of the network's devices."""
+
+    device: str
+    interface: str
+    """The channel's own interface, such as ``Port-channel10``."""
+
+
+class Lag(_Record):
+    """A link aggregation between two of the network's devices: one or more
+    member links, each with its own cable or circuit ID, bundled into one
+    channel with a CID of its own. Members name it with ``lag`` on their
+    ends."""
+
+    a: LagEnd
+    b: LagEnd
+    enterprise_cid: Sides | None = None
+    """The enterprise's own ID for the channel."""
+    circuit: Circuit | None = None
+    """The provider whose bundle it is, and the provider's CID, if any."""
+
+    @computed_field
+    @cached_property
+    def id(self) -> str:
+        """Stable identifier that does not depend on which end is listed first.
+
+        Returns:
+            Both ends' ``device:channel``, sorted and joined with ``--``.
+        """
+        ends = sorted(f"{e.device}:{e.interface}" for e in (self.a, self.b))
+        return "--".join(ends)
+
+
 class Topology(_Record):
     """A whole network: every site, device, and link, and what is layered
     over them."""
@@ -463,6 +555,7 @@ class Topology(_Record):
     tenants: list[Tenant] = []
     tunnels: list[Tunnel] = []
     fabrics: list[Fabric] = []
+    lags: list[Lag] = []
     terms: dict[Term, str] = {}
     """The organization's own words for Sunstone's, such as ``tenant: Customer``."""
 
@@ -496,6 +589,7 @@ class Topology(_Record):
         transports = {t.name: t for t in self.transports}
         externals = {e.name for e in self.externals}
         used: Counter[tuple[str, str]] = Counter()
+        at_port: dict[tuple[str, str], Link] = {}
         for link in self.links:
             b = link.b
             if isinstance(b, Endpoint) and link.a.device == b.device:
@@ -513,6 +607,7 @@ class Topology(_Record):
                 )
             for end in device_ends(link):
                 used[(end.device, end.interface)] += 1
+                at_port[(end.device, end.interface)] = link
                 if end.device not in device_names:
                     problems.append(
                         f"link {link.id} references unknown device {end.device!r}"
@@ -522,20 +617,21 @@ class Topology(_Record):
             for (dev, ifname), n in used.items()
             if n > 1
         ]
-        problems += self._layer_problems(device_names, set(used))
+        problems += self._layer_problems(device_names, at_port)
+        problems += self._lag_problems(device_names)
         problems += self._group_problems()
         if problems:
             raise ValueError("\n".join(problems))
         return self
 
     def _layer_problems(
-        self, device_names: set[str], cabled: set[tuple[str, str]]
+        self, device_names: set[str], at_port: dict[tuple[str, str], Link]
     ) -> list[str]:
         """Problems with the named networks and what is layered over the links.
 
         Args:
             device_names: Every device.
-            cabled: Every device interface a link uses.
+            at_port: The link at each device interface a link uses.
 
         Returns:
             One message per problem found.
@@ -598,7 +694,8 @@ class Topology(_Record):
                     if c.network != own
                 ]
         for link in self.links:
-            problems += _connection_problems(link)
+            problems += _connection_problems(link, transports)
+        problems += _tree_problems(self.links, transports)
         for what, edges in (
             *((f"tunnel {t.name!r}", t.edges) for t in self.tunnels),
             *((f"fabric {f.name!r}", f.edges) for f in self.fabrics),
@@ -610,7 +707,7 @@ class Topology(_Record):
             ]
         carried = _carried_at(self.links, transports)
         tunnel_ends: Counter[tuple[str, str]] = Counter()
-        for what, net, rides, ends in self._tunnel_ends():
+        for what, net, rides, ends, macsec in self._tunnel_ends():
             problems += unknown(what, "network", [net, rides], networks)
             if net == rides:
                 problems.append(f"{what} rides its own network {net!r}")
@@ -620,15 +717,29 @@ class Topology(_Record):
                     continue
                 if end.device not in device_names:
                     problems.append(f"{what} references unknown device {end.device!r}")
-                tunnel_ends[(end.device, end.interface)] += 1
-                if (end.device, end.interface) in cabled:
-                    problems.append(
-                        f"{what} uses {end.device}:{end.interface}, which is cabled"
-                    )
-                source = (end.device, end.source or "")
+                port = (end.device, end.interface)
+                if macsec:
+                    # On the physical port itself, which its link leaves from.
+                    if port not in at_port:
+                        problems.append(
+                            f"{what} is MACsec on {end.device}:{end.interface}, "
+                            "which no link uses"
+                        )
+                    if end.source is not None:
+                        problems.append(
+                            f"{what} is MACsec, on the port itself: it has no source"
+                        )
+                    source = port
+                else:
+                    tunnel_ends[port] += 1
+                    if port in at_port:
+                        problems.append(
+                            f"{what} uses {end.device}:{end.interface}, which is cabled"
+                        )
+                    source = (end.device, end.source or "")
                 if source in carried and rides not in carried[source]:
                     problems.append(
-                        f"{what} leaves {end.device}:{end.source}, which does not "
+                        f"{what} leaves {end.device}:{source[1]}, which does not "
                         f"carry {rides!r}"
                     )
         problems += [
@@ -636,6 +747,7 @@ class Topology(_Record):
             for (dev, ifname), n in tunnel_ends.items()
             if n > 1
         ]
+        problems += _macsec_problems(self.tunnels, at_port, transports)
         problems += self._fabric_problems()
         problems += _cycles(self._rides())
         return problems
@@ -714,16 +826,60 @@ class Topology(_Record):
 
     def _tunnel_ends(
         self,
-    ) -> Iterator[tuple[str, str, str, list[TunnelEnd | TunnelPeer]]]:
-        """Each tunnel and fabric, with its network, what it rides, and its ends."""
+    ) -> Iterator[tuple[str, str, str, list[TunnelEnd | TunnelPeer], bool]]:
+        """Each tunnel and fabric, with its network, what it rides, its ends,
+        and whether it is MACsec."""
         for t in self.tunnels:
-            yield f"tunnel {t.name!r}", t.network, t.rides, [t.a, t.b]
+            macsec = t.kind == "macsec"
+            yield f"tunnel {t.name!r}", t.network, t.rides, [t.a, t.b], macsec
         for f in self.fabrics:
             ends: list[TunnelEnd | TunnelPeer] = [
                 TunnelEnd(device=m.device, interface=m.interface, source=m.source)
                 for m in f.members
             ]
-            yield f"fabric {f.name!r}", f.network, f.rides, ends
+            yield f"fabric {f.name!r}", f.network, f.rides, ends, False
+
+    def _lag_problems(self, device_names: set[str]) -> list[str]:
+        """Port channels that are listed twice, name unknown devices, have no
+        members, or have members ending elsewhere than the channel's far end.
+
+        Args:
+            device_names: Every device.
+
+        Returns:
+            One message per problem found.
+        """
+        problems = []
+        ends: Counter[tuple[str, str]] = Counter()
+        for lag in self.lags:
+            what = f"lag {lag.id}"
+            for end in (lag.a, lag.b):
+                ends[(end.device, end.interface)] += 1
+                if end.device not in device_names:
+                    problems.append(f"{what} references unknown device {end.device!r}")
+            if lag.a.device == lag.b.device:
+                problems.append(f"{what} joins a device to itself")
+            members = lag_members(lag, self.links)
+            if not members:
+                problems.append(f"{what} has no member links")
+            for link in members:
+                if not isinstance(link.b, Endpoint):
+                    problems.append(
+                        f"{what} has {link.id}, which does not end at a device"
+                    )
+                    continue
+                far = link.b if link.a.device == lag.a.device else link.a
+                if (far.device, far.lag) != (lag.b.device, lag.b.interface):
+                    problems.append(
+                        f"{what} has {link.id}, whose far end is not in "
+                        f"{lag.b.device}:{lag.b.interface}"
+                    )
+        problems += [
+            f"port channel {dev}:{ifname} is listed {n} times"
+            for (dev, ifname), n in ends.items()
+            if n > 1
+        ]
+        return problems
 
     def _fabric_problems(self) -> list[str]:
         """Fabrics whose members do not fit their shape."""
@@ -755,29 +911,143 @@ class Topology(_Record):
         return rides
 
 
-def _connection_problems(link: Link) -> list[str]:
+def _connection_problems(link: Link, transports: Mapping[str, Transport]) -> list[str]:
     """Problems with what a link says carries it and what it shows.
 
     Args:
         link: A link.
+        transports: Transports by name.
 
     Returns:
         One message per problem found.
     """
     problems = [
-        f"link {link.id} names edge {e!r} twice"
-        for e, n in Counter(link.edges).items()
+        f"link {link.id} names {what} {e!r} twice"
+        for what, values in (("edge", link.edges), ("neighbors", link.neighbors))
+        for e, n in Counter(values).items()
         if n > 1
     ]
-    if link.neighbors == "provider" and link.circuit is None:
+    if "nothing" in link.neighbors and len(set(link.neighbors)) > 1:
+        problems.append(f"link {link.id} shows nothing, and something besides")
+    if "provider" in link.neighbors and link.circuit is None:
         problems.append(
             f"link {link.id} shows the provider's equipment, but has no circuit"
         )
-    if link.neighbors == "far-end" and isinstance(link.b, TransportEnd):
+    b = link.b
+    if not isinstance(b, TransportEnd):
+        return problems
+    transport = transports.get(b.transport)
+    if transport is None:
+        return problems
+    if "far-end" in link.neighbors and transport.service is None:
         problems.append(
-            f"link {link.id} into {link.b.transport!r} shows the far end, but a "
-            "transport's far end is the provider's network: say provider or nothing"
+            f"link {link.id} into {b.transport!r} shows the far end, but a "
+            "routed transport's far end is the provider's network: say provider "
+            "or nothing"
         )
+    if b.role is not None and transport.service != "e-tree":
+        problems.append(
+            f"link {link.id} into {b.transport!r} is a {b.role}, but "
+            f"{b.transport!r} is not an E-Tree"
+        )
+    if link.circuit is not None and link.circuit.service == "e-line":
+        problems.append(
+            f"link {link.id} into {b.transport!r} is an E-Line, which is point to point"
+        )
+    return problems
+
+
+def _tree_problems(links: list[Link], transports: Mapping[str, Transport]) -> list[str]:
+    """E-Trees without a root: their leaves would reach nothing.
+
+    Args:
+        links: Every link.
+        transports: Transports by name.
+
+    Returns:
+        One message per E-Tree with circuits into it and no root.
+    """
+    rooted: dict[str, bool] = {}
+    for ln in links:
+        if isinstance(ln.b, TransportEnd):
+            name = ln.b.transport
+            rooted[name] = rooted.get(name, False) or ln.b.role == "root"
+    return [
+        f"transport {name!r} is an E-Tree with no root"
+        for name, has in sorted(rooted.items())
+        if not has and name in transports and transports[name].service == "e-tree"
+    ]
+
+
+def _macsec_problems(
+    tunnels: list[Tunnel],
+    at_port: Mapping[tuple[str, str], Link],
+    transports: Mapping[str, Transport],
+) -> list[str]:
+    """MACsec connections whose ends no one link or layer-2 service joins,
+    and ports with MACsec to one far end twice.
+
+    Args:
+        tunnels: Every tunnel.
+        at_port: The link at each device interface a link uses.
+        transports: Transports by name.
+
+    Returns:
+        One message per problem found.
+    """
+    problems = []
+    pairs: Counter[frozenset[str]] = Counter()
+    for t in tunnels:
+        what = f"tunnel {t.name!r}"
+        if t.kind != "macsec":
+            if t.neighbors is not None:
+                problems.append(
+                    f"{what} says how LLDP and CDP relate to it, which only MACsec does"
+                )
+            continue
+        here = at_port.get((t.a.device, t.a.interface))
+        if here is None:
+            continue
+        b = t.b
+        far = (
+            f"{b.device}:{b.interface}"
+            if isinstance(b, TunnelEnd)
+            else f"external:{b.external}"
+        )
+        pairs[frozenset({f"{t.a.device}:{t.a.interface}", far})] += 1
+        if isinstance(b, TunnelPeer):
+            if not (isinstance(here.b, ExternalEnd) and here.b.external == b.external):
+                problems.append(
+                    f"{what} is MACsec to {b.external!r}, but {here.id} does not "
+                    "go there"
+                )
+            continue
+        there = at_port.get((b.device, b.interface))
+        if there is None or there is here:
+            continue
+        if not (
+            isinstance(here.b, TransportEnd)
+            and isinstance(there.b, TransportEnd)
+            and here.b.transport == there.b.transport
+            and here.b.transport in transports
+            and transports[here.b.transport].service is not None
+        ):
+            problems.append(
+                f"{what} is MACsec, but neither one link nor one layer-2 "
+                "transport joins its ends"
+            )
+        elif "root" not in (here.b.role, there.b.role) and (
+            transports[here.b.transport].service == "e-tree"
+        ):
+            problems.append(
+                f"{what} is MACsec between two leaves of {here.b.transport!r}, "
+                "which reach only the roots"
+            )
+    problems += [
+        f"MACsec between {' and '.join(sorted(pair))} is listed {n} times"
+        for pair, n in pairs.items()
+        if n > 1
+    ]
     return problems
 
 
@@ -1025,22 +1295,195 @@ def joins(link: Link) -> bool:
     )
 
 
-def shows(link: Link) -> Neighbors | None:
+def shows(link: Link) -> tuple[Neighbors, ...]:
     """What LLDP and CDP should show on a link's port at our end.
 
     Args:
         link: The link.
 
     Returns:
-        As documented; else the far end between two of our devices, which
-        is how they have always been compared; else None: not said.
+        As documented, one or more; else the far end between two of our
+        devices, which is how they have always been compared; else nothing
+        at all: not said.
 
     Raises:
         None
     """
-    if link.neighbors is not None:
-        return link.neighbors
-    return "far-end" if isinstance(link.b, Endpoint) else None
+    if link.neighbors:
+        return tuple(link.neighbors)
+    return ("far-end",) if isinstance(link.b, Endpoint) else ()
+
+
+def lag_members(lag: Lag, links: Iterable[Link]) -> list[Link]:
+    """A port channel's member links.
+
+    Args:
+        lag: The channel.
+        links: Every link.
+
+    Returns:
+        The links with an end in the channel at its A end, in order.
+
+    Raises:
+        None
+    """
+    return [
+        ln
+        for ln in links
+        if any(
+            (e.device, e.lag) == (lag.a.device, lag.a.interface)
+            for e in device_ends(ln)
+        )
+    ]
+
+
+def layer2(transport: Transport | None) -> bool:
+    """Whether a transport is a layer-2 service, across which our devices
+    see each other.
+
+    Args:
+        transport: The transport, or None if there is none.
+
+    Returns:
+        True for an E-LAN or an E-Tree.
+
+    Raises:
+        None
+    """
+    return transport is not None and transport.service is not None
+
+
+def sees_across(here: Link, there: Link, transports: Mapping[str, Transport]) -> bool:
+    """Whether two circuits into one layer-2 transport reach each other
+    across it: on an E-LAN every pair does, and on an E-Tree every pair but
+    two leaves.
+
+    Args:
+        here: A circuit.
+        there: Another circuit.
+        transports: Transports by name.
+
+    Returns:
+        True if both go into the same layer-2 transport and its service lets
+        them reach each other.
+
+    Raises:
+        None
+    """
+    a, b = here.b, there.b
+    if here is there:
+        return False
+    if not (isinstance(a, TransportEnd) and isinstance(b, TransportEnd)):
+        return False
+    transport = transports.get(a.transport)
+    if a.transport != b.transport or not layer2(transport):
+        return False
+    return transport is not None and (
+        transport.service != "e-tree" or "root" in (a.role, b.role)
+    )
+
+
+def macsec_links(
+    tunnel: Tunnel, at_port: Mapping[tuple[str, str], Link]
+) -> tuple[Link, ...]:
+    """The links a MACsec connection is carried on.
+
+    Args:
+        tunnel: A MACsec connection.
+        at_port: The link at each device interface.
+
+    Returns:
+        The link at its A end, and at its B end when that is another
+        circuit into the same layer-2 transport.
+
+    Raises:
+        None
+    """
+    here = at_port.get((tunnel.a.device, tunnel.a.interface))
+    b = tunnel.b
+    there = at_port.get((b.device, b.interface)) if isinstance(b, TunnelEnd) else None
+    if here is None:
+        return ()
+    return (here,) if there is None or there is here else (here, there)
+
+
+def ports(topology: Topology) -> dict[tuple[str, str], Link]:
+    """The link at each device interface a link uses.
+
+    Args:
+        topology: A topology.
+
+    Returns:
+        Each link by its device ends' (device, interface).
+
+    Raises:
+        None
+    """
+    return {
+        (e.device, e.interface): ln for ln in topology.links for e in device_ends(ln)
+    }
+
+
+def leaf_key(link: Link) -> str:
+    """The node an E-Tree leaf's circuit leads to: its own corner of the
+    transport, which only the roots' circuits reach.
+
+    Args:
+        link: A circuit into a transport.
+
+    Returns:
+        ``transport:NAME~`` and the circuit's id.
+
+    Raises:
+        None
+    """
+    return f"{end_key(link.b)}~{link.id}"
+
+
+def transport_hops(
+    links: Iterable[Link], transports: Iterable[Transport]
+) -> dict[str, list[tuple[str, str]]]:
+    """How each circuit into a transport joins nodes, for reach and paths.
+
+    A circuit for transit (or still TBD) leads to its transport's node, as
+    to a device. Into an E-Tree, a leaf's circuit leads to a node of its
+    own, which each root's circuit reaches too: so leaves reach the roots,
+    and each other only through a root's router, and are cut off from the
+    E-Tree when no root is reached. Circuits for something else join nothing.
+
+    Args:
+        links: Every link.
+        transports: Every transport.
+
+    Returns:
+        The node pairs each joining circuit into a transport makes, by link
+        id, each from its device.
+
+    Raises:
+        None
+    """
+    trees = {t.name for t in transports if t.service == "e-tree"}
+    into = [ln for ln in links if isinstance(ln.b, TransportEnd) and joins(ln)]
+    leaves: dict[str, list[Link]] = {}
+    for ln in into:
+        b = ln.b
+        if isinstance(b, TransportEnd) and b.transport in trees and b.role != "root":
+            leaves.setdefault(b.transport, []).append(ln)
+    found: dict[str, list[tuple[str, str]]] = {}
+    for ln in into:
+        b = ln.b
+        if not isinstance(b, TransportEnd):
+            continue
+        device, cloud = ln.a.device, end_key(b)
+        if b.transport not in trees:
+            found[ln.id] = [(device, cloud)]
+        elif b.role == "root":
+            found[ln.id] = [(device, cloud)] + [
+                (device, leaf_key(leaf)) for leaf in leaves.get(b.transport, [])
+            ]
+        else:
+            found[ln.id] = [(device, leaf_key(ln))]
+    return found
 
 
 def cid(link: Link) -> str | None:

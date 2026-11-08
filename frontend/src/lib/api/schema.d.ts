@@ -894,6 +894,10 @@ export interface components {
              * @enum {string}
              */
             type: "carrier" | "cross-connect";
+            /** Service */
+            service?: ("e-line" | "e-access") | null;
+            /** Technology */
+            technology?: string | null;
         };
         /**
          * CloseIn
@@ -940,6 +944,13 @@ export interface components {
             };
             /** Confirmed */
             confirmed: number;
+            /**
+             * Tunnels
+             * @default {}
+             */
+            tunnels: {
+                [key: string]: "confirmed" | "mismatch" | "quiet" | "not-seen" | "not-inside" | "down" | "unchecked";
+            };
             /** Findings */
             findings: components["schemas"]["Finding"][];
             /** Seen */
@@ -1282,13 +1293,15 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "boundary" | "wrong-neighbor" | "wrong-port" | "not-seen" | "undocumented" | "shows" | "unknown-device" | "no-neighbors";
+            kind: "boundary" | "leaf" | "wrong-neighbor" | "wrong-port" | "not-seen" | "undocumented" | "shows" | "unknown-device" | "no-neighbors";
             /** Title */
             title: string;
             /** Detail */
             detail: string;
             /** Link */
             link?: string | null;
+            /** Tunnel */
+            tunnel?: string | null;
             /**
              * Documented
              * @default []
@@ -1680,6 +1693,37 @@ export interface components {
             by: string;
         };
         /**
+         * Lag
+         * @description A link aggregation between two of the network's devices: one or more
+         *     member links, each with its own cable or circuit ID, bundled into one
+         *     channel with a CID of its own. Members name it with ``lag`` on their
+         *     ends.
+         */
+        Lag: {
+            a: components["schemas"]["LagEnd"];
+            b: components["schemas"]["LagEnd"];
+            enterprise_cid?: components["schemas"]["Sides"] | null;
+            circuit?: components["schemas"]["Circuit"] | null;
+            /**
+             * Id
+             * @description Stable identifier that does not depend on which end is listed first.
+             *
+             *     Returns:
+             *         Both ends' ``device:channel``, sorted and joined with ``--``.
+             */
+            readonly id: string;
+        };
+        /**
+         * LagEnd
+         * @description A port channel on one of the network's devices.
+         */
+        LagEnd: {
+            /** Device */
+            device: string;
+            /** Interface */
+            interface: string;
+        };
+        /**
          * LayeredWhatIf
          * @description What failing some items would do, physically and to each network.
          */
@@ -1774,8 +1818,11 @@ export interface components {
              * @default []
              */
             edges: ("access" | "transit" | "interconnect" | "ingress" | "egress" | "peering" | "open")[];
-            /** Neighbors */
-            neighbors?: ("far-end" | "provider" | "nothing") | null;
+            /**
+             * Neighbors
+             * @default []
+             */
+            neighbors: ("far-end" | "provider" | "nothing")[];
             /**
              * Id
              * @description Stable identifier that does not depend on which end is listed first.
@@ -2677,6 +2724,11 @@ export interface components {
              */
             fabrics: components["schemas"]["Fabric"][];
             /**
+             * Lags
+             * @default []
+             */
+            lags: components["schemas"]["Lag"][];
+            /**
              * Terms
              * @default {}
              */
@@ -2701,6 +2753,10 @@ export interface components {
             network?: string | null;
             /** Provider */
             provider?: string | null;
+            /** Service */
+            service?: ("e-lan" | "e-tree") | null;
+            /** Technology */
+            technology?: string | null;
             /** Description */
             description?: string | null;
             /**
@@ -2716,10 +2772,19 @@ export interface components {
         TransportEnd: {
             /** Transport */
             transport: string;
+            /** Role */
+            role?: ("root" | "leaf") | null;
         };
         /**
          * Tunnel
          * @description A point-to-point tunnel: a link in one network that rides another.
+         *
+         *     MACsec (``kind: macsec``) is a connection of its own too, though it is
+         *     configured on the physical port: its ends are the ports of the link it
+         *     rides, or of two circuits into one layer-2 transport, and it is up
+         *     while they are. What the port shows is its link's to say (``neighbors``
+         *     on the link); the MACsec connection says only how LLDP and CDP relate
+         *     to it.
          */
         Tunnel: {
             /** Name */
@@ -2728,8 +2793,16 @@ export interface components {
             network: string;
             /** Rides */
             rides: string;
+            /**
+             * Kind
+             * @default ip
+             * @enum {string}
+             */
+            kind: "ip" | "macsec";
             /** Technology */
             technology?: string | null;
+            /** Neighbors */
+            neighbors?: ("inside" | "alongside" | "none") | null;
             a: components["schemas"]["TunnelEnd"];
             /** B */
             b: components["schemas"]["TunnelEnd"] | components["schemas"]["TunnelPeer"];

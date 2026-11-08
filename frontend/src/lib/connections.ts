@@ -7,11 +7,11 @@
  * TBD, since only routing policy at the site can say what a circuit into a
  * transport is for.
  */
-import type { Fabric, Link, Topology, Tunnel } from './api/topology.ts';
+import type { Fabric, Lag, Link, Topology, Transport, Tunnel } from './api/topology.ts';
 
 export type Edge = Link['edges'][number];
 export type Medium = NonNullable<Link['medium']>;
-export type Neighbors = NonNullable<Link['neighbors']>;
+export type Neighbors = Link['neighbors'][number];
 /** An ID as each side of a connection knows it. */
 export type Sides = NonNullable<Link['enterprise_cid']>;
 
@@ -99,6 +99,137 @@ export const SHOWS_LABEL: Record<Neighbors, string> = {
 	provider: "The provider's equipment",
 	nothing: 'Nothing'
 };
+
+/** What a port shows, in the order a sentence gives them. */
+const SHOWN: readonly Neighbors[] = ['provider', 'far-end', 'nothing'];
+
+/**
+ * What a port shows, in words.
+ *
+ * @param kinds - What it shows, one or more.
+ * @returns For example "The provider's equipment and the far end", or
+ *   "Not said" for none.
+ */
+export function showsText(kinds: readonly Neighbors[]): string {
+	const said = SHOWN.filter((k) => kinds.includes(k)).map((k) => SHOWS_LABEL[k]);
+	if (said.length === 0) return 'Not said';
+	return [said[0], ...said.slice(1).map((s) => s.charAt(0).toLowerCase() + s.slice(1))].join(
+		' and '
+	);
+}
+
+/** Layer-2 services, as carriers sell them. */
+export const SERVICE_LABEL: Record<
+	NonNullable<Transport['service']> | NonNullable<NonNullable<Link['circuit']>['service']>,
+	string
+> = {
+	'e-lan': 'E-LAN',
+	'e-tree': 'E-Tree',
+	'e-line': 'E-Line',
+	'e-access': 'E-Access'
+};
+
+/**
+ * A layer-2 transport's service in a few words.
+ *
+ * @param transport - The transport.
+ * @returns For example "E-LAN · VPLS", or null for a routed one.
+ */
+export function transportService(transport: Transport): string | null {
+	if (!transport.service) return null;
+	return [SERVICE_LABEL[transport.service], transport.technology].filter(Boolean).join(' · ');
+}
+
+/**
+ * The layer-2 service a link is part of, in a few words.
+ *
+ * @param topology - The topology, for the transport a circuit goes into.
+ * @param link - The link.
+ * @returns For example "E-Line · VPWS", "E-Tree · MPLS EVPN · leaf: reaches
+ *   the roots only", or "E-LAN · VPLS · over E-Access"; null for anything
+ *   routed or not a carrier's.
+ */
+export function serviceText(topology: Topology, link: Link): string | null {
+	const circuit = link.circuit;
+	const b = link.b;
+	const parts: string[] = [];
+	if ('transport' in b) {
+		const transport = topology.transports.find((t) => t.name === b.transport);
+		const service = transport && transportService(transport);
+		if (!service) return null;
+		parts.push(service);
+		if (transport.service === 'e-tree')
+			parts.push(b.role === 'root' ? 'root' : 'leaf: reaches the roots only');
+		if (circuit?.service) parts.push(`over ${SERVICE_LABEL[circuit.service]}`);
+		return parts.join(' · ');
+	}
+	if (!circuit?.service) return circuit?.technology ?? null;
+	return [SERVICE_LABEL[circuit.service], circuit.technology].filter(Boolean).join(' · ');
+}
+
+/**
+ * The MACsec connections on a link's ports.
+ *
+ * @param topology - The topology.
+ * @param link - The link.
+ * @returns Each MACsec connection with an end on one of its device ends' ports.
+ */
+export function macsecOn(topology: Topology, link: Link): Tunnel[] {
+	const ports = new Set(
+		[link.a, link.b].flatMap((e) => ('device' in e ? [`${e.device}\n${e.interface}`] : []))
+	);
+	return topology.tunnels.filter(
+		(t) =>
+			t.kind === 'macsec' &&
+			[t.a, t.b].some((e) => 'device' in e && ports.has(`${e.device}\n${e.interface}`))
+	);
+}
+
+/**
+ * The links a MACsec connection is carried on.
+ *
+ * @param topology - The topology.
+ * @param tunnel - A MACsec connection.
+ * @returns The link at its A end's port, and at its B end's when that is
+ *   another circuit into the same layer-2 transport.
+ */
+export function macsecLinks(topology: Topology, tunnel: Tunnel): Link[] {
+	const ends = [tunnel.a, tunnel.b].flatMap((e) =>
+		'device' in e ? [`${e.device}\n${e.interface}`] : []
+	);
+	return topology.links.filter((l) =>
+		[l.a, l.b].some((e) => 'device' in e && ends.includes(`${e.device}\n${e.interface}`))
+	);
+}
+
+/**
+ * The port channel a link is a member of, if it is listed.
+ *
+ * @param topology - The topology.
+ * @param link - The link.
+ * @returns The channel, or null.
+ */
+export function lagOf(topology: Topology, link: Link): Lag | null {
+	const ends = [link.a, link.b].flatMap((e) => ('device' in e && e.lag ? [e] : []));
+	return (
+		topology.lags.find((g) =>
+			ends.some((e) => [g.a, g.b].some((c) => c.device === e.device && c.interface === e.lag))
+		) ?? null
+	);
+}
+
+/**
+ * A port channel's member links.
+ *
+ * @param topology - The topology.
+ * @param lag - The channel.
+ * @returns Its members, in the topology's order.
+ */
+export function lagMembers(topology: Topology, lag: Lag): Link[] {
+	return topology.links.filter((l) =>
+		[l.a, l.b].some((e) => 'device' in e && e.device === lag.a.device && e.lag === lag.a.interface)
+	);
+}
 
 /** A connection's roles, and where they come from. */
 export interface Roles {
@@ -226,12 +357,12 @@ export function joins(link: Link): boolean {
  * What LLDP and CDP should show on a link's port at our end.
  *
  * @param link - The link.
- * @returns As documented; else the far end between two of our devices;
- *   else null, not said.
+ * @returns As documented, one or more; else the far end between two of our
+ *   devices; else none, not said.
  */
-export function showsOf(link: Link): Neighbors | null {
-	if (link.neighbors) return link.neighbors;
-	return 'device' in link.b ? 'far-end' : null;
+export function showsOf(link: Link): Neighbors[] {
+	if (link.neighbors.length) return link.neighbors;
+	return 'device' in link.b ? ['far-end'] : [];
 }
 
 /**

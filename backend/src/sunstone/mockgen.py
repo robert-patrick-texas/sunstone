@@ -35,6 +35,8 @@ from sunstone.model import (
     ExternalEnd,
     Fabric,
     FabricMember,
+    Lag,
+    LagEnd,
     Link,
     Location,
     NamedNetwork,
@@ -441,7 +443,13 @@ def with_groups(topology: Topology) -> Topology:
 
 
 # What a circuit into each kind of transport is called in its CID.
-CID_TAGS = {"internet": "INET", "private-wan": "MPLS", "research": "REN"}
+CID_TAGS = {
+    "internet": "INET",
+    "private-wan": "MPLS",
+    "research": "REN",
+    "e-lan": "ELAN",
+    "e-tree": "ETREE",
+}
 
 
 def labeled(topology: Topology) -> Topology:
@@ -452,7 +460,9 @@ def labeled(topology: Topology) -> Topology:
     Internet, ``DAL-IAD-01`` between two sites, ``IAD-NIMBUS-01`` to an
     external node over a circuit; cables, cross-connects and cables to
     someone else's device among them, by site (``DAL-C0001``, a cable ID);
-    tunnels and fabrics in turn (``TUN-0001``, ``FAB-01``).
+    tunnels and fabrics in turn (``TUN-0001``, ``FAB-01``); port channels by
+    where they go (``DAL-PO01`` inside a site, ``DAL-IAD-PO01`` between
+    two), each listed once from its members.
     Links of 10 Gbps and more, and circuits, are fiber; the rest copper.
 
     Args:
@@ -465,7 +475,7 @@ def labeled(topology: Topology) -> Topology:
         None
     """
     site = {d.name: d.site for d in topology.devices}
-    kinds = {t.name: t.kind for t in topology.transports}
+    kinds = {t.name: t.service or t.kind for t in topology.transports}
     counts: Counter[str] = Counter()
 
     def numbered(prefix: str, width: int = 2, sep: str = "-") -> str:
@@ -506,8 +516,32 @@ def labeled(topology: Topology) -> Topology:
         else f.model_copy(update={"enterprise_cid": Sides(a=numbered("FAB"))})
         for f in topology.fabrics
     ]
+    lags = list(topology.lags)
+    listed = {(e.device, e.interface) for lag in lags for e in (lag.a, lag.b)}
+    for ln in links:
+        a, b = ln.a, ln.b
+        if not (isinstance(b, Endpoint) and a.lag and b.lag):
+            continue
+        if (a.device, a.lag) in listed:
+            continue
+        here, there = site[a.device], site[b.device]
+        prefix = f"{here}-PO" if here == there else f"{here}-{there}-PO"
+        lags.append(
+            Lag(
+                a=LagEnd(device=a.device, interface=a.lag),
+                b=LagEnd(device=b.device, interface=b.lag),
+                enterprise_cid=Sides(a=numbered(prefix, 2, "")),
+            )
+        )
+        listed |= {(a.device, a.lag), (b.device, b.lag)}
     return Topology.model_validate(
-        {**dict(topology), "links": links, "tunnels": tunnels, "fabrics": fabrics}
+        {
+            **dict(topology),
+            "links": links,
+            "tunnels": tunnels,
+            "fabrics": fabrics,
+            "lags": lags,
+        }
     )
 
 
@@ -700,17 +734,20 @@ def to_yaml(topology: Topology, header: str) -> str:
         mode="json",
         exclude_none=True,
         exclude_defaults=True,
-        exclude={"links": {"__all__": {"id"}}},
+        exclude={"links": {"__all__": {"id"}}, "lags": {"__all__": {"id"}}},
     )
     for link in data["links"]:
         shared = "transport" in link["b"]
+        if len(link.get("neighbors", [])) == 1:
+            # One value is written as it reads: neighbors: provider.
+            link["neighbors"] = link["neighbors"][0]
         if "enterprise_cid" in link:
             link["enterprise_cid"] = _written(link["enterprise_cid"], shared)
         if "circuit" in link:
             link["circuit"]["circuit_id"] = _written(
                 link["circuit"]["circuit_id"], shared
             )
-    for kind in ("tunnels", "fabrics"):
+    for kind in ("tunnels", "fabrics", "lags"):
         for item in data.get(kind, []):
             for at, ids in (
                 (item, "enterprise_cid"),

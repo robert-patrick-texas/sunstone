@@ -15,6 +15,16 @@ WAN, or both, a few point-to-point circuits, and networks stacked over them:
 - **red-alpha** and **red-bravo**: tenants' networks over grey, through
   their own encryptors at grey sites; two sites have both.
 - **partners**: an IPsec tunnel to a partner who runs its own end.
+- **metro**: the carrier's Ethernet services, outside the boundary: two
+  E-Line circuits between the data centers, bundled into one port channel;
+  an E-LAN joining Dallas to Fort Worth, Austin, and San Antonio, which
+  three of them reach over the local exchange carrier's E-Access; and an
+  E-Tree whose roots are the data centers and whose leaves are four
+  branches. dci rides the E-Lines in MACsec, with LLDP and CDP inside it,
+  so the far end shows though the carrier passes nothing of ours; corp
+  rides the E-LAN in MACsec to each of the others it talks to, with LLDP
+  and CDP alongside it in clear, so each port shows Mesa's NTU and every
+  router on the service.
 
 Houston has two WAN switches with two Internet circuits each, from three
 providers, and a blue router trunked to both. Tampa has one switch carrying
@@ -43,6 +53,7 @@ from sunstone.mockgen import CITIES, labeled, with_groups
 from sunstone.model import (
     Carried,
     Circuit,
+    CircuitService,
     Device,
     Edge,
     Endpoint,
@@ -54,6 +65,7 @@ from sunstone.model import (
     NamedNetwork,
     Neighbors,
     Role,
+    Secured,
     SegmentIds,
     Sides,
     Site,
@@ -61,6 +73,7 @@ from sunstone.model import (
     Topology,
     Transport,
     TransportEnd,
+    TreeRole,
     Tunnel,
     TunnelEnd,
     TunnelPeer,
@@ -74,6 +87,10 @@ INTERNET = [
 ]
 MPLS_PROVIDER = "Mesa Carrier"
 INET, MPLS = "INET", "Mesa MPLS"
+ELAN, ETREE = "Mesa E-LAN", "Harbor E-Tree"
+ELAN_SITES = ["FTW", "AUS", "SAT"]
+ETREE_LEAVES = ["OKC", "TUL", "LIT", "MEM"]
+MACSEC = "GCM-AES-XPN-256"
 REN, REN_PROVIDER = "Prairie REN", "Prairie Research Network"
 COLO = "Granite Colo"
 # Providers whose NTU shows on our port over LLDP or CDP; the rest show nothing.
@@ -216,6 +233,59 @@ class _Layers:
                 carries=[Carried(network="black", vlan=vlan)] if vlan else [],
                 edges=edges or [],
                 neighbors=shown if edges is not None else None,
+            )
+        )
+
+    def service(
+        self,
+        device: str,
+        transport: str,
+        provider: str,
+        role: TreeRole | None = None,
+        shown: list[Neighbors] | None = None,
+    ) -> str:
+        """A circuit for transit into a carrier's layer-2 service, on which
+        our devices see each other; handed off by the local exchange
+        carrier, it reaches the carrier over the LEC's E-Access. Returns its
+        port."""
+        port = self.port(device)
+        lec = provider == MPLS_PROVIDER and device.split("-")[0].upper() not in HUBS
+        circuit = self.circuit(provider, shared=True, lec=lec)
+        access: CircuitService | None = "e-access" if lec else None
+        self.links.append(
+            Link(
+                a=Endpoint(device=device, interface=port),
+                b=TransportEnd(transport=transport, role=role),
+                speed_mbps=1_000,
+                kind="wan",
+                circuit=circuit.model_copy(update={"service": access}),
+                carries=_carries("metro"),
+                edges=["transit"],
+                neighbors=shown or ["far-end"],
+            )
+        )
+        return port
+
+    def macsec(
+        self,
+        name: str,
+        network: str,
+        ends: tuple[tuple[str, str], tuple[str, str]],
+        shown: Secured,
+    ) -> None:
+        """MACsec between two of our ports, carrying a network over metro,
+        with LLDP and CDP inside it or alongside it."""
+        a, b = ends
+        self.tunnels.append(
+            Tunnel(
+                name=name,
+                network=network,
+                rides="metro",
+                kind="macsec",
+                technology=MACSEC,
+                neighbors=shown,
+                a=TunnelEnd(device=a[0], interface=a[1]),
+                b=TunnelEnd(device=b[0], interface=b[1]),
             )
         )
 
@@ -422,22 +492,35 @@ def generate_layers(seed: int) -> Topology:
     """
     g = _Layers(random.Random(seed))
     dc = {code: _datacenter(g, code) for code in ("DAL", "IAD")}
+    # Two E-Lines between the data centers, bundled into one port channel,
+    # each member with MACsec end to end; the carrier passes nothing of ours.
+    elines = []
     for _ in range(2):
+        circuit = g.circuit(MPLS_PROVIDER)
+        ends = [
+            Endpoint(
+                device=dc[code]["wan2"],
+                interface=g.port(dc[code]["wan2"], 100_000),
+                lag="Port-channel1",
+            )
+            for code in ("DAL", "IAD")
+        ]
         g.links.append(
             Link(
-                a=Endpoint(
-                    device=dc["DAL"]["wan2"],
-                    interface=g.port(dc["DAL"]["wan2"], 100_000),
-                ),
-                b=Endpoint(
-                    device=dc["IAD"]["wan2"],
-                    interface=g.port(dc["IAD"]["wan2"], 100_000),
-                ),
+                a=ends[0],
+                b=ends[1],
                 speed_mbps=100_000,
                 kind="wan",
-                circuit=g.circuit(MPLS_PROVIDER),
+                circuit=circuit.model_copy(
+                    update={"service": "e-line", "technology": "VPWS"}
+                ),
+                carries=_carries("metro"),
+                # The carrier passes nothing of ours, but LLDP and CDP run
+                # inside the MACsec on each member.
+                neighbors="far-end",
             )
         )
+        elines.append(ends)
     branches: dict[str, dict[str, str]] = {}
     for code in BOTH + BLUE:
         branches[code] = _branch(g, code, inet=True, mpls=True)
@@ -470,10 +553,17 @@ def generate_layers(seed: int) -> Topology:
                     )
                 }
             )
+        # AUS-SAT is an 802.1Q-in-Q E-Line, a port channel of one member so
+        # far: Mesa's NTU answers LLDP, and CDP passes through to the far end.
+        lag = "Port-channel10" if a == "AUS" else None
+        if a == "AUS":
+            circuit = circuit.model_copy(
+                update={"service": "e-line", "technology": "802.1Q-in-Q"}
+            )
         g.links.append(
             Link(
-                a=Endpoint(device=near, interface=g.port(near, 10_000)),
-                b=Endpoint(device=far, interface=g.port(far, 10_000)),
+                a=Endpoint(device=near, interface=g.port(near, 10_000), lag=lag),
+                b=Endpoint(device=far, interface=g.port(far, 10_000), lag=lag),
                 speed_mbps=10_000,
                 kind="wan",
                 circuit=circuit,
@@ -481,6 +571,7 @@ def generate_layers(seed: int) -> Topology:
                 enterprise_cid=Sides(a="AUS-SAT-01", z="SAT-AUS-01")
                 if a == "AUS"
                 else None,
+                neighbors=["provider", "far-end"] if a == "AUS" else [],
             )
         )
     # dci: between the data centers, on the routers that are DMVPN hubs.
@@ -643,6 +734,30 @@ def generate_layers(seed: int) -> Topology:
             )
         )
 
+    # Carrier Ethernet, added last so the rest of the sample stays as it was.
+    for i, (here, there) in enumerate(elines, 1):
+        g.macsec(
+            f"DCI-MACSEC-{i}",
+            "dci",
+            ((here.device, here.interface), (there.device, there.interface)),
+            "inside",
+        )
+    # The E-LAN: MACsec from Dallas to each, and between Austin and San Antonio.
+    # Mesa's NTU answers LLDP, and the routers' LLDP and CDP run in clear.
+    clear: list[Neighbors] = ["provider", "far-end"]
+    dal = dc["DAL"]["wan2"]
+    elan = {"DAL": (dal, g.service(dal, ELAN, MPLS_PROVIDER, shown=clear))}
+    for code in ELAN_SITES:
+        router = branches[code]["mpls"]
+        elan[code] = (router, g.service(router, ELAN, MPLS_PROVIDER, shown=clear))
+    for a, b in (("DAL", "FTW"), ("DAL", "AUS"), ("DAL", "SAT"), ("AUS", "SAT")):
+        g.macsec(f"MACSEC-{a}-{b}", "corp", (elan[a], elan[b]), "alongside")
+    # The E-Tree: the data centers its roots, four branches its leaves.
+    for code in HUBS:
+        g.service(dc[code]["wan2"], ETREE, INTERNET[3], role="root")
+    for code in ETREE_LEAVES:
+        g.service(branches[code]["mpls"] or branches[code]["inet"], ETREE, INTERNET[3])
+
     topology = Topology(
         sites=list(g.sites.values()),
         devices=g.devices,
@@ -688,6 +803,12 @@ def generate_layers(seed: int) -> Topology:
                 description="Bravo's own network",
             ),
             NamedNetwork(name="partners", description="Tunnels to partners"),
+            NamedNetwork(
+                name="metro",
+                boundary="outside",
+                anchors=HUBS,
+                description="Carrier Ethernet: E-Line, E-LAN, and E-Tree",
+            ),
         ],
         transports=[
             Transport(
@@ -706,6 +827,24 @@ def generate_layers(seed: int) -> Topology:
                 network="black",
                 provider=REN_PROVIDER,
                 description="Research and education network",
+            ),
+            Transport(
+                name=ELAN,
+                kind="private-wan",
+                network="metro",
+                provider=MPLS_PROVIDER,
+                service="e-lan",
+                technology="VPLS",
+                description="Metro Ethernet across North and Central Texas",
+            ),
+            Transport(
+                name=ETREE,
+                kind="private-wan",
+                network="metro",
+                provider=INTERNET[3],
+                service="e-tree",
+                technology="MPLS EVPN",
+                description="Rooted at the data centers",
             ),
         ],
         externals=g.externals,

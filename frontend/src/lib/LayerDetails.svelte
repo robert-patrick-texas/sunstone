@@ -16,7 +16,9 @@ shown in every view from here.
 	import type { Snippet } from 'svelte';
 	import { riskFailure, riskItemName, riskSummary } from './across.ts';
 	import ConnectionFacts from './ConnectionFacts.svelte';
-	import { cidOf, TRANSPORT_KIND } from './connections.ts';
+	import { cidOf, TRANSPORT_KIND, transportService } from './connections.ts';
+	import type { Comparison } from './api/discovery.ts';
+	import { TUNNEL_CHECK_DETAIL, TUNNEL_CHECK_LABEL } from './discovery.ts';
 	import type { Risk, RiskReport } from './api/risks.ts';
 	import type { Fabric, Link } from './api/topology.ts';
 	import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
@@ -48,7 +50,8 @@ shown in every view from here.
 		selection,
 		live,
 		status = null,
-		risks = null
+		risks = null,
+		comparison = null
 	}: {
 		index: TopologyIndex;
 		selection: LayerSelection;
@@ -57,6 +60,8 @@ shown in every view from here.
 		status?: StatusReport | null;
 		/** Each named network's shared risks. */
 		risks?: RiskReport | null;
+		/** Discovery in effect, while it is shown. */
+		comparison?: Comparison | null;
 	} = $props();
 
 	/** Shared risks listed before "Show all", and items named in one risk. */
@@ -354,6 +359,15 @@ shown in every view from here.
 		<dl>
 			{#if transport.provider}<dt>Provider</dt>
 				<dd>{transport.provider}</dd>{/if}
+			{#if transport.service}<dt>Service</dt>
+				<dd>
+					{transportService(transport)}
+					<span class="muted"
+						>· layer 2: our devices on it see each other{transport.service === 'e-tree'
+							? ', leaves only the roots'
+							: ''}</span
+					>
+				</dd>{/if}
 			{#if transport.network}<dt>{term(index, 'network')}</dt>
 				<dd>{@render networkLink(transport.network)}</dd>{/if}
 			<dt>Circuits</dt>
@@ -363,7 +377,9 @@ shown in every view from here.
 		<table>
 			<thead>
 				<tr
-					><th>Device</th><th>Circuit</th><th>Speed</th>{#if live}<th>Now</th>{/if}</tr
+					><th>Device</th><th>Circuit</th>{#if transport.service === 'e-tree'}<th>Role</th>{/if}<th
+						>Speed</th
+					>{#if live}<th>Now</th>{/if}</tr
 				>
 			</thead>
 			<tbody>
@@ -376,6 +392,9 @@ shown in every view from here.
 						<td class="muted">
 							{link.circuit ? `${link.circuit.provider} ${cidOf(link) ?? ''}` : ''}
 						</td>
+						{#if transport.service === 'e-tree'}<td
+								>{'transport' in link.b && link.b.role === 'root' ? 'Root' : 'Leaf'}</td
+							>{/if}
 						<td>{formatSpeed(link.speed_mbps)}</td>
 						{#if live}<td>{circuitState(link)}</td>{/if}
 					</tr>
@@ -482,6 +501,19 @@ shown in every view from here.
 			<dd>{@render networkLink(tunnel.network)}</dd>
 			<dt>Over</dt>
 			<dd>{@render networkLink(tunnel.rides)}</dd>
+			{#if tunnel.kind === 'macsec'}<dt>Kind</dt>
+				<dd>MACsec <span class="muted">· encrypted on the physical ports</span></dd>
+				<dt title="How LLDP and CDP relate to it">Neighbors</dt>
+				<dd>
+					{#if tunnel.neighbors === 'inside'}Inside it <span class="muted"
+							>· its far end seen proves the encryption works</span
+						>
+					{:else if tunnel.neighbors === 'alongside'}Alongside it, in clear <span class="muted"
+							>· its far end seen proves the circuit, not the encryption</span
+						>
+					{:else if tunnel.neighbors === 'none'}They do not cross it
+					{:else}Not said{/if}
+				</dd>{/if}
 			{#if tunnel.technology}<dt>Technology</dt>
 				<dd>{tunnel.technology}</dd>{/if}
 			{#if live}
@@ -493,7 +525,13 @@ shown in every view from here.
 			{/if}
 		</dl>
 		<table>
-			<thead><tr><th>End</th><th>Interface</th><th>Source</th></tr></thead>
+			<thead
+				><tr
+					><th>End</th><th>{tunnel.kind === 'macsec' ? 'Port' : 'Interface'}</th><th
+						>{tunnel.kind === 'macsec' ? '' : 'Source'}</th
+					></tr
+				></thead
+			>
 			<tbody>
 				<tr>
 					<td
@@ -523,6 +561,23 @@ shown in every view from here.
 		</table>
 		{#if tunnel.tags.length}<p class="muted">Tags: {tunnel.tags.join(', ')}</p>{/if}
 		<ConnectionFacts {index} item={{ kind: 'tunnel', tunnel }} />
+		{@const check = comparison?.tunnels[tunnel.name]}
+		{#if comparison && check}
+			{@const finding = comparison.findings.find((f) => f.tunnel === tunnel.name)}
+			<h3>Discovery</h3>
+			<p class:finding={check === 'mismatch' || check === 'not-seen'}>
+				<b>{TUNNEL_CHECK_LABEL[check]}</b>
+				<span class="muted"
+					>· {finding
+						? finding.detail
+						: tunnel.kind === 'macsec' && check === 'confirmed'
+							? 'its far end seen inside it, on its port'
+							: TUNNEL_CHECK_DETAIL[check]}{check === 'confirmed'
+						? ` at ${clock(comparison.at)}`
+						: ''}</span
+				>
+			</p>
+		{/if}
 		{@const shared = (
 			risks?.networks.find((n) => n.network === tunnel.network)?.risks ?? []
 		).filter((r) => r.tunnels.includes(tunnel.name))}
@@ -633,6 +688,11 @@ shown in every view from here.
 {/if}
 
 <style>
+	/* As discovery's own findings in the details panel. */
+	.finding {
+		padding-left: 8px;
+		border-left: 3px solid var(--selected);
+	}
 	h2 {
 		margin: 0 24px 6px 0;
 		font-size: 17px;

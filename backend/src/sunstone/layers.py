@@ -12,7 +12,7 @@ that fails, say) takes it down too. Networks are worked out from the bottom
 up, so a tunnel riding blue uses blue's tunnels as they are.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from sunstone.model import (
@@ -27,7 +27,10 @@ from sunstone.model import (
     TunnelEnd,
     device_ends,
     end_key,
-    joins,
+    leaf_key,
+    macsec_links,
+    ports,
+    transport_hops,
 )
 
 
@@ -157,6 +160,16 @@ class Layers:
         for s in self.slices.values():
             s.depth = self._depth(s.name, frozenset())
         self.order = sorted(self.slices, key=lambda n: (self.slices[n].depth, n))
+        self.hops = transport_hops(topology.links, topology.transports)
+        """How each circuit into a transport joins nodes (an E-Tree's leaves
+        only to its roots)."""
+        at_port = ports(topology)
+        self.secured: dict[str, tuple[str, ...]] = {
+            t.name: tuple(ln.id for ln in macsec_links(t, at_port))
+            for t in topology.tunnels
+            if t.kind == "macsec"
+        }
+        """The links each MACsec connection is carried on, by id."""
 
     def _depth(self, name: str, seen: frozenset[str]) -> int:
         s = self.slices.get(name)
@@ -239,18 +252,9 @@ class Layers:
             name: The network.
 
         Returns:
-            One edge per link, from its device to its far end's key; a
-            circuit into a transport that is not for transit leads to a
-            cloud of its own, joining it to nothing else.
+            An edge per link, as :func:`reach_edges` gives them.
         """
-        return [
-            Edge(
-                link.id,
-                link.a.device,
-                far_key(link) if joins(link) else f"{far_key(link)}~{link.id}",
-            )
-            for link in self.slices[name].links
-        ]
+        return reach_edges(self.slices[name].links, self.hops)
 
     def tunnels_up(
         self,
@@ -284,7 +288,13 @@ class Layers:
             ]
             for t in s.tunnels:
                 far = t.b.device if isinstance(t.b, TunnelEnd) else None
-                ok = self._through(reach, t.rides, t.a.device, far, down)
+                if t.kind == "macsec":
+                    # Up while the links it is carried on are, end to end.
+                    ok = not ({t.a.device, far} & down) and not (
+                        set(self.secured[t.name]) & cut
+                    )
+                else:
+                    ok = self._through(reach, t.rides, t.a.device, far, down)
                 up[t.name] = ok and t.name not in failed
                 if up[t.name]:
                     target = (
@@ -355,6 +365,35 @@ class _Components:
         if a not in self.parent or b not in self.parent:
             return False
         return self._find(a) == self._find(b)
+
+
+def reach_edges(
+    links: Iterable[Link], hops: Mapping[str, list[tuple[str, str]]]
+) -> list[Edge]:
+    """Links as the edges reach goes by.
+
+    Args:
+        links: The links.
+        hops: How each circuit into a transport joins nodes, from
+            :func:`transport_hops`.
+
+    Returns:
+        An edge per link, from its device to its far end's key; a circuit
+        into a transport that is not for transit leads to a cloud of its
+        own, joining it to nothing else; and into an E-Tree, a leaf's
+        circuit leads to a corner of its own, which each root's circuit
+        reaches too.
+    """
+    edges = []
+    for link in links:
+        pairs = hops.get(link.id)
+        if pairs is not None:
+            edges += [Edge(link.id, a, b) for a, b in pairs]
+        elif isinstance(link.b, TransportEnd):
+            edges.append(Edge(link.id, link.a.device, leaf_key(link)))
+        else:
+            edges.append(Edge(link.id, link.a.device, far_key(link)))
+    return edges
 
 
 def far_key(link: Link) -> str:

@@ -44,9 +44,14 @@ from sunstone.model import (
     Neighbors,
     Topology,
     TransportEnd,
+    Tunnel,
+    TunnelEnd,
     device_b,
     device_ends,
+    layer2,
     link_roles,
+    ports,
+    sees_across,
     shows,
 )
 from sunstone.problems import natural
@@ -373,7 +378,8 @@ class Cabling:
 class Shown:
     """One neighbor LLDP or CDP shows on a port, when it is not one of our
     cables: the provider's NTU, someone else's device, one of our devices
-    across a circuit, or an endpoint."""
+    across a circuit or a layer-2 service, or inside MACsec or a tunnel, or
+    an endpoint."""
 
     device: str
     """The device reporting it."""
@@ -382,6 +388,14 @@ class Shown:
     remote_port: str
     platform: str | None
     capabilities: tuple[str, ...]
+    needs: tuple[tuple[str, str], ...] = ()
+    """Ports beyond the reporting one that must be up for it to be seen:
+    the far device's circuit, across a layer-2 service."""
+    tunnel: str | None = None
+    """A tunnel, or MACsec connection, that must be up for it to be seen."""
+    cdp_only: bool = False
+    """Seen over CDP alone: across a circuit whose NTU takes LLDP's frames,
+    or over a tunnel."""
 
 
 NTU_PLATFORM = "Ethernet NTU"
@@ -391,19 +405,32 @@ PHONE_PLATFORM, PRINTER_PLATFORM = "IP Phone 8865", "Printer"
 
 class Beyond:
     """What LLDP and CDP really show across circuits, on links to someone
-    else's device, and on access ports, in the simulated network.
+    else's device, over tunnels, and on access ports, in the simulated
+    network.
 
     Each circuit and link beyond our devices shows what its documentation
     first said, or for a circuit into a transport that does not say, the
     provider's NTU; a link to an external node that does not say shows
-    nothing. Like cabling, a little of it disagrees with the documentation,
-    chosen with a seed so it stays put: a circuit between two of our devices
-    whose provider passes nothing, though it does not say so; a circuit into
-    a transport said to show nothing that shows its NTU; and where two
-    circuits into one transport are for something other than transit (two
+    nothing. Where the provider's NTU shows, LLDP stops at it, so the far
+    end, if it shows too, is seen over CDP alone. Across a layer-2 service
+    each circuit that shows the far end sees the other devices on it that
+    do (on an E-Tree, a leaf sees only the roots). A port with MACsec shows
+    what its link says, as any other: where LLDP and CDP run inside the
+    MACsec, its far end is seen inside it, and only its MACsec far ends
+    across a layer-2 service; where they run alongside it, in clear, it
+    sees and is seen as a port without MACsec. CDP runs over about two in
+    three GRE tunnels.
+
+    Like cabling, a little of it disagrees with the documentation, chosen
+    with a seed so it stays put: a circuit between two of our devices whose
+    provider passes nothing, though it does not say so; a circuit into a
+    transport said to show nothing that shows its NTU; where two circuits
+    into one routed transport are for something other than transit (two
     sites peering with a research network), a layer-2 path across it that
-    lets each see the other's router. Watched access switches each report up
-    to three phones and printers on ports no link documents.
+    lets each see the other's router; two leaves of an E-Tree that see each
+    other; and a tunnel whose far end is really on another tunnel interface.
+    Watched access switches each report up to three phones and printers on
+    ports no link documents.
 
     What a link really shows stays as first documented, keyed by its id,
     however the documentation changes later.
@@ -429,14 +456,26 @@ class Beyond:
         """
         self.topology = topology
         externals = {e.name: e for e in topology.externals}
-        self.real: dict[str, Neighbors] = {}
+        self.transports = {t.name: t for t in topology.transports}
+        self.at_port = ports(topology)
+        self.secured: dict[tuple[str, str], list[tuple[Tunnel, TunnelEnd | None]]] = {}
+        """The MACsec connections on each port, with their far ends (None
+        for someone else's device)."""
+        for t in topology.tunnels:
+            if t.kind != "macsec":
+                continue
+            b = t.b if isinstance(t.b, TunnelEnd) else None
+            self.secured.setdefault((t.a.device, t.a.interface), []).append((t, b))
+            if b is not None:
+                self.secured.setdefault((b.device, b.interface), []).append((t, t.a))
+        self.real: dict[str, tuple[Neighbors, ...]] = {}
         """What each circuit and link beyond our devices really shows."""
         for ln in topology.links:
             if isinstance(ln.b, Endpoint) and not _carrier(ln):
                 continue
             said = shows(ln)
-            if said is None:
-                said = "provider" if isinstance(ln.b, TransportEnd) else "nothing"
+            if not said:
+                said = ("provider",) if isinstance(ln.b, TransportEnd) else ("nothing",)
             self.real[ln.id] = said
         self.filtered: str | None = None
         """A circuit between two of our devices said to show the far end
@@ -444,8 +483,21 @@ class Beyond:
         self.unsaid: str | None = None
         """A circuit into a transport said to show nothing that shows its NTU."""
         self.bridged: tuple[Link, Link] | None = None
-        """Two circuits into one transport, for something other than
+        """Two circuits into one routed transport, for something other than
         transit, across which each sees the other's router."""
+        self.leaked: tuple[Link, Link] | None = None
+        """Two leaves of an E-Tree that see each other."""
+        self.tunnels: dict[str, str] = {}
+        """GRE tunnels CDP runs over, each with the interface its B end is
+        really on."""
+        for t in topology.tunnels:
+            if (
+                t.kind == "ip"
+                and isinstance(t.b, TunnelEnd)
+                and "GRE" in (t.technology or "")
+                and zlib.crc32(t.name.encode()) % 3
+            ):
+                self.tunnels[t.name] = t.b.interface
         self.endpoints: list[Shown] = []
         if watched is None:
             return
@@ -461,36 +513,76 @@ class Beyond:
             for ln in links
             if isinstance(ln.b, Endpoint)
             and _carrier(ln)
-            and ln.neighbors is None
+            and not ln.neighbors
+            and not self._macsec(ln)
             and seen(ln)
         ]
         if between:
             self.filtered = between[rng.randrange(len(between))].id
-            self.real[self.filtered] = "nothing"
+            self.real[self.filtered] = ("nothing",)
         quiet = [
             ln
             for ln in links
-            if isinstance(ln.b, TransportEnd) and ln.neighbors == "nothing" and seen(ln)
+            if isinstance(ln.b, TransportEnd)
+            and ln.neighbors == ["nothing"]
+            and seen(ln)
         ]
         if quiet:
             self.unsaid = quiet[rng.randrange(len(quiet))].id
-            self.real[self.unsaid] = "provider"
+            self.real[self.unsaid] = ("provider",)
         by_transport: dict[str, list[Link]] = {}
+        leaves: dict[str, list[Link]] = {}
         for ln in links:
+            b = ln.b
+            if not isinstance(b, TransportEnd) or not seen(ln):
+                continue
+            transport = self.transports.get(b.transport)
             roles = link_roles(ln, externals)
             if (
-                isinstance(ln.b, TransportEnd)
+                not layer2(transport)
                 and roles.source == "declared"
                 and "transit" not in roles.edges
-                and seen(ln)
             ):
-                by_transport.setdefault(ln.b.transport, []).append(ln)
+                by_transport.setdefault(b.transport, []).append(ln)
+            if (
+                transport is not None
+                and transport.service == "e-tree"
+                and b.role != "root"
+                and self.real.get(ln.id) == ("far-end",)
+                and not self._macsec(ln)
+            ):
+                leaves.setdefault(b.transport, []).append(ln)
         pairs = [
             found[:2] for _, found in sorted(by_transport.items()) if len(found) > 1
         ]
         if pairs:
             self.bridged = (pairs[0][0], pairs[0][1])
+        trees = [found for _, found in sorted(leaves.items()) if len(found) > 1]
+        if trees:
+            i = rng.randrange(len(trees[0]) - 1)
+            self.leaked = (trees[0][i], trees[0][i + 1])
+        moved = [
+            t
+            for t in topology.tunnels
+            if t.name in self.tunnels
+            and isinstance(t.b, TunnelEnd)
+            and {t.a.device, t.b.device} <= answering
+        ]
+        if moved:
+            t = moved[rng.randrange(len(moved))]
+            self.tunnels[t.name] = _another_tunnel(topology, t)
         self._endpoints(watched)
+
+    def _macsec(self, link: Link) -> bool:
+        """Whether MACsec is on a link's port at any of our ends."""
+        return any((e.device, e.interface) in self.secured for e in device_ends(link))
+
+    def _inside(self, port: tuple[str, str]) -> list[tuple[Tunnel, TunnelEnd | None]]:
+        """The MACsec on a port that LLDP and CDP run inside: with it, they
+        reach only its far ends, and nothing in clear gets in."""
+        return [
+            (t, far) for t, far in self.secured.get(port, []) if t.neighbors == "inside"
+        ]
 
     def rows(self, link: Link) -> list[Shown]:
         """What LLDP and CDP show at our end, or ends, of a circuit or a link
@@ -501,9 +593,10 @@ class Beyond:
 
         Returns:
             The provider's NTU at each of our ends, someone else's device,
-            or our own router across a layer-2 path; none for a link that
-            shows nothing, and none for one that shows our far end, which
-            the cable reports.
+            our own routers across a layer-2 service or path, or a MACsec
+            far end across one; none for a link that shows nothing, and
+            none for one that shows our far end over a cable or circuit,
+            which the cable reports.
 
         Raises:
             None
@@ -512,27 +605,30 @@ class Beyond:
             here, there = (
                 self.bridged if self.bridged[0].id == link.id else self.bridged[::-1]
             )
-            return [
+            return [_across(here, there)]
+        real = self.real.get(link.id, ())
+        found: list[Shown] = []
+        if "provider" in real:
+            ends = device_ends(link)
+            found += [
                 Shown(
-                    device=here.a.device,
-                    interface=here.a.interface,
-                    remote=there.a.device,
-                    remote_port=there.a.interface,
-                    platform=None,
-                    capabilities=("router",),
+                    device=end.device,
+                    interface=end.interface,
+                    remote=_ntu(link, "" if len(ends) == 1 else "az"[i]),
+                    remote_port="LAN1",
+                    platform=NTU_PLATFORM,
+                    capabilities=("switch",),
                 )
+                for i, end in enumerate(ends)
             ]
-        real = self.real.get(link.id)
-        if real is None or real == "nothing":
-            return []
-        if real == "far-end":
-            b = link.b
-            if not isinstance(b, ExternalEnd):
-                return []
+        if "far-end" not in real:
+            return found
+        b = link.b
+        if isinstance(b, ExternalEnd):
             external = next(
                 (e for e in self.topology.externals if e.name == b.external), None
             )
-            return [
+            found.append(
                 Shown(
                     device=link.a.device,
                     interface=link.a.interface,
@@ -541,20 +637,82 @@ class Beyond:
                     remote_port=b.interface or "Ethernet1",
                     platform=external.platform if external else None,
                     capabilities=("router",),
+                    cdp_only="provider" in real,
                 )
-            ]
-        ends = device_ends(link)
-        return [
-            Shown(
-                device=end.device,
-                interface=end.interface,
-                remote=_ntu(link, "" if len(ends) == 1 else "az"[i]),
-                remote_port="LAN1",
-                platform=NTU_PLATFORM,
-                capabilities=("switch",),
             )
-            for i, end in enumerate(ends)
+        elif isinstance(b, TransportEnd):
+            found += self._peers(link)
+        return found
+
+    def _peers(self, link: Link) -> list[Shown]:
+        """Our own devices a circuit into a layer-2 service sees across it:
+        its MACsec far ends, if LLDP and CDP run inside MACsec on its port;
+        else every other circuit on the service that shows the far end in
+        clear."""
+        port = (link.a.device, link.a.interface)
+        secured = self._inside(port)
+        at = self.at_port
+        if secured:
+            return [
+                Shown(
+                    device=link.a.device,
+                    interface=link.a.interface,
+                    remote=far.device,
+                    remote_port=far.interface,
+                    platform=None,
+                    capabilities=("router",),
+                    needs=((far.device, far.interface),),
+                    tunnel=t.name,
+                )
+                for t, far in secured
+                if far is not None and at.get((far.device, far.interface)) is not link
+            ]
+        leaked = {ln.id for ln in self.leaked} if self.leaked else set()
+        ntu = "provider" in self.real.get(link.id, ())
+        return [
+            _across(link, there, needs=True, cdp_only=ntu)
+            for there in self.topology.links
+            if (
+                sees_across(link, there, self.transports)
+                or ({link.id, there.id} <= leaked and link.id != there.id)
+            )
+            and "far-end" in self.real.get(there.id, ())
+            and not self._inside((there.a.device, there.a.interface))
         ]
+
+    def over_tunnels(self) -> list[Shown]:
+        """What CDP shows over the tunnels it runs over, from both ends,
+        each while its tunnel is up.
+
+        Returns:
+            A row at each end of each such tunnel.
+
+        Raises:
+            None
+        """
+        found = []
+        for t in self.topology.tunnels:
+            real = self.tunnels.get(t.name)
+            b = t.b
+            if real is None or not isinstance(b, TunnelEnd):
+                continue
+            for here, here_port, there, there_port in (
+                (t.a.device, t.a.interface, b.device, real),
+                (b.device, real, t.a.device, t.a.interface),
+            ):
+                found.append(
+                    Shown(
+                        device=here,
+                        interface=here_port,
+                        remote=there,
+                        remote_port=there_port,
+                        platform=None,
+                        capabilities=("router",),
+                        tunnel=t.name,
+                        cdp_only=True,
+                    )
+                )
+        return found
 
     def _endpoints(self, watched: Set[str]) -> None:
         """Up to three phones and printers on each watched access switch."""
@@ -583,6 +741,44 @@ class Beyond:
                     )
                 )
                 port += 1
+
+
+def _across(
+    here: Link, there: Link, needs: bool = False, cdp_only: bool = False
+) -> Shown:
+    """Our router at the far circuit, seen on our circuit's port across a
+    layer-2 path; over CDP alone where the provider's NTU takes LLDP's
+    frames."""
+    return Shown(
+        device=here.a.device,
+        interface=here.a.interface,
+        remote=there.a.device,
+        remote_port=there.a.interface,
+        platform=None,
+        capabilities=("router",),
+        needs=((there.a.device, there.a.interface),) if needs else (),
+        cdp_only=cdp_only,
+    )
+
+
+def _another_tunnel(topology: Topology, tunnel: Tunnel) -> str:
+    """A tunnel interface at a tunnel's B end that no tunnel documents: where
+    it really is, when the documentation has the wrong number."""
+    b = tunnel.b
+    assert isinstance(b, TunnelEnd)
+    used = {
+        e.interface
+        for t in topology.tunnels
+        for e in (t.a, t.b)
+        if isinstance(e, TunnelEnd) and e.device == b.device
+    }
+    used |= {
+        m.interface for f in topology.fabrics for m in f.members if m.device == b.device
+    }
+    number = int(re.sub(r"\D", "", b.interface) or "0") + 10
+    while f"Tunnel{number}" in used:
+        number += 1
+    return f"Tunnel{number}"
 
 
 def _carrier(link: Link) -> bool:

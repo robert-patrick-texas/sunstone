@@ -21,6 +21,7 @@ export type Tenant = Schemas['Tenant'];
 export type Tunnel = Schemas['Tunnel'];
 export type Fabric = Schemas['Fabric'];
 export type FabricMember = Schemas['FabricMember'];
+export type Lag = Schemas['Lag'];
 /** Sunstone's words an organization can give its own for, as `terms` keys. */
 export type Term =
 	'network' | 'transport' | 'external' | 'application' | 'partner' | 'tenant' | 'tunnel' | 'fabric';

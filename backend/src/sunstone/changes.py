@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from sunstone.discovery import Finding, Fix
 from sunstone.live import InterfaceState
-from sunstone.model import Link, Topology, device_ends
+from sunstone.model import Link, Topology, device_ends, lag_members
 from sunstone.problems import Note, PersonName
 
 
@@ -130,7 +130,8 @@ def applied(topology: Topology, fixes: list[Fix]) -> Topology:
 
     Returns:
         The documentation as changed: a moved link stays where it was in the
-        list of links, and an added one goes at the end.
+        list of links, and an added one goes at the end; a port channel
+        whose last member is retired, or moved off it, goes with it.
 
     Raises:
         ChangeConflict: If a fix's link is no longer documented, or the
@@ -152,8 +153,9 @@ def applied(topology: Topology, fixes: list[Fix]) -> Topology:
             del links[at]
         else:
             links[at] = fix.after
+    lags = [lag for lag in topology.lags if lag_members(lag, links)]
     try:
-        return Topology.model_validate({**dict(topology), "links": links})
+        return Topology.model_validate({**dict(topology), "links": links, "lags": lags})
     except ValidationError as e:
         raise ChangeConflict(
             "; ".join(

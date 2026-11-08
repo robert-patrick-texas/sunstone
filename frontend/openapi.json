@@ -1884,6 +1884,32 @@
       ],
       "title": "Type",
       "default": "carrier"
+     },
+     "service": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "e-line",
+         "e-access"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Service"
+     },
+     "technology": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Technology"
      }
     },
     "additionalProperties": false,
@@ -1989,6 +2015,23 @@
      "confirmed": {
       "type": "integer",
       "title": "Confirmed"
+     },
+     "tunnels": {
+      "additionalProperties": {
+       "type": "string",
+       "enum": [
+        "confirmed",
+        "mismatch",
+        "quiet",
+        "not-seen",
+        "not-inside",
+        "down",
+        "unchecked"
+       ]
+      },
+      "type": "object",
+      "title": "Tunnels",
+      "default": {}
      },
      "findings": {
       "items": {
@@ -2804,6 +2847,7 @@
       "type": "string",
       "enum": [
        "boundary",
+       "leaf",
        "wrong-neighbor",
        "wrong-port",
        "not-seen",
@@ -2832,6 +2876,17 @@
        }
       ],
       "title": "Link"
+     },
+     "tunnel": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tunnel"
      },
      "documented": {
       "items": {
@@ -3855,6 +3910,71 @@
     "title": "JoinIn",
     "description": "Someone adding a problem to an incident."
    },
+   "Lag": {
+    "properties": {
+     "a": {
+      "$ref": "#/components/schemas/LagEnd"
+     },
+     "b": {
+      "$ref": "#/components/schemas/LagEnd"
+     },
+     "enterprise_cid": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Sides"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "circuit": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Circuit"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "id": {
+      "type": "string",
+      "title": "Id",
+      "description": "Stable identifier that does not depend on which end is listed first.\n\nReturns:\n    Both ends' ``device:channel``, sorted and joined with ``--``.",
+      "readOnly": true
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "a",
+     "b",
+     "id"
+    ],
+    "title": "Lag",
+    "description": "A link aggregation between two of the network's devices: one or more\nmember links, each with its own cable or circuit ID, bundled into one\nchannel with a CID of its own. Members name it with ``lag`` on their\nends."
+   },
+   "LagEnd": {
+    "properties": {
+     "device": {
+      "type": "string",
+      "title": "Device"
+     },
+     "interface": {
+      "type": "string",
+      "title": "Interface"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "device",
+     "interface"
+    ],
+    "title": "LagEnd",
+    "description": "A port channel on one of the network's devices."
+   },
    "LayeredWhatIf": {
     "properties": {
      "impact": {
@@ -4123,20 +4243,17 @@
       "default": []
      },
      "neighbors": {
-      "anyOf": [
-       {
-        "type": "string",
-        "enum": [
-         "far-end",
-         "provider",
-         "nothing"
-        ]
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Neighbors"
+      "items": {
+       "type": "string",
+       "enum": [
+        "far-end",
+        "provider",
+        "nothing"
+       ]
+      },
+      "type": "array",
+      "title": "Neighbors",
+      "default": []
      },
      "id": {
       "type": "string",
@@ -6346,6 +6463,14 @@
       "title": "Fabrics",
       "default": []
      },
+     "lags": {
+      "items": {
+       "$ref": "#/components/schemas/Lag"
+      },
+      "type": "array",
+      "title": "Lags",
+      "default": []
+     },
      "terms": {
       "additionalProperties": {
        "type": "string"
@@ -6414,6 +6539,32 @@
       ],
       "title": "Provider"
      },
+     "service": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "e-lan",
+         "e-tree"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Service"
+     },
+     "technology": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Technology"
+     },
      "description": {
       "anyOf": [
        {
@@ -6448,6 +6599,21 @@
      "transport": {
       "type": "string",
       "title": "Transport"
+     },
+     "role": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "root",
+         "leaf"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Role"
      }
     },
     "additionalProperties": false,
@@ -6472,6 +6638,15 @@
       "type": "string",
       "title": "Rides"
      },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "ip",
+       "macsec"
+      ],
+      "title": "Kind",
+      "default": "ip"
+     },
      "technology": {
       "anyOf": [
        {
@@ -6482,6 +6657,22 @@
        }
       ],
       "title": "Technology"
+     },
+     "neighbors": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "inside",
+         "alongside",
+         "none"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Neighbors"
      },
      "a": {
       "$ref": "#/components/schemas/TunnelEnd"
@@ -6553,7 +6744,7 @@
      "b"
     ],
     "title": "Tunnel",
-    "description": "A point-to-point tunnel: a link in one network that rides another."
+    "description": "A point-to-point tunnel: a link in one network that rides another.\n\nMACsec (``kind: macsec``) is a connection of its own too, though it is\nconfigured on the physical port: its ends are the ports of the link it\nrides, or of two circuits into one layer-2 transport, and it is up\nwhile they are. What the port shows is its link's to say (``neighbors``\non the link); the MACsec connection says only how LLDP and CDP relate\nto it."
    },
    "TunnelEnd": {
     "properties": {

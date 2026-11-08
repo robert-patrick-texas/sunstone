@@ -32,7 +32,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from sunstone.layers import Edge, Layers, far_key
+from sunstone.layers import Edge, Layers, reach_edges
 from sunstone.live import TunnelState
 from sunstone.model import Topology
 from sunstone.problems import LiveView, link_name
@@ -214,9 +214,7 @@ class Statuses:
             None
         """
         states = list(tunnels)
-        whole_edges = [
-            Edge(link.id, link.a.device, far_key(link)) for link in self.topology.links
-        ]
+        whole_edges = reach_edges(self.topology.links, self.layers.hops)
         whole = self._status(
             None, self.whole_tree, set(self.site_of), whole_edges, down, cut, self.cores
         )

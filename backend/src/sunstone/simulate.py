@@ -60,12 +60,10 @@ from sunstone.model import (
     Link,
     Site,
     Topology,
-    TransportEnd,
     TunnelEnd,
     cabled,
     device_ends,
-    end_key,
-    joins,
+    transport_hops,
 )
 
 FAULT_WINDOW_S = 300
@@ -287,22 +285,19 @@ class SimulatedState:
         self.ends_of: dict[str, list[_Port]] = {}
         # Monitoring reaches devices over the real cables.
         self.adjacent: dict[str, list[tuple[str, str]]] = {}
+        hops = transport_hops(topology.links, topology.transports)
         for port in self.ports:
             self.ends_of.setdefault(port.near.device, []).append(port)
             if port.far and port.far.device in self.devices:
                 self.adjacent.setdefault(port.near.device, []).append(
                     (port.far.device, port.link.id)
                 )
-            elif isinstance(port.link.b, TransportEnd) and joins(port.link):
-                # A transport joins every device with a circuit for transit
-                # into it.
-                cloud = end_key(port.link.b)
-                self.adjacent.setdefault(port.near.device, []).append(
-                    (cloud, port.link.id)
-                )
-                self.adjacent.setdefault(cloud, []).append(
-                    (port.near.device, port.link.id)
-                )
+                continue
+            # A transport joins every device with a circuit for transit into
+            # it; an E-Tree, each leaf to the roots.
+            for near, cloud in hops.get(port.link.id, []):
+                self.adjacent.setdefault(near, []).append((cloud, port.link.id))
+                self.adjacent.setdefault(cloud, []).append((near, port.link.id))
         # Links whose load can cross the high mark, for load events; not those
         # half without a cable, which read as down.
         uncabled = {link.id for _, link in cabling.dangling}
@@ -732,6 +727,7 @@ class SimulatedState:
                 and p.near.device not in faults.silent
                 and self._uncabled(p, at, faults)
             ),
+            tunnels_down=frozenset(faults.tunnels),
         )
 
     def _load(self, link: Link, at: datetime, hot: bool) -> tuple[float, float]:
