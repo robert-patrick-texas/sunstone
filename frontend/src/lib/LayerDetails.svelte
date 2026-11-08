@@ -178,7 +178,7 @@ shown in every view from here.
 								onclick={() =>
 									g.kind === 'site' ? select({ kind: 'site', id: g.id }, true) : undefined}
 							>
-								<td>{g.name}<span class="muted"> {g.kind}</span></td>
+								<td>{g.name} <span class="muted">{g.kind}</span></td>
 								<td style:color={STATUS_COLOR[g.status]}>{STATUS_LABEL[g.status]}</td>
 								<td class="muted">{g.reasons[0] ?? ''}</td>
 							</tr>

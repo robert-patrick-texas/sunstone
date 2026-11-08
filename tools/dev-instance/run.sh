@@ -34,8 +34,10 @@ build_web() {
 }
 
 # Reinstalling Sunstone itself picks up a new VERSION; the editable install
-# otherwise keeps the one it was installed with.
-(cd /src/backend && uv sync --locked --no-dev --reinstall-package sunstone)
+# otherwise keeps the one it was installed with. The dev dependencies bring
+# watchfiles, without which --reload restarts on code changes only, not on
+# topology edits.
+(cd /src/backend && uv sync --locked --reinstall-package sunstone)
 mkdir -p /work/frontend /work/web
 sync_source >/dev/null
 build_web

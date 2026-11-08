@@ -62,8 +62,10 @@ export interface GraphEdge {
 	beneath?: boolean;
 	/** Tunnels it stands for, by name. */
 	tunnels?: string[];
-	/** The fabric it joins. */
+	/** The fabric it joins, or whose spokes built it. */
 	fabric?: string;
+	/** A tunnel spokes built to each other on demand, up now. */
+	dynamic?: boolean;
 	/** Drawn along the edge when zoomed in. */
 	label?: string;
 }

@@ -85,7 +85,9 @@ test('keys switch views, toggle live, step through problems and time', async ({ 
 	// The simulated network always has a device down, so there is a problem to step to.
 	await page.keyboard.press('j');
 	const problems = page.getByRole('region', { name: 'Problems' });
-	await expect(problems.locator('button[aria-pressed="true"]')).toHaveCount(1);
+	await expect(problems.getByRole('listitem').getByRole('button', { pressed: true })).toHaveCount(
+		1
+	);
 	await expect(page).toHaveURL(/problem=/);
 
 	await page.keyboard.press('[');

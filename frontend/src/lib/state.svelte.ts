@@ -95,6 +95,8 @@ export const ui = $state({
 	live: false,
 	/** Show the list of problems in live state. */
 	problemsOpen: true,
+	/** How the list of problems is grouped: by kind, or by region. */
+	problemsBy: 'kind' as 'kind' | 'region',
 	/** Which list the side panel shows. */
 	sideTab: 'problems' as 'problems' | 'events' | 'maintenance' | 'oncall' | 'discovery',
 	/** The team the on-call list is showing, by id. */

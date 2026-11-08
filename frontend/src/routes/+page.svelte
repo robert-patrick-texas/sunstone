@@ -55,6 +55,7 @@ open, and leaves it as it was when it closes.
 	import { shortestPaths } from '#lib/paths.ts';
 	import { clock, stepEarlier, stepLater, type Span } from '#lib/history.ts';
 	import { stepProblem } from '#lib/problem-kinds.ts';
+	import { scopeOf } from '#lib/scope.ts';
 	import ProblemsPanel from '#lib/ProblemsPanel.svelte';
 	import { loadRecent, saveRecent, withRecent } from '#lib/recent.ts';
 	import SearchBox from '#lib/SearchBox.svelte';
@@ -617,7 +618,10 @@ open, and leaves it as it was when it closes.
 
 	/** Show the next or previous problem, in the order the list has them. */
 	function stepThrough(step: 1 | -1): void {
-		const next = stepProblem(problems, ui.problem, step);
+		const view = index
+			? { index, scope: scopeOf(index, ui.networks), by: ui.problemsBy }
+			: undefined;
+		const next = stepProblem(problems, ui.problem, step, view);
 		if (!next) return;
 		ui.sideTab = 'problems';
 		ui.problemsOpen = true;

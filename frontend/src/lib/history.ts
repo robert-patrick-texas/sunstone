@@ -6,11 +6,14 @@
  * When several devices at one site change the same way at the same step (a
  * branch losing its circuits takes every device there down at once), they
  * are listed as one row.
+ *
+ * Each row keeps what changed, so the list can follow the networks chosen
+ * and a region: see {@link rowSites}.
  */
 import type { DeviceHistory, StateEvent } from './api/state.ts';
 import type { Link } from './api/topology.ts';
 import type { AnySelection } from './state.svelte.ts';
-import { isDeviceEnd, linkName, siteOf, type TopologyIndex } from './topology.ts';
+import { deviceEnds, isDeviceEnd, linkName, siteOf, type TopologyIndex } from './topology.ts';
 
 export const STEP_MS = 5 * 60_000;
 /** Devices at one site changing together at one step are one row from this many. */
@@ -71,6 +74,10 @@ export interface EventRow {
 	count: number;
 	/** Maintenance open at the time accounts for it. */
 	planned: boolean;
+	/** What changed: the devices, links, or tunnel (by name, or `FABRIC:a~b`). */
+	devices: string[];
+	links: string[];
+	tunnels: string[];
 }
 
 /**
@@ -115,7 +122,10 @@ export function eventRows(
 				title: `${tunnelName(e.tunnel)} ${e.kind === 'tunnel-down' ? 'down' : 'back up'}`,
 				target: tunnelTarget(index, e.tunnel),
 				count: 1,
-				planned: e.planned
+				planned: e.planned,
+				devices: [],
+				links: [],
+				tunnels: [e.tunnel]
 			});
 			continue;
 		}
@@ -127,7 +137,10 @@ export function eventRows(
 			title: linkTitle(link, e),
 			target: { kind: 'links', ids: [link.id] },
 			count: 1,
-			planned: e.planned
+			planned: e.planned,
+			devices: [],
+			links: [link.id],
+			tunnels: []
 		});
 	}
 	for (const { at, kind, site, planned, devices } of groups.values()) {
@@ -138,7 +151,10 @@ export function eventRows(
 				title: `${site}: ${devices.length} ${GROUP_TEXT[kind]}`,
 				target: { kind: 'site', id: site },
 				count: devices.length,
-				planned
+				planned,
+				devices,
+				links: [],
+				tunnels: []
 			});
 		} else {
 			for (const device of devices) {
@@ -148,7 +164,10 @@ export function eventRows(
 					title: `${device} ${DEVICE_TEXT[kind]}`,
 					target: { kind: 'device', id: device },
 					count: 1,
-					planned
+					planned,
+					devices: [device],
+					links: [],
+					tunnels: []
 				});
 			}
 		}
@@ -203,6 +222,28 @@ export function tunnelName(tunnel: string): string {
 export function tunnelTarget(index: TopologyIndex, tunnel: string): AnySelection {
 	if (index.tunnels.has(tunnel)) return { kind: 'tunnel', id: tunnel };
 	return { kind: 'fabric', id: tunnel.slice(0, tunnel.indexOf(':')) };
+}
+
+/**
+ * The sites a row of the event list touches, for keeping a region's rows.
+ *
+ * @param index - Topology index.
+ * @param row - The row.
+ * @returns The sites of its devices, of its links' device ends, and of its
+ *   tunnel's device ends.
+ */
+export function rowSites(index: TopologyIndex, row: EventRow): Set<string> {
+	const devices = [...row.devices];
+	for (const id of row.links) {
+		const link = index.links.get(id);
+		if (link) devices.push(...deviceEnds(link).map((e) => e.device));
+	}
+	for (const id of row.tunnels) {
+		const tunnel = index.tunnels.get(id);
+		if (!tunnel) devices.push(...id.slice(id.indexOf(':') + 1).split('~'));
+		else devices.push(tunnel.a.device, ...('device' in tunnel.b ? [tunnel.b.device] : []));
+	}
+	return new Set(devices.map((d) => siteOf(index, d)).filter((s) => s !== ''));
 }
 
 function linkTitle(link: Link, e: StateEvent): string {

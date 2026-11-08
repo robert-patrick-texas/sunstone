@@ -59,3 +59,40 @@ export function needing(report: StatusReport): NetworkStatus[] {
 		.filter((n) => n.status !== 'operational' || n.caveats.length > 0)
 		.sort((x, y) => rank[x.status] - rank[y.status] || (x.network === null ? -1 : 0));
 }
+
+/** A site's status in the whole network or in one named network. */
+export interface SiteStatus {
+	status: Status;
+	/** For example `Degraded`, or `Operational*` when what the network rides is degraded there. */
+	word: string;
+	/** Why, the first reason given, or the caveat; empty when there is none. */
+	reason: string;
+}
+
+/**
+ * A site's status in a network: its own group's, if it is not operational;
+ * else operational, with an asterisk when a caveat names the site.
+ *
+ * @param network - The network's status.
+ * @param site - The site's code.
+ * @returns Its status there.
+ */
+export function siteStatus(network: NetworkStatus, site: string): SiteStatus {
+	const group = network.groups.find((g) => g.kind === 'site' && g.id === site);
+	if (group) {
+		return {
+			status: group.status,
+			word: STATUS_LABEL[group.status],
+			reason: group.reasons[0] ?? ''
+		};
+	}
+	// Caveats read `blue degraded at HOU: …`.
+	const caveat = network.caveats.find(
+		(c) => c.endsWith(` at ${site}`) || c.includes(` at ${site}:`)
+	);
+	return {
+		status: 'operational',
+		word: `${STATUS_LABEL.operational}${caveat ? '*' : ''}`,
+		reason: caveat ?? ''
+	};
+}

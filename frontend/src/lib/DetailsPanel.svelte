@@ -53,7 +53,7 @@ links that select and bring that item into view.
 		type Selection
 	} from './state.svelte.ts';
 	import LayerDetails from './LayerDetails.svelte';
-	import { STATUS_COLOR } from './status.ts';
+	import { siteStatus, STATUS_COLOR, statusOf } from './status.ts';
 	import { depthColor } from './theme.ts';
 	import { layersOf } from './layers.ts';
 	import { term } from './terms.ts';
@@ -368,6 +368,40 @@ links that select and bring that item into view.
 	<button disabled={added} onclick={() => addFailure($state.snapshot(item))}>
 		{added ? 'In what if' : ui.whatIf.length ? adding : label}
 	</button>
+{/snippet}
+
+{#snippet siteNetworks(code: string)}
+	{@const { networksAt, slices } = layersOf(index)}
+	{@const names = networksAt.get(code) ?? []}
+	{#if names.length}
+		<h3>Networks ({names.length})</h3>
+		<table class="site-networks">
+			<tbody>
+				{#if status}
+					{@const here = siteStatus(status.whole, code)}
+					<tr>
+						<td class="nowrap">{status.whole.name}</td>
+						<td class="nowrap" style:color={STATUS_COLOR[here.status]}>{here.word}</td>
+						<td class="muted">{here.reason}</td>
+					</tr>
+				{/if}
+				{#each names as name (name)}
+					{@const now = statusOf(status, name)}
+					{@const here = now ? siteStatus(now, code) : null}
+					<tr onclick={() => select({ kind: 'network', id: name }, true)}>
+						<td class="nowrap"
+							><span class="dot depth" style:--depth={depthColor(slices.get(name)?.depth ?? 0)}
+							></span>{name}</td
+						>
+						{#if here}
+							<td class="nowrap" style:color={STATUS_COLOR[here.status]}>{here.word}</td>
+							<td class="muted">{here.reason}</td>
+						{/if}
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	{/if}
 {/snippet}
 
 {#snippet acrossNetworks(networks: NetworkImpact[], fixing: boolean)}
@@ -862,6 +896,7 @@ links that select and bring that item into view.
 						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
 						<DiscoveryFor {index} {comparison} {changes} item={selection} />
+						{@render siteNetworks(site.code)}
 						<h3>Links to other sites ({wan.length})</h3>
 						<table>
 							<thead><tr><th>Local</th><th>Remote</th><th>Speed</th><th>Circuit</th></tr></thead>

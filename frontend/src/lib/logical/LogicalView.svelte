@@ -4,8 +4,9 @@ The logical view: the named networks chosen in the header, or every one,
 without geography. Sites are boxes; double-click one to see its devices in
 those networks, and double-click its frame to fold it again. Transports,
 fabrics, and external nodes have places of their own. What the networks
-shown ride is drawn faintly beneath, unless turned off. Finished layouts are
-kept while the page is open.
+shown ride is drawn faintly beneath, unless turned off. In live state,
+tunnels spokes have built to each other are drawn too, and come and go
+without moving the view. Finished layouts are kept while the page is open.
 -->
 <script module lang="ts">
 	import type { Position } from 'cytoscape';
@@ -33,7 +34,7 @@ kept while the page is open.
 	import { term } from '../terms.ts';
 	import type { TopologyIndex } from '../topology.ts';
 	import { layoutInWorker, Superseded } from '../topo/worker.ts';
-	import { logicalGraph, type LogicalGraph } from './graph.ts';
+	import { logicalGraph, type BuiltTunnel, type LogicalGraph } from './graph.ts';
 
 	const {
 		index,
@@ -55,9 +56,21 @@ kept while the page is open.
 	let lastFocus = ui.focusRequest;
 	let lastFit = ui.fitRequest;
 	let draws = 0;
+	/** The layout last drawn, so a redraw of the same one keeps the zoom. */
+	let lastDrawn: string | null = null;
 
+	// As a key first, so the graph is built again only when the tunnels up change.
+	const builtKey = $derived(
+		JSON.stringify(
+			[...(live?.tunnels.values() ?? [])]
+				.filter((t) => t.dynamic && t.status === 'up')
+				.map((t) => ({ tunnel: t.tunnel, network: t.network }))
+				.sort((x, y) => x.tunnel.localeCompare(y.tunnel))
+		)
+	);
+	const built = $derived(JSON.parse(builtKey) as BuiltTunnel[]);
 	const graph: LogicalGraph = $derived(
-		logicalGraph(index, ui.networks, logicalExpanded, logical.under)
+		logicalGraph(index, ui.networks, logicalExpanded, logical.under, built)
 	);
 	const key = $derived(JSON.stringify([ui.networks, logical.under, [...logicalExpanded].sort()]));
 	const status = $derived.by(() => {
@@ -66,7 +79,8 @@ kept while the page is open.
 		const what = ui.networks.length ? graph.shown.join(', ') : `All ${words}`;
 		const under = graph.under.length ? ` · over ${graph.under.join(', ')}, faintly` : '';
 		const sites = graph.nodes.filter((n) => n.kind === 'site' || n.kind === 'frame').length;
-		return `${what}${under} · ${sites} sites`;
+		const spoke = graph.edges.reduce((n, e) => n + (e.dynamic ? (e.tunnels?.length ?? 0) : 0), 0);
+		return `${what}${under} · ${sites} sites${spoke ? ` · ${spoke} spoke to spoke now` : ''}`;
 	});
 
 	onMount(() => {
@@ -115,7 +129,8 @@ kept while the page is open.
 		if (cached) {
 			c.fitFrames();
 			busy = unplaced = false;
-			c.core.fit(undefined, 40);
+			if (k !== lastDrawn) c.core.fit(undefined, 40);
+			lastDrawn = k;
 			return;
 		}
 		busy = unplaced = g.nodes.length > 0;
@@ -142,6 +157,7 @@ kept while the page is open.
 		c.fitFrames();
 		busy = unplaced = false;
 		remember(k, c.positions());
+		lastDrawn = k;
 		if (ui.selection) focusOn(c, ui.selection);
 		else c.core.fit(undefined, 40);
 	}

@@ -3,7 +3,9 @@
 What changed over the last day, newest first, with devices at one site that
 changed together as one row, and changes that open maintenance accounts
 for marked planned. Clicking a row replays that moment and selects
-what changed. Categories can be turned off.
+what changed. Categories can be turned off, and the list kept to one
+region. With networks chosen in the header, only what belongs to them is
+listed.
 -->
 <script lang="ts">
 	import { SvelteSet } from 'svelte/reactivity';
@@ -14,8 +16,10 @@ what changed. Categories can be turned off.
 		eventRows,
 		type EventCategory,
 		type EventKind,
-		type EventRow
+		type EventRow,
+		rowSites
 	} from './history.ts';
+	import { scopeOf } from './scope.ts';
 	import { select, ui } from './state.svelte.ts';
 	import { HEALTH_COLOR } from './theme.ts';
 	import type { TopologyIndex } from './topology.ts';
@@ -47,7 +51,26 @@ what changed. Categories can be turned off.
 
 	const shown = new SvelteSet<EventCategory>(EVENT_CATEGORIES.map((c) => c.category));
 	let limit = $state(PAGE);
-	const rows = $derived(log ? eventRows(index, log.events, shown) : []);
+	const scope = $derived(scopeOf(index, ui.networks));
+	/** The region the list is kept to, by name, or '' for every region. */
+	let region = $state('');
+	// A region the networks chosen no longer have shows every region.
+	const regionSites = $derived(scope.regions.find((r) => r.name === region)?.sites ?? null);
+	const rows = $derived(
+		(log ? eventRows(index, log.events, shown) : []).filter(
+			(r) =>
+				scope.has(r.devices, r.links, r.tunnels) &&
+				(!regionSites || [...rowSites(index, r)].some((s) => regionSites.has(s)))
+		)
+	);
+	const where = $derived(
+		[
+			scope.networks.length ? `in ${scope.networks.join(' or ')}` : '',
+			regionSites ? `in ${region}` : ''
+		]
+			.filter(Boolean)
+			.join(' ')
+	);
 	const replayed = $derived(ui.at ? Date.parse(ui.at) : null);
 
 	function toggle(category: EventCategory): void {
@@ -67,13 +90,23 @@ what changed. Categories can be turned off.
 				>{c.label}</button
 			>
 		{/each}
+		{#if scope.regions.length > 1}
+			<select
+				aria-label="Region"
+				value={regionSites ? region : ''}
+				onchange={(e) => (region = e.currentTarget.value)}
+			>
+				<option value="">All regions</option>
+				{#each scope.regions as r (r.name)}<option value={r.name}>{r.name}</option>{/each}
+			</select>
+		{/if}
 	</div>
 	{#if problem}
 		<p class="muted">Events unavailable: {problem}</p>
 	{:else if !log}
 		<p class="muted">Loading events…</p>
 	{:else if rows.length === 0}
-		<p class="muted">Nothing changed in the last day.</p>
+		<p class="muted">Nothing changed{where ? ` ${where}` : ''} in the last day.</p>
 	{:else}
 		<p class="muted">Click one to replay that moment.</p>
 	{/if}
@@ -117,6 +150,10 @@ what changed. Categories can be turned off.
 	.filters button[aria-pressed='true'] {
 		color: var(--text);
 		border-color: var(--live);
+	}
+	.filters select {
+		padding: 0 4px;
+		font-size: 12px;
 	}
 	.muted {
 		margin: 0 4px 6px;
