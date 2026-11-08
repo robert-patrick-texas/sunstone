@@ -205,6 +205,11 @@ const STYLE: StylesheetJson = [
 		selector: 'edge[kind = "tunnel"], edge[kind = "fabric"]',
 		style: { 'line-style': 'dashed', 'line-dash-pattern': [6, 4], width: 1.6 }
 	},
+	// Tunnels spokes built to each other now: thinner, with shorter dashes.
+	{
+		selector: 'edge[?dynamic]',
+		style: { 'line-dash-pattern': [3, 3], width: 1 }
+	},
 	{
 		selector: 'edge[kind = "reach"]',
 		style: { 'line-style': 'dotted', 'line-color': COLOR.outside, opacity: 0.6, width: 1 }
@@ -406,14 +411,15 @@ export class GraphCanvas {
 		this.core.on('tap', 'edge', (e) => {
 			const { kind, linkIds, device, tunnels, fabric, network, source } = e.target.data();
 			if (kind === 'ghost') select({ kind: 'device', id: device });
+			else if (kind === 'fabric' || fabric) select({ kind: 'fabric', id: fabric });
 			else if (kind === 'tunnel') {
 				select(
 					tunnels.length === 1
 						? { kind: 'tunnel', id: tunnels[0] }
 						: { kind: 'network', id: network }
 				);
-			} else if (kind === 'fabric') select({ kind: 'fabric', id: fabric });
-			else if (kind === 'reach') select({ kind: 'external', id: source.slice('external:'.length) });
+			} else if (kind === 'reach')
+				select({ kind: 'external', id: source.slice('external:'.length) });
 			else select({ kind: 'links', ids: linkIds });
 		});
 		this.core.on('dbltap', 'node[kind != "ghost"]', (e) => options.onDoubleTap(e.target));

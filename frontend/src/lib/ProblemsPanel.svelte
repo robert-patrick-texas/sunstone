@@ -1,10 +1,11 @@
 <!--
 @component
 Problems in the live state shown (now, or a replayed moment), most urgent
-first, grouped by kind, after the networks that are not working as they
-should: the whole network and named networks degraded or offline, or
-working over something degraded. The server finds them, once per moment
-for every viewer. Within each kind, problems someone has acknowledged, then ones that
+first, grouped by kind or by region, after the networks that are not
+working as they should: the whole network and named networks degraded or
+offline, or working over something degraded. The server finds them, once
+per moment for every viewer. With networks chosen in the header, only
+their problems are listed, and only they and the networks beneath them. Within each kind, problems someone has acknowledged, then ones that
 planned maintenance accounts for, come after the rest, dimmed and marked.
 An outage or link down names the networks it takes something from, and
 what: what fixing it would bring back. Clicking one selects it, brings it into view, and shows its impact in every
@@ -17,6 +18,7 @@ view; clicking it again stops showing the impact.
 	import type { Window } from './api/operations.ts';
 	import { personOf } from './oncall.ts';
 	import { grouped, handling, MARK } from './problem-kinds.ts';
+	import { scopeOf } from './scope.ts';
 	import type { StatusReport } from './api/status.ts';
 	import { showNetwork, showProblem, ui } from './state.svelte.ts';
 	import { needing, STATUS_COLOR, STATUS_GLYPH, statusWord } from './status.ts';
@@ -36,25 +38,51 @@ view; clicking it again stops showing the impact.
 		/** Every network's status, if known. */
 		status?: StatusReport | null;
 	} = $props();
-	const networks = $derived(status ? needing(status) : []);
+	const scope = $derived(scopeOf(index, ui.networks));
+	const networks = $derived(
+		(status ? needing(status) : []).filter(
+			(n) =>
+				scope.networks.length === 0 ||
+				(n.network !== null && (scope.networks.includes(n.network) || scope.under.has(n.network)))
+		)
+	);
 	const name = (id: string) => (oncall ? personOf(oncall, id).name : id);
 
-	const groups = $derived(grouped(problems));
+	const groups = $derived(grouped(problems, { index, scope, by: ui.problemsBy }));
+	const elsewhere = $derived(problems.length - groups.reduce((n, g) => n + g.items.length, 0));
 	const titles = $derived(new Map(windows.map((w) => [w.id, w.title])));
 	let list: HTMLElement;
 
 	// Stepping through problems from the keyboard keeps the one shown in sight.
 	$effect(() => {
 		if (!ui.problem) return;
-		list.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
+		list
+			.querySelector(`[data-problem="${CSS.escape(ui.problem)}"]`)
+			?.scrollIntoView({ block: 'nearest' });
 	});
 </script>
 
 <section aria-label="Problems" bind:this={list}>
-	{#if problems.length === 0}
-		<p class="muted">Nothing wrong {ui.at ? 'at this moment' : 'in the latest snapshot'}.</p>
+	{#if problems.length > 0}
+		<div class="by" role="group" aria-label="Group problems">
+			<button aria-pressed={ui.problemsBy === 'kind'} onclick={() => (ui.problemsBy = 'kind')}
+				>By kind</button
+			>
+			<button aria-pressed={ui.problemsBy === 'region'} onclick={() => (ui.problemsBy = 'region')}
+				>By region</button
+			>
+		</div>
+	{/if}
+	{#if problems.length === elsewhere}
+		<p class="muted">
+			{scope.networks.length ? `No problems in ${scope.networks.join(' or ')}` : 'Nothing wrong'}
+			{ui.at ? 'at this moment' : 'in the latest snapshot'}.
+		</p>
 	{:else}
 		<p class="muted">Click one to see it and what it affects.</p>
+	{/if}
+	{#if elsewhere > 0}
+		<p class="muted">{elsewhere} not in {scope.networks.join(' or ')}.</p>
 	{/if}
 	{#if networks.length}
 		<h3>Networks ({networks.length})</h3>
@@ -80,7 +108,7 @@ view; clicking it again stops showing the impact.
 			{/each}
 		</ul>
 	{/if}
-	{#each groups as group (group.kind)}
+	{#each groups as group (group.key)}
 		<h3>{group.label} ({group.items.length})</h3>
 		<ul>
 			{#each group.items as problem (problem.id)}
@@ -89,6 +117,7 @@ view; clicking it again stops showing the impact.
 					<button
 						class="problem"
 						class:handled={handling(problem) > 0}
+						data-problem={problem.id}
 						aria-pressed={ui.problem === problem.id}
 						onclick={() => showProblem(problem)}
 					>
@@ -138,6 +167,21 @@ view; clicking it again stops showing the impact.
 		margin: 0 4px;
 		color: var(--muted);
 		font-size: 12px;
+	}
+	.by {
+		display: flex;
+		gap: 4px;
+		margin: 0 4px 8px;
+	}
+	.by button {
+		padding: 1px 8px;
+		border-radius: 10px;
+		font-size: 12px;
+		color: var(--muted);
+	}
+	.by button[aria-pressed='true'] {
+		color: var(--text);
+		border-color: var(--live);
 	}
 	ul {
 		list-style: none;

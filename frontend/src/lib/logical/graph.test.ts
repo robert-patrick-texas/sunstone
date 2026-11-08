@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { layeredIndex } from '../test-fixture.ts';
+import { layeredFixture, layeredIndex } from '../test-fixture.ts';
+import { indexTopology } from '../topology.ts';
 import { DEPTH_COLOR } from '../theme.ts';
 import { logicalGraph } from './graph.ts';
 
@@ -51,6 +52,28 @@ describe('logicalGraph', () => {
 			source: 'external:Nimbus Cloud',
 			target: 'transport:INET'
 		});
+	});
+
+	it('draws tunnels spokes built to each other now, apart from the fixed ones', () => {
+		const topology = structuredClone(layeredFixture);
+		topology.fabrics[0]!.members.push({
+			device: 'b-core-01',
+			interface: 'Tunnel100',
+			role: 'spoke'
+		});
+		const spokes = indexTopology(topology);
+		const built = [{ tunnel: 'DMVPN:b-core-01~c-wan-01', network: 'corp' }];
+		const g = logicalGraph(spokes, ['corp'], new Set(), true, built);
+		expect(g.edges.find((e) => e.dynamic)).toMatchObject({
+			id: 'corp|tunnel|site:B~site:C|on demand',
+			kind: 'tunnel',
+			fabric: 'DMVPN',
+			tunnels: ['DMVPN:b-core-01~c-wan-01']
+		});
+		// Only for the networks shown.
+		expect(
+			logicalGraph(spokes, ['grey'], new Set(), true, built).edges.some((e) => e.dynamic)
+		).toBe(false);
 	});
 
 	it('shows the devices in the networks at an expanded site', () => {

@@ -4,6 +4,33 @@ Release notes, newest first. `tools/release` takes each release's notes from
 its section here, and from the sections of any versions since the last
 release that were never released on their own.
 
+## 0.8.0
+
+- Problems and Events follow the networks chosen in the header. Choosing
+  grey keeps the lists to what is grey's: its own devices, links, and
+  tunnels, and those of the networks beneath it at grey's sites, as the
+  Logical view draws them; a problem is grey's too when it takes something
+  from grey. Problems says how many it leaves out ("2 not in corp"), and
+  lists only grey and what it rides among the networks not working. The
+  counts in the header and tab are still of every problem.
+- Problems by region. **By kind** and **By region** switch how Problems
+  is grouped, and `j` steps through them in the order shown. The regions
+  are the chosen network's own when it names some (grey-west, grey-east),
+  else the topology's. Events stay in time order, with a menu to keep them
+  to one region.
+- A site's details list the networks there and the site's status in each,
+  the whole network first: "grey · Degraded · GREY-ATL-DAL down", or
+  "red-alpha · Operational\* · blue degraded at DAL". Clicking one selects
+  it.
+- The Logical view draws the tunnels spokes have built to each other at
+  the moment, thinner and with shorter dashes, as the map does, and says
+  how many: "corp · 20 sites · 4 spoke to spoke now". They come and go
+  without moving the view.
+- Fixed: a network's details read "Hall Blocation" for a location not
+  working; it is "Hall B location".
+- Fixed: `make dev-api` and the dev instance restart on edits to the
+  topology file, as `make help` says, not only on code changes.
+
 ## 0.7.0
 
 - Problems say what they do to each network. An outage or link down names

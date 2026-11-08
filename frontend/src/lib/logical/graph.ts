@@ -6,7 +6,9 @@
  * with an abstract place rather than a geographic one. A network's links
  * between sites, and into transports and to external nodes, are drawn as
  * they are; its tunnels as dashed edges between their ends; a fabric as a
- * node its members join, a hub's way in marked. Networks under the ones
+ * node its members join, a hub's way in marked; with live state, tunnels
+ * spokes have built to each other now as thinner dashed edges between the
+ * spokes. Networks under the ones
  * shown are drawn faintly, only at the sites of the networks shown: choosing
  * a tenant's network brings forward the places of the network it rides.
  * With no network chosen, every network is shown.
@@ -37,6 +39,12 @@ export interface LogicalGraph {
 const FABRIC_W = 120;
 const FABRIC_H = 56;
 
+/** A tunnel spokes of a fabric built to each other on demand, `FABRIC:a~b`, and its network. */
+export interface BuiltTunnel {
+	tunnel: string;
+	network: string;
+}
+
 /**
  * Build the logical view's graph.
  *
@@ -44,13 +52,15 @@ const FABRIC_H = 56;
  * @param chosen - Networks to show; none for every one.
  * @param expanded - Sites to show device by device.
  * @param withUnder - Also draw, faintly, what the networks shown ride.
+ * @param built - Spoke-to-spoke tunnels up now, drawn for the networks shown.
  * @returns Nodes and edges, and which networks are shown and under them.
  */
 export function logicalGraph(
 	index: TopologyIndex,
 	chosen: string[],
 	expanded: ReadonlySet<string>,
-	withUnder = true
+	withUnder = true,
+	built: BuiltTunnel[] = []
 ): LogicalGraph {
 	const layers = layersOf(index);
 	const shown = chosen.length
@@ -75,7 +85,8 @@ export function logicalGraph(
 	) => {
 		if (u === v) return;
 		const [source, target] = u < v ? [u, v] : [v, u];
-		const id = `${slice.name}|${kind}|${source}~${target}`;
+		// Tunnels built on demand are an edge of their own, apart from the fixed ones.
+		const id = `${slice.name}|${kind}|${source}~${target}${more.dynamic ? '|on demand' : ''}`;
 		const edge = edges.get(id) ?? {
 			id,
 			source,
@@ -87,7 +98,8 @@ export function logicalGraph(
 			targetLabel: '',
 			network: slice.name,
 			color: depthColor(slice.depth),
-			...(faint ? { beneath: true } : {})
+			...(faint ? { beneath: true } : {}),
+			...(more.dynamic ? { dynamic: true } : {})
 		};
 		edge.linkIds.push(...(more.linkIds ?? []));
 		edge.capacityMbps += more.capacityMbps ?? 0;
@@ -152,6 +164,19 @@ export function logicalGraph(
 				}
 			}
 		}
+	}
+	for (const { tunnel, network } of built) {
+		const slice = layers.slices.get(network);
+		if (!slice || !shown.includes(network)) continue;
+		const colon = tunnel.indexOf(':');
+		const [a, b] = tunnel.slice(colon + 1).split('~');
+		if (!a || !b || !index.devices.has(a) || !index.devices.has(b)) continue;
+		devices.add(a).add(b);
+		add(slice, false, 'tunnel', [nodeOf(a), nodeOf(b)], {
+			tunnels: [tunnel],
+			fabric: tunnel.slice(0, colon),
+			dynamic: true
+		});
 	}
 	// Services are shown reached across the transports drawn in full.
 	for (const e of index.topology.externals) {

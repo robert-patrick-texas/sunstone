@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NetworkStatus, StatusReport } from './api/status.ts';
-import { eventRows, tunnelName, tunnelTarget, EVENT_CATEGORIES } from './history.ts';
-import { needing, statusOf, statusWord } from './status.ts';
+import { eventRows, rowSites, tunnelName, tunnelTarget, EVENT_CATEGORIES } from './history.ts';
+import { needing, siteStatus, statusOf, statusWord } from './status.ts';
 import { layeredIndex } from './test-fixture.ts';
 
 function network(name: string | null, extra: Partial<NetworkStatus> = {}): NetworkStatus {
@@ -41,6 +41,30 @@ describe('network status', () => {
 	it('lists what needs someone, worst first, the whole network first among equals', () => {
 		expect(needing(REPORT).map((n) => n.name)).toEqual(['red', 'Enterprise', 'black', 'blue']);
 	});
+
+	it("gives a site's status in a network: its own group's, or operational with any caveat", () => {
+		const grey = network('grey', {
+			status: 'degraded',
+			groups: [
+				{ kind: 'region', id: 'grey-west', name: 'grey-west', status: 'degraded', reasons: [] },
+				{ kind: 'site', id: 'HOU', name: 'Houston', status: 'offline', reasons: ['Unreached'] }
+			],
+			caveats: ['blue degraded at DAL: Circuit NO-1 down', 'blue degraded at D']
+		});
+		expect(siteStatus(grey, 'HOU')).toEqual({
+			status: 'offline',
+			word: 'Offline',
+			reason: 'Unreached'
+		});
+		expect(siteStatus(grey, 'DAL')).toEqual({
+			status: 'operational',
+			word: 'Operational*',
+			reason: 'blue degraded at DAL: Circuit NO-1 down'
+		});
+		expect(siteStatus(grey, 'D').reason).toBe('blue degraded at D');
+		// Not a site in another's name: DA is neither DAL nor D.
+		expect(siteStatus(grey, 'DA').word).toBe('Operational');
+	});
 });
 
 describe('tunnel events', () => {
@@ -67,6 +91,11 @@ describe('tunnel events', () => {
 		expect(rows.map((r) => r.title).sort()).toEqual([
 			'DMVPN: c-wan-01 – a-wan-01 back up',
 			'GREY-A-C down'
+		]);
+		expect(rows.map((r) => r.tunnels)).toEqual([['GREY-A-C'], ['DMVPN:c-wan-01~a-wan-01']]);
+		expect(rows.map((r) => [...rowSites(index, r)])).toEqual([
+			['A', 'C'],
+			['C', 'A']
 		]);
 		shown.delete('tunnels');
 		expect(

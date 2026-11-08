@@ -5,6 +5,7 @@ import {
 	eventRows,
 	linkHistory,
 	downsBySteps,
+	rowSites,
 	STEP_MS,
 	stepEarlier,
 	stepLater
@@ -37,6 +38,25 @@ describe('eventRows', () => {
 			[T0, 'C: 3 devices down', { kind: 'site', id: 'C' }],
 			[T0, 'Circuit ME-1 down', { kind: 'links', ids: [CIRCUIT] }],
 			[T0, 'a-acc-01 stopped reporting', { kind: 'device', id: 'a-acc-01' }]
+		]);
+	});
+
+	it('keeps what each row is of, and the sites it touches', () => {
+		const index = fixtureIndex();
+		const rows = eventRows(index, events, ALL);
+		expect(rows.map((r) => [r.devices, r.links, r.tunnels])).toEqual([
+			[[], [CIRCUIT], []],
+			[['c-acc-01'], [], []],
+			[['c-wan-01', 'c-acc-01', 'c-acc-02'], [], []],
+			[[], [CIRCUIT], []],
+			[['a-acc-01'], [], []]
+		]);
+		expect(rows.map((r) => [...rowSites(index, r)].sort())).toEqual([
+			['A', 'C'],
+			['C'],
+			['C'],
+			['A', 'C'],
+			['A']
 		]);
 	});
 

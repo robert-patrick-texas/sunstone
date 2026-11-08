@@ -204,3 +204,102 @@ test('with live state, shared risk counts what is down, new risks first', async 
 		details(page).locator('table.risks tr').first().getByText('New', { exact: true })
 	).toBeVisible();
 });
+
+test('problems follow the networks chosen, by kind or by region', async ({ page }) => {
+	const { at, found: total } = await momentWith(
+		page,
+		(at) => `/api/problems?at=${encodeURIComponent(at)}`,
+		(answer: { problems: unknown[] }) =>
+			answer.problems.length >= 2 ? answer.problems.length : undefined
+	);
+	await page.goto(`/?live=1&at=${encodeURIComponent(at)}&network=grey`);
+	const panel = page.getByRole('region', { name: 'Problems' });
+	await panel.getByRole('button', { name: 'By region' }).click();
+	await expect(panel.getByRole('button', { name: 'By region' })).toHaveAttribute(
+		'aria-pressed',
+		'true'
+	);
+	// Grey's own regions; every problem is listed under one, or counted as elsewhere.
+	const regions = panel.getByRole('heading', { name: /^(grey-west|grey-east|No region) \(\d+\)$/ });
+	await expect(regions.first()).toBeVisible();
+	const listed = (await regions.allTextContents()).reduce(
+		(n, h) => n + Number(/\((\d+)\)$/.exec(h)?.[1]),
+		0
+	);
+	const note = await panel.getByText(/^\d+ not in grey\.$/).allTextContents();
+	expect(listed + Number(/^\d+/.exec(note[0] ?? '0')?.[0])).toBe(total);
+	// Only grey, and what it rides, among the networks.
+	await expect(
+		panel.getByRole('button', { name: /^(corp|dci|blue2|red-alpha|red-bravo|partners) / })
+	).toHaveCount(0);
+	// The next problem is the first listed.
+	await page.keyboard.press('j');
+	const first = regions.first().locator('xpath=following-sibling::ul[1]//button').first();
+	await expect(first).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('events keep to the networks chosen, and to a region', async ({ page }) => {
+	await page.goto('/?live=1&network=grey');
+	await page.getByRole('tab', { name: /^Events/ }).click();
+	const events = page.getByRole('region', { name: 'Events' });
+	const region = events.getByRole('combobox', { name: 'Region' });
+	await expect(region.locator('option')).toHaveText(['All regions', 'grey-west', 'grey-east']);
+	await region.selectOption('grey-west');
+	const titles = events.locator('li button > span');
+	await expect(titles.first()).toBeVisible();
+	// Rows of a device or a site name it first: each must be in the west.
+	const west = ['DAL', 'HOU', 'OKC', 'TPA'];
+	for (const title of await titles.allTextContents()) {
+		const site =
+			/^([a-z]{3})-[a-z]/.exec(title)?.[1]?.toUpperCase() ?? /^([A-Z]{3}): /.exec(title)?.[1];
+		if (site) expect(west, title).toContain(site);
+	}
+});
+
+test("a site's details give its status in each network there", async ({ page }) => {
+	await page.goto('/?live=1&select=site:DAL');
+	await expect(details(page).getByRole('heading', { name: /^Networks \(\d+\)$/ })).toBeVisible();
+	const table = details(page).locator('table.site-networks');
+	await expect(table.getByRole('row').first()).toContainText('Enterprise');
+	const grey = networkRow(table, 'grey');
+	await expect(grey).toContainText(/Operational\*?|Degraded|Offline/);
+	await grey.click();
+	await expect(heading(page)).toHaveText('grey');
+});
+
+test('the logical view draws the tunnels spokes have built to each other', async ({ page }) => {
+	const { at, found } = await momentWith(
+		page,
+		(at) => `/api/state?at=${encodeURIComponent(at)}`,
+		(state: { tunnels: { network: string; dynamic: boolean; status: string }[] }) => {
+			const built = state.tunnels.filter(
+				(t) => t.network === 'corp' && t.dynamic && t.status === 'up'
+			);
+			return built.length ? built.length : undefined;
+		}
+	);
+	await page.goto(`/?live=1&at=${encodeURIComponent(at)}&view=logical&network=corp`);
+	await expect(page.getByRole('status').filter({ hasText: 'corp' })).toContainText(
+		`· ${found} spoke to spoke now`
+	);
+});
+
+test("a network's details say what kind of place is not working", async ({ page }) => {
+	const { at, found } = await momentWith(
+		page,
+		(at) => `/api/status?at=${encodeURIComponent(at)}`,
+		(report: { networks: { network: string; groups: { kind: string; name: string }[] }[] }) => {
+			for (const n of report.networks) {
+				const place = n.groups.find((g) => g.kind === 'location');
+				if (place) return { network: n.network, name: place.name };
+			}
+			return undefined;
+		}
+	);
+	await page.goto(`/?live=1&at=${encodeURIComponent(at)}&select=network:${found.network}`);
+	await expect(
+		details(page)
+			.getByRole('cell', { name: `${found.name} location`, exact: true })
+			.first()
+	).toBeVisible();
+});
