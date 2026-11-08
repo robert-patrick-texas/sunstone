@@ -59,7 +59,7 @@ links that select and bring that item into view.
 	import { term } from './terms.ts';
 	import DiscoveryFor from './DiscoveryFor.svelte';
 	import ConnectionFacts from './ConnectionFacts.svelte';
-	import { cidOf } from './connections.ts';
+	import { cidOf, lagMembers, lagOf, sidesText } from './connections.ts';
 	import OnCallFor from './OnCallFor.svelte';
 	import Routing from './Routing.svelte';
 	import Spark from './Spark.svelte';
@@ -319,8 +319,9 @@ links that select and bring that item into view.
 		select(target, true);
 	}
 
-	/** Interfaces of `device` on the given links, with their LAG if bundled. */
+	/** Interfaces of `device` on the given links, with their LAG if bundled; none for a transport. */
 	function interfacesOf(links: Link[], device: string): string {
+		if (device.startsWith('transport:')) return '';
 		const ends = links.map((l) => (l.a.device === device || !isDeviceEnd(l.b) ? l.a : l.b));
 		const lag = ends[0]?.lag;
 		const names = ends.map((e) => shortInterface(e.interface)).join(', ');
@@ -554,17 +555,33 @@ links that select and bring that item into view.
 					{#each path.listed as devices, i (devices.join(' '))}
 						<details open={i === 0}>
 							<summary>
-								Path {i + 1}{devices.length > 2 ? ` via ${devices.slice(1, -1).join(' › ')}` : ''}
+								Path {i + 1}{devices.length > 2
+									? ` via ${devices
+											.slice(1, -1)
+											.map((d) => d.replace(/^transport:/, ''))
+											.join(' › ')}`
+									: ''}
 							</summary>
 							<ol class="hops">
-								{#each devices as device, j (device)}
+								<!-- Across an E-Tree, a path passes its transport twice. -->
+								{#each devices as device, j (`${j} ${device}`)}
 									{@const next = devices[j + 1]}
 									<li>
-										{@render deviceLink(device)}
+										{#if device.startsWith('transport:')}
+											{@const name = device.slice('transport:'.length)}
+											<button
+												class="link"
+												onclick={(e) => follow(e, { kind: 'transport', id: name })}>{name}</button
+											>
+										{:else}
+											{@render deviceLink(device)}
+										{/if}
 										{#if next}
 											{@const links = linksBetween(index, path, device, next)}
 											<span class="mono">
-												{interfacesOf(links, device)} → {interfacesOf(links, next)}
+												{[interfacesOf(links, device), interfacesOf(links, next)]
+													.join(' → ')
+													.trim()}
 											</span>
 										{/if}
 									</li>
@@ -991,6 +1008,35 @@ links that select and bring that item into view.
 							{/each}
 						</tbody>
 					</table>
+					{@const channel = links[0] ? lagOf(index.topology, links[0]) : null}
+					{@const members = channel ? lagMembers(index.topology, channel) : []}
+					{#if channel && links.length > 1 && members.every((m) => selection.ids.includes(m.id))}
+						<h3>Port channel</h3>
+						<dl>
+							<dt>Channel</dt>
+							<dd>
+								{channel.a.device}
+								{shortInterface(channel.a.interface)} – {channel.b.device}
+								{shortInterface(channel.b.interface)}
+							</dd>
+							{#if channel.enterprise_cid}<dt>CID</dt>
+								<dd class="mono">{sidesText(channel.enterprise_cid)}</dd>{/if}
+							{#if channel.circuit}<dt>Carrier CID</dt>
+								<dd class="mono">{sidesText(channel.circuit.circuit_id)}</dd>{/if}
+						</dl>
+						<table class="members">
+							<thead><tr><th>Member</th><th>CID</th><th>Carrier CID</th></tr></thead>
+							<tbody>
+								{#each members as m (m.id)}
+									<tr onclick={() => select({ kind: 'links', ids: [m.id] }, true)}>
+										<td class="mono">{shortInterface(m.a.interface)}</td>
+										<td class="mono">{m.enterprise_cid ? sidesText(m.enterprise_cid) : ''}</td>
+										<td class="mono">{m.circuit ? sidesText(m.circuit.circuit_id) : ''}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
 					{#if links.length === 1 && links[0]}
 						<ConnectionFacts {index} item={{ kind: 'link', link: links[0] }} />
 					{/if}
@@ -1023,7 +1069,7 @@ links that select and bring that item into view.
 		{#if layer}
 			<section aria-label="Selection">
 				<button class="close" onclick={() => select(null)} aria-label="Close details">×</button>
-				<LayerDetails {index} selection={layer} {live} {status} {risks} />
+				<LayerDetails {index} selection={layer} {live} {status} {risks} {comparison} />
 			</section>
 		{/if}
 	</aside>

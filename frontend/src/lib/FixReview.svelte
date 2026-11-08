@@ -8,7 +8,7 @@ for everyone. Or reviewing marking the finding expected: what Live reads now
 on the ports it is about, and a note saying why, which it needs.
 -->
 <script lang="ts">
-	import { SHOWS_LABEL, showsOf, type Neighbors } from './connections.ts';
+	import { showsOf, showsText, type Neighbors } from './connections.ts';
 	import { acceptFix, fetchReview, type Change, type Review } from './api/changes.ts';
 	import type { Finding } from './api/discovery.ts';
 	import { linkEnds, portNow, reviewEffects, reviewWarning } from './discovery.ts';
@@ -72,8 +72,8 @@ on the ports it is about, and a note saying why, which it needs.
 	}
 
 	/** What a link shows to LLDP and CDP, in a few words. */
-	function showsText(shows: Neighbors | null): string {
-		return shows ? `Shows ${SHOWS_LABEL[shows].toLowerCase()}` : 'Does not say what it shows';
+	function showing(shows: Neighbors[]): string {
+		return shows.length ? `Shows ${showsText(shows).toLowerCase()}` : 'Does not say what it shows';
 	}
 </script>
 
@@ -88,9 +88,9 @@ on the ports it is about, and a note saying why, which it needs.
 			<p class="muted">{finding.detail}</p>
 			<dl>
 				<dt>Documented</dt>
-				<dd>{showsText(showsOf(fix.before))}</dd>
+				<dd>{showing(showsOf(fix.before))}</dd>
 				<dt>Becomes</dt>
-				<dd>{showsText(showsOf(fix.after))}</dd>
+				<dd>{showing(showsOf(fix.after))}</dd>
 			</dl>
 		{:else if fix}
 			<p><b>{fix.summary}</b></p>

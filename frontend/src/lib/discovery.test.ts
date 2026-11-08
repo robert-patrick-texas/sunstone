@@ -42,6 +42,7 @@ const COMPARISON: Comparison = {
 	at: '2026-10-27T15:00:00Z',
 	polled: ['a-wan-01', 'a-core-01'],
 	links: { [first]: 'not-seen', [second]: 'unchecked' },
+	tunnels: {},
 	confirmed: 7,
 	endpoints: {},
 	seen: [],
@@ -95,7 +96,7 @@ describe('linkCheck and deviceCheck', () => {
 		const topology = structuredClone(layeredIndex().topology);
 		const inet = 'c-wan-01:GigabitEthernet0/0/0--transport:INET';
 		topology.links = topology.links.map((l) =>
-			l.id === inet ? { ...l, neighbors: 'provider' } : l
+			l.id === inet ? { ...l, neighbors: ['provider' as const] } : l
 		);
 		const said = deviceCheck(
 			{ ...COMPARISON, links: { [inet]: 'provider' }, endpoints: { 'c-wan-01': 3 } },
@@ -220,7 +221,7 @@ describe('reviews', () => {
 				kind: 'document',
 				summary: 'Document that Circuit DAL-IAD-01 shows nothing',
 				before: moved,
-				after: { ...moved, neighbors: 'nothing' }
+				after: { ...moved, neighbors: ['nothing'] }
 			}
 		};
 		expect(changeLine(documented)).toBe('Documented that Circuit DAL-IAD-01 shows nothing');

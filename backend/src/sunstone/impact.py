@@ -23,9 +23,8 @@ from sunstone.model import (
     Endpoint,
     Link,
     Topology,
-    TransportEnd,
     device_ends,
-    joins,
+    transport_hops,
 )
 
 ROOT = -1
@@ -109,23 +108,23 @@ class Network:
             for end in device_ends(link):
                 self.links_of.setdefault(end.device, []).append(link)
         # Transports join the devices whose circuits for transit go into
-        # them, as more nodes after the devices; external nodes lead nowhere,
-        # and nor does a circuit for peering, open, ingress, or egress alone,
-        # so those links are left out.
-        transports = {
-            t.name: len(self.names) + i for i, t in enumerate(topology.transports)
-        }
-        self._nodes = len(self.names) + len(transports)
+        # them, as more nodes after the devices (an E-Tree's leaves each by a
+        # node of their own, which only the roots reach); external nodes lead
+        # nowhere, and nor does a circuit for peering, open, ingress, or
+        # egress alone, so those links are left out.
+        hops = transport_hops(topology.links, topology.transports)
+        nodes = dict(self.number)
+        for pairs in hops.values():
+            for _, far in pairs:
+                nodes.setdefault(far, len(nodes))
+        self._nodes = len(nodes)
         self._ends: list[tuple[int, int, str]] = []
         for link in topology.links:
             b = link.b
             if isinstance(b, Endpoint):
-                far = self.number[b.device]
-            elif isinstance(b, TransportEnd) and joins(link):
-                far = transports[b.transport]
-            else:
-                continue
-            self._ends.append((self.number[link.a.device], far, link.id))
+                self._ends.append((nodes[link.a.device], nodes[b.device], link.id))
+            for near, far in hops.get(link.id, []):
+                self._ends.append((nodes[near], nodes[far], link.id))
         self._healthy: Reach | None = None
 
     def failures_of(self, targets: Iterable[Center]) -> Failures:

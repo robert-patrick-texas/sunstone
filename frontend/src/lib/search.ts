@@ -24,7 +24,12 @@ import {
 	edgeLabel,
 	fabricRoles,
 	idWords,
+	lagMembers,
+	lagOf,
 	linkRoles,
+	macsecOn,
+	serviceText,
+	transportService,
 	MEDIUM_LABEL,
 	rolesText,
 	TRANSPORT_KIND,
@@ -258,6 +263,7 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 			...field(t.provider, ALIAS),
 			...field(t.description, CONTEXT, 'words'),
 			...field(TRANSPORT_KIND[t.kind], CONTEXT, 'words'),
+			...field(transportService(t), CONTEXT, 'words'),
 			...words('transport'),
 			...tags(t.tags)
 		]);
@@ -296,6 +302,7 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 			...field(t.circuit?.provider, ALIAS),
 			...field(t.network, ALIAS),
 			...field(t.technology, PART),
+			...field(t.kind === 'macsec' ? 'MACsec' : null, CONTEXT, 'words'),
 			...field(t.a.device, CONTEXT),
 			...field(far, CONTEXT),
 			...interfaceFields(t.a.interface, CONTEXT),
@@ -390,12 +397,45 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 	const [link] = links;
 	if (!link) return null;
 	if (links.length > 1) {
-		// Only ever recent: a bundle selected on the map, not something search finds.
 		const sites = new Set(links.flatMap((l) => deviceEnds(l).map((e) => siteOf(index, e.device))));
+		const channel = lagOf(index.topology, link);
+		const members = channel ? lagMembers(index.topology, channel) : [];
+		if (
+			!channel ||
+			members.length !== links.length ||
+			!members.every((m) => item.ids.includes(m.id))
+		) {
+			// Only ever recent: a bundle selected on the map, not something search finds.
+			return entry(
+				{ kind: 'link', key, label: targetName(index, item), detail: [...sites].join(' – ') },
+				target,
+				[]
+			);
+		}
+		// A port channel: found by its own CID, its channel interfaces, and its ends.
+		const cid = channel.enterprise_cid?.a;
 		return entry(
-			{ kind: 'link', key, label: targetName(index, item), detail: [...sites].join(' – ') },
+			{
+				kind: 'link',
+				key,
+				label: `Port channel ${cid ?? shortInterface(channel.a.interface)}`,
+				detail: [
+					`${channel.a.device} ${shortInterface(channel.a.interface)} – ${channel.b.device} ${shortInterface(channel.b.interface)}`,
+					`${members.length} members`,
+					formatSpeed(links.reduce((sum, l) => sum + l.speed_mbps, 0))
+				].join(' · ')
+			},
 			target,
-			[]
+			[
+				...idFields(channel.enterprise_cid, channel.circuit?.circuit_id),
+				...field(channel.circuit?.provider, ALIAS),
+				...field('port channel', CONTEXT, 'words'),
+				...field('lag', CONTEXT),
+				...field(channel.a.device, PART),
+				...field(channel.b.device, PART),
+				...interfaceFields(channel.a.interface, PART),
+				...interfaceFields(channel.b.interface, PART)
+			]
 		);
 	}
 	const ends = `${portName(link.a)} – ${portName(link.b)}`;
@@ -404,6 +444,9 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 	const lag = link.a.lag ?? far?.lag;
 	const roles = linkRoles(index.topology, link);
 	const edges = roles.edges.length || roles.source === 'tbd' ? rolesText(roles) : null;
+	// The only member of its channel goes by the channel's IDs too.
+	const channel = lagOf(index.topology, link);
+	const alone = channel && lagMembers(index.topology, channel).length === 1 ? channel : null;
 	return entry(
 		{
 			kind: 'link',
@@ -418,9 +461,12 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 		target,
 		[
 			...idFields(link.enterprise_cid, link.circuit?.circuit_id),
+			...idFields(alone?.enterprise_cid, alone?.circuit?.circuit_id),
 			...field(link.circuit?.provider, ALIAS),
 			...field(link.circuit?.type === 'cross-connect' ? 'cross-connect' : null, CONTEXT, 'words'),
 			...field(link.medium ? MEDIUM_LABEL[link.medium] : null, CONTEXT, 'words'),
+			...field(serviceText(index.topology, link), CONTEXT, 'words'),
+			...field(macsecOn(index.topology, link).length ? 'MACsec' : null, CONTEXT, 'words'),
 			...roleFields(roles),
 			...field(link.a.device, PART),
 			...field(endName(link.b), PART),
@@ -445,6 +491,11 @@ export function topologyEntries(index: TopologyIndex): Entry[] {
 		...index.topology.sites.map((s) => ({ kind: 'site' as const, id: s.code })),
 		...index.topology.devices.map((d) => ({ kind: 'device' as const, id: d.name })),
 		...index.topology.links.map((l) => ({ kind: 'links' as const, ids: [l.id] })),
+		// A channel of one member is found with its link, below.
+		...index.topology.lags.flatMap((g) => {
+			const ids = lagMembers(index.topology, g).map((l) => l.id);
+			return ids.length > 1 ? [{ kind: 'links' as const, ids }] : [];
+		}),
 		...networks.map((n) => ({ kind: 'network' as const, id: n.name })),
 		...transports.map((t) => ({ kind: 'transport' as const, id: t.name })),
 		...externals.map((e) => ({ kind: 'external' as const, id: e.name })),

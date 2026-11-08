@@ -616,3 +616,25 @@ locations:
 - {site: DAL, name: Hall B}
 - {site: IAD, name: Hall A}
 - {site: IAD, name: Hall B}
+lags:
+- a: {device: dal-core-01, interface: Port-channel1}
+  b: {device: dal-core-02, interface: Port-channel1}
+  enterprise_cid: DAL-PO01
+- a: {device: dal-dist-01, interface: Port-channel1}
+  b: {device: dal-dist-02, interface: Port-channel1}
+  enterprise_cid: DAL-PO02
+- a: {device: iad-core-01, interface: Port-channel1}
+  b: {device: iad-core-02, interface: Port-channel1}
+  enterprise_cid: IAD-PO01
+- a: {device: iad-dist-01, interface: Port-channel1}
+  b: {device: iad-dist-02, interface: Port-channel1}
+  enterprise_cid: IAD-PO02
+- a: {device: hou-dist-01, interface: Port-channel1}
+  b: {device: hou-dist-02, interface: Port-channel1}
+  enterprise_cid: HOU-PO01
+- a: {device: aus-dist-01, interface: Port-channel1}
+  b: {device: aus-dist-02, interface: Port-channel1}
+  enterprise_cid: AUS-PO01
+- a: {device: sat-dist-01, interface: Port-channel1}
+  b: {device: sat-dist-02, interface: Port-channel1}
+  enterprise_cid: SAT-PO01

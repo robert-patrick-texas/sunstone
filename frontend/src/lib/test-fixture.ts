@@ -16,6 +16,7 @@ export function link(a: string, b: string, speed = 10_000, extra: Partial<Link> 
 		kind: 'lan',
 		carries: [],
 		edges: [],
+		neighbors: [],
 		id: ends.join('--'),
 		...extra
 	};
@@ -73,6 +74,7 @@ export const fixture: Topology = {
 	tenants: [],
 	tunnels: [],
 	fabrics: [],
+	lags: [],
 	terms: {}
 };
 
@@ -88,6 +90,7 @@ const inet = (device: string, id: string): Link => ({
 	circuit: { provider: 'Northwind Fiber', circuit_id: { a: id, z: null }, type: 'carrier' },
 	carries: [],
 	edges: [],
+	neighbors: [],
 	id: `${device}:GigabitEthernet0/0/0--transport:INET`
 });
 
@@ -110,6 +113,7 @@ export const layeredFixture: Topology = {
 			kind: 'lan',
 			carries: [{ network: 'grey', vlan: 200 }],
 			edges: [],
+			neighbors: [],
 			id: 'c-acc-02:Gi1/0/9--external:r1-c:black'
 		}
 	],
@@ -139,6 +143,7 @@ export const layeredFixture: Topology = {
 			name: 'BLUE-A-C',
 			network: 'blue',
 			rides: 'black',
+			kind: 'ip',
 			a: { device: 'a-wan-01', interface: 'Tunnel10', source: 'Loopback0' },
 			b: { device: 'c-wan-01', interface: 'Tunnel10', source: 'Loopback0' },
 			tags: [],
@@ -148,6 +153,7 @@ export const layeredFixture: Topology = {
 			name: 'GREY-A-C',
 			network: 'grey',
 			rides: 'blue',
+			kind: 'ip',
 			a: { device: 'a-acc-01', interface: 'Tunnel20' },
 			b: { device: 'c-acc-02', interface: 'Tunnel20' },
 			tags: ['secure'],

@@ -97,9 +97,9 @@ describe('ids', () => {
 	});
 
 	it('takes what a port shows to be the far end only between our devices', () => {
-		expect(showsOf(byId(WAN))).toBe('far-end');
-		expect(showsOf(byId(INET))).toBeNull();
-		expect(showsOf({ ...byId(INET), neighbors: 'provider' })).toBe('provider');
+		expect(showsOf(byId(WAN))).toEqual(['far-end']);
+		expect(showsOf(byId(INET))).toEqual([]);
+		expect(showsOf({ ...byId(INET), neighbors: ['provider'] })).toEqual(['provider']);
 	});
 });
 

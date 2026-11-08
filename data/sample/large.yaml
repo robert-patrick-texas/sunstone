@@ -33583,3 +33583,211 @@ fabrics:
   - {device: sea-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
   - {device: geg-wan-01, interface: Tunnel100, role: spoke, source: GigabitEthernet0/0/0}
   enterprise_cid: FAB-01
+lags:
+- a: {device: dal-core-01, interface: Port-channel1}
+  b: {device: dal-core-02, interface: Port-channel1}
+  enterprise_cid: DAL-PO01
+- a: {device: dal-dist-01, interface: Port-channel1}
+  b: {device: dal-dist-02, interface: Port-channel1}
+  enterprise_cid: DAL-PO02
+- a: {device: dal-dist-03, interface: Port-channel1}
+  b: {device: dal-dist-04, interface: Port-channel1}
+  enterprise_cid: DAL-PO03
+- a: {device: dal-dist-05, interface: Port-channel1}
+  b: {device: dal-dist-06, interface: Port-channel1}
+  enterprise_cid: DAL-PO04
+- a: {device: iad-core-01, interface: Port-channel1}
+  b: {device: iad-core-02, interface: Port-channel1}
+  enterprise_cid: IAD-PO01
+- a: {device: iad-dist-01, interface: Port-channel1}
+  b: {device: iad-dist-02, interface: Port-channel1}
+  enterprise_cid: IAD-PO02
+- a: {device: iad-dist-03, interface: Port-channel1}
+  b: {device: iad-dist-04, interface: Port-channel1}
+  enterprise_cid: IAD-PO03
+- a: {device: iad-dist-05, interface: Port-channel1}
+  b: {device: iad-dist-06, interface: Port-channel1}
+  enterprise_cid: IAD-PO04
+- a: {device: hou-dist-01, interface: Port-channel1}
+  b: {device: hou-dist-02, interface: Port-channel1}
+  enterprise_cid: HOU-PO01
+- a: {device: aus-dist-01, interface: Port-channel1}
+  b: {device: aus-dist-02, interface: Port-channel1}
+  enterprise_cid: AUS-PO01
+- a: {device: sat-dist-01, interface: Port-channel1}
+  b: {device: sat-dist-02, interface: Port-channel1}
+  enterprise_cid: SAT-PO01
+- a: {device: ftw-dist-01, interface: Port-channel1}
+  b: {device: ftw-dist-02, interface: Port-channel1}
+  enterprise_cid: FTW-PO01
+- a: {device: elp-dist-01, interface: Port-channel1}
+  b: {device: elp-dist-02, interface: Port-channel1}
+  enterprise_cid: ELP-PO01
+- a: {device: okc-dist-01, interface: Port-channel1}
+  b: {device: okc-dist-02, interface: Port-channel1}
+  enterprise_cid: OKC-PO01
+- a: {device: tul-dist-01, interface: Port-channel1}
+  b: {device: tul-dist-02, interface: Port-channel1}
+  enterprise_cid: TUL-PO01
+- a: {device: lit-dist-01, interface: Port-channel1}
+  b: {device: lit-dist-02, interface: Port-channel1}
+  enterprise_cid: LIT-PO01
+- a: {device: msy-dist-01, interface: Port-channel1}
+  b: {device: msy-dist-02, interface: Port-channel1}
+  enterprise_cid: MSY-PO01
+- a: {device: btr-dist-01, interface: Port-channel1}
+  b: {device: btr-dist-02, interface: Port-channel1}
+  enterprise_cid: BTR-PO01
+- a: {device: mem-dist-01, interface: Port-channel1}
+  b: {device: mem-dist-02, interface: Port-channel1}
+  enterprise_cid: MEM-PO01
+- a: {device: bna-dist-01, interface: Port-channel1}
+  b: {device: bna-dist-02, interface: Port-channel1}
+  enterprise_cid: BNA-PO01
+- a: {device: atl-dist-01, interface: Port-channel1}
+  b: {device: atl-dist-02, interface: Port-channel1}
+  enterprise_cid: ATL-PO01
+- a: {device: bhm-dist-01, interface: Port-channel1}
+  b: {device: bhm-dist-02, interface: Port-channel1}
+  enterprise_cid: BHM-PO01
+- a: {device: jax-dist-01, interface: Port-channel1}
+  b: {device: jax-dist-02, interface: Port-channel1}
+  enterprise_cid: JAX-PO01
+- a: {device: mco-dist-01, interface: Port-channel1}
+  b: {device: mco-dist-02, interface: Port-channel1}
+  enterprise_cid: MCO-PO01
+- a: {device: tpa-dist-01, interface: Port-channel1}
+  b: {device: tpa-dist-02, interface: Port-channel1}
+  enterprise_cid: TPA-PO01
+- a: {device: mia-dist-01, interface: Port-channel1}
+  b: {device: mia-dist-02, interface: Port-channel1}
+  enterprise_cid: MIA-PO01
+- a: {device: clt-dist-01, interface: Port-channel1}
+  b: {device: clt-dist-02, interface: Port-channel1}
+  enterprise_cid: CLT-PO01
+- a: {device: rdu-dist-01, interface: Port-channel1}
+  b: {device: rdu-dist-02, interface: Port-channel1}
+  enterprise_cid: RDU-PO01
+- a: {device: ric-dist-01, interface: Port-channel1}
+  b: {device: ric-dist-02, interface: Port-channel1}
+  enterprise_cid: RIC-PO01
+- a: {device: dca-dist-01, interface: Port-channel1}
+  b: {device: dca-dist-02, interface: Port-channel1}
+  enterprise_cid: DCA-PO01
+- a: {device: bwi-dist-01, interface: Port-channel1}
+  b: {device: bwi-dist-02, interface: Port-channel1}
+  enterprise_cid: BWI-PO01
+- a: {device: phl-dist-01, interface: Port-channel1}
+  b: {device: phl-dist-02, interface: Port-channel1}
+  enterprise_cid: PHL-PO01
+- a: {device: nyc-dist-01, interface: Port-channel1}
+  b: {device: nyc-dist-02, interface: Port-channel1}
+  enterprise_cid: NYC-PO01
+- a: {device: ewr-dist-01, interface: Port-channel1}
+  b: {device: ewr-dist-02, interface: Port-channel1}
+  enterprise_cid: EWR-PO01
+- a: {device: bos-dist-01, interface: Port-channel1}
+  b: {device: bos-dist-02, interface: Port-channel1}
+  enterprise_cid: BOS-PO01
+- a: {device: bdl-dist-01, interface: Port-channel1}
+  b: {device: bdl-dist-02, interface: Port-channel1}
+  enterprise_cid: BDL-PO01
+- a: {device: pvd-dist-01, interface: Port-channel1}
+  b: {device: pvd-dist-02, interface: Port-channel1}
+  enterprise_cid: PVD-PO01
+- a: {device: alb-dist-01, interface: Port-channel1}
+  b: {device: alb-dist-02, interface: Port-channel1}
+  enterprise_cid: ALB-PO01
+- a: {device: buf-dist-01, interface: Port-channel1}
+  b: {device: buf-dist-02, interface: Port-channel1}
+  enterprise_cid: BUF-PO01
+- a: {device: pit-dist-01, interface: Port-channel1}
+  b: {device: pit-dist-02, interface: Port-channel1}
+  enterprise_cid: PIT-PO01
+- a: {device: cle-dist-01, interface: Port-channel1}
+  b: {device: cle-dist-02, interface: Port-channel1}
+  enterprise_cid: CLE-PO01
+- a: {device: cmh-dist-01, interface: Port-channel1}
+  b: {device: cmh-dist-02, interface: Port-channel1}
+  enterprise_cid: CMH-PO01
+- a: {device: cvg-dist-01, interface: Port-channel1}
+  b: {device: cvg-dist-02, interface: Port-channel1}
+  enterprise_cid: CVG-PO01
+- a: {device: dtw-dist-01, interface: Port-channel1}
+  b: {device: dtw-dist-02, interface: Port-channel1}
+  enterprise_cid: DTW-PO01
+- a: {device: ind-dist-01, interface: Port-channel1}
+  b: {device: ind-dist-02, interface: Port-channel1}
+  enterprise_cid: IND-PO01
+- a: {device: sdf-dist-01, interface: Port-channel1}
+  b: {device: sdf-dist-02, interface: Port-channel1}
+  enterprise_cid: SDF-PO01
+- a: {device: ord-dist-01, interface: Port-channel1}
+  b: {device: ord-dist-02, interface: Port-channel1}
+  enterprise_cid: ORD-PO01
+- a: {device: mke-dist-01, interface: Port-channel1}
+  b: {device: mke-dist-02, interface: Port-channel1}
+  enterprise_cid: MKE-PO01
+- a: {device: msp-dist-01, interface: Port-channel1}
+  b: {device: msp-dist-02, interface: Port-channel1}
+  enterprise_cid: MSP-PO01
+- a: {device: dsm-dist-01, interface: Port-channel1}
+  b: {device: dsm-dist-02, interface: Port-channel1}
+  enterprise_cid: DSM-PO01
+- a: {device: stl-dist-01, interface: Port-channel1}
+  b: {device: stl-dist-02, interface: Port-channel1}
+  enterprise_cid: STL-PO01
+- a: {device: mci-dist-01, interface: Port-channel1}
+  b: {device: mci-dist-02, interface: Port-channel1}
+  enterprise_cid: MCI-PO01
+- a: {device: oma-dist-01, interface: Port-channel1}
+  b: {device: oma-dist-02, interface: Port-channel1}
+  enterprise_cid: OMA-PO01
+- a: {device: ict-dist-01, interface: Port-channel1}
+  b: {device: ict-dist-02, interface: Port-channel1}
+  enterprise_cid: ICT-PO01
+- a: {device: den-dist-01, interface: Port-channel1}
+  b: {device: den-dist-02, interface: Port-channel1}
+  enterprise_cid: DEN-PO01
+- a: {device: abq-dist-01, interface: Port-channel1}
+  b: {device: abq-dist-02, interface: Port-channel1}
+  enterprise_cid: ABQ-PO01
+- a: {device: phx-dist-01, interface: Port-channel1}
+  b: {device: phx-dist-02, interface: Port-channel1}
+  enterprise_cid: PHX-PO01
+- a: {device: tus-dist-01, interface: Port-channel1}
+  b: {device: tus-dist-02, interface: Port-channel1}
+  enterprise_cid: TUS-PO01
+- a: {device: las-dist-01, interface: Port-channel1}
+  b: {device: las-dist-02, interface: Port-channel1}
+  enterprise_cid: LAS-PO01
+- a: {device: slc-dist-01, interface: Port-channel1}
+  b: {device: slc-dist-02, interface: Port-channel1}
+  enterprise_cid: SLC-PO01
+- a: {device: boi-dist-01, interface: Port-channel1}
+  b: {device: boi-dist-02, interface: Port-channel1}
+  enterprise_cid: BOI-PO01
+- a: {device: lax-dist-01, interface: Port-channel1}
+  b: {device: lax-dist-02, interface: Port-channel1}
+  enterprise_cid: LAX-PO01
+- a: {device: san-dist-01, interface: Port-channel1}
+  b: {device: san-dist-02, interface: Port-channel1}
+  enterprise_cid: SAN-PO01
+- a: {device: sfo-dist-01, interface: Port-channel1}
+  b: {device: sfo-dist-02, interface: Port-channel1}
+  enterprise_cid: SFO-PO01
+- a: {device: sjc-dist-01, interface: Port-channel1}
+  b: {device: sjc-dist-02, interface: Port-channel1}
+  enterprise_cid: SJC-PO01
+- a: {device: smf-dist-01, interface: Port-channel1}
+  b: {device: smf-dist-02, interface: Port-channel1}
+  enterprise_cid: SMF-PO01
+- a: {device: pdx-dist-01, interface: Port-channel1}
+  b: {device: pdx-dist-02, interface: Port-channel1}
+  enterprise_cid: PDX-PO01
+- a: {device: sea-dist-01, interface: Port-channel1}
+  b: {device: sea-dist-02, interface: Port-channel1}
+  enterprise_cid: SEA-PO01
+- a: {device: geg-dist-01, interface: Port-channel1}
+  b: {device: geg-dist-02, interface: Port-channel1}
+  enterprise_cid: GEG-PO01

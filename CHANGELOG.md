@@ -53,6 +53,61 @@ release that were never released on their own.
   `kind: application`, not `service`: a service edge is where we publish
   our own, which Sunstone calls ingress. `terms` takes `application` in
   place of `service`.
+- Carrier Ethernet. A transport can be a layer-2 service, `service: e-lan`
+  (VPLS, EVPN) or `e-tree` (EVPN with root and leaf policies), with its
+  `technology`; a point-to-point circuit can be an `e-line` (VPWS, a
+  pseudowire, 802.1Q-in-Q) or an `e-access`. An E-Tree circuit is a
+  `root` or a leaf. Across a layer-2 service our own routers see each
+  other, so a circuit into one can show the far end (`neighbors:
+  far-end`), and one port sees several. A leaf reaches only the roots:
+  reach, paths, status, impact, and "what if" go from leaf to leaf through
+  a root's router, and a leaf with no root reached is cut off from the
+  E-Tree. A path between two leaves reads "via Harbor E-Tree › dal-wan-02 ›
+  Harbor E-Tree".
+- MACsec, as a connection of its own: a tunnel with `kind: macsec`, on the
+  physical ports, carrying a network inside the boundary across the
+  provider. It rides the link at its ports, or two circuits into one
+  layer-2 service, and is up while they are. Its far end can be someone
+  else's device. Its `neighbors` says whether LLDP and CDP run `inside` it,
+  `alongside` it in clear, or `none`; what the port shows stays its link's
+  to say. Only inside does seeing the far end vouch for the encryption. A
+  link's details list the MACsec on its ports and how LLDP and CDP relate
+  to each; a MACsec connection's details say what it is carried on.
+- Port channels with a CID of their own. `lags` lists each channel by its
+  two port-channel interfaces, with its `enterprise_cid` (and a `circuit`
+  for a carrier's bundle); its members, one or more, are the links whose
+  ends name it with `lag`, each with its own cable or circuit ID. A
+  bundle's details give the channel's CID and each member's, a member's
+  says which channel it is in, and search finds a channel by its CID.
+- Neighbors over CDP, LLDP, or both. Discovery takes rows naming one
+  device on one port as one neighbor, however differently the protocols
+  describe it: a short name and one with a domain, NX-OS's name with its
+  chassis serial over CDP, a management address, or an LLDP chassis ID
+  alone beside the one device seen over CDP. A port can have several
+  neighbors.
+- What a port shows can be more than one thing: `neighbors: [provider,
+  far-end]` for a circuit whose NTU answers LLDP while CDP passes through
+  to the far end. A port showing only one of them is a finding offering
+  to document what is seen.
+- Two leaves of an E-Tree that see each other are a finding of their own:
+  the carrier is not keeping its leaves apart, or the roles are
+  documented wrong.
+- CDP over tunnels. Point-to-point tunnels are compared where CDP is seen
+  over them: a tunnel's details say whether its far end is confirmed, and
+  the Discovery list has a tunnel seeing another device or another tunnel
+  interface than documented. A tunnel CDP does not run over is never a
+  finding. MACsec that LLDP and CDP run inside is checked on its port.
+- Paths name the transports they cross ("Harbor E-Tree", not
+  "transport:Harbor E-Tree"), and give each side's own interface only.
+- The layered sample has carrier Ethernet (`metro`): two E-Lines between
+  the data centers in one port channel, each member with MACsec for dci
+  and LLDP and CDP inside it; an E-LAN joining Dallas, Fort Worth, Austin,
+  and San Antonio, three of them over the local exchange carrier's
+  E-Access, with MACsec for corp and LLDP and CDP alongside it in clear;
+  an E-Tree rooted at the data centers with four branches as leaves; and
+  Austin–San Antonio as an 802.1Q-in-Q E-Line, a port channel of one
+  member, whose NTU answers LLDP while CDP passes through. The samples'
+  other port channels have CIDs too.
 
 ## 0.8.0
 

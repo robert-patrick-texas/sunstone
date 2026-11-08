@@ -118,9 +118,10 @@ test('a carrier failing takes all its circuits, and the tunnels over them', asyn
 	await page.goto(`/?select=${encodeURIComponent(circuit)}`);
 	await details(page).getByRole('button', { name: 'What if Mesa Carrier fails?' }).click();
 	const impact = details(page).getByRole('region', { name: 'Impact' });
-	await expect(impact.getByText('Mesa Carrier (20 circuits)')).toBeVisible();
+	// Its E-LAN and E-Lines too: corp's MACsec over the E-LAN goes with its MPLS.
+	await expect(impact.getByText('Mesa Carrier (24 circuits)')).toBeVisible();
 	await expect(networkRow(impact, 'corp')).toContainText(
-		'28 of 58 tunnels · BNA, FTW, and MEM cut off'
+		'32 of 62 tunnels · BNA, FTW, and MEM cut off'
 	);
 	await expect(networkRow(impact, 'blue2')).toContainText('Offline');
 	await expect(page).toHaveURL(/fail=provider:Mesa\+Carrier/);
@@ -374,4 +375,76 @@ test('a circuit that does not say what it shows is offered what discovery sees',
 	const review = page.getByRole('form', { name: 'Review fix' });
 	await expect(review.getByText('Does not say what it shows', { exact: true })).toBeVisible();
 	await expect(review.getByText("Shows the provider's equipment", { exact: true })).toBeVisible();
+});
+
+test("an E-Tree's leaves reach each other only through a root", async ({ page }) => {
+	await searchFor(page, 'Harbor E-Tree');
+	await expect(heading(page)).toHaveText('Harbor E-Tree');
+	await expect(details(page).getByText('E-Tree · MPLS EVPN')).toBeVisible();
+	const circuits = details(page).getByRole('row');
+	await expect(circuits.filter({ hasText: 'dal-wan-02' })).toContainText('Root');
+	await expect(circuits.filter({ hasText: 'mem-wan-01' })).toContainText('Leaf');
+	// Memphis and Tulsa are both leaves: the path between them turns at a root.
+	await page.goto('/?view=logical&from=mem-wan-01&to=tul-wan-01');
+	await expect(heading(page)).toHaveText('Path');
+	await expect(
+		details(page).getByText('Path 1 via Harbor E-Tree › dal-wan-02 › Harbor E-Tree')
+	).toBeVisible();
+});
+
+test('a port channel has a CID of its own, and MACsec on each member', async ({ page }) => {
+	await page.getByRole('combobox', { name: 'Search' }).fill('DAL-IAD-PO01');
+	await expect(page.getByRole('option').first()).toContainText('Port channel DAL-IAD-PO01');
+	await page.keyboard.press('Enter');
+	await expect(heading(page)).toHaveText('2 links');
+	await expect(details(page).getByRole('heading', { name: 'Port channel' })).toBeVisible();
+	const members = details(page).getByRole('table').filter({ hasText: 'Member' });
+	await expect(members.getByRole('row')).toHaveCount(3);
+	await members.getByRole('row').filter({ hasText: 'DAL-IAD-01' }).click();
+	await expect(heading(page)).toHaveText('Link');
+	const facts = details(page).locator('dd');
+	await expect(facts.filter({ hasText: 'E-Line · VPWS' })).toBeVisible();
+	await expect(facts.filter({ hasText: 'DAL-IAD-PO01 · 2 members' })).toBeVisible();
+	// The carrier passes nothing of ours, but LLDP and CDP run inside the MACsec.
+	await expect(facts.filter({ hasText: 'LLDP and CDP inside it' })).toBeVisible();
+	await expect(facts.filter({ hasText: /^The far end$/ })).toBeVisible();
+	await details(page).getByRole('button', { name: 'DCI-MACSEC-1' }).click();
+	await expect(heading(page)).toHaveText('DCI-MACSEC-1');
+	await expect(details(page).getByText('encrypted on the physical ports')).toBeVisible();
+	await expect(
+		details(page).getByText('its far end seen proves the encryption works')
+	).toBeVisible();
+	await expect(details(page).getByRole('button', { name: 'Circuit DAL-IAD-01' })).toBeVisible();
+});
+
+interface Checked extends Comparison {
+	tunnels: Record<string, string>;
+}
+
+test('discovery finds E-Tree leaves that see each other, and a tunnel on another interface', async ({
+	page
+}) => {
+	const { at } = await momentWith(
+		page,
+		(at) => `/api/discovery?at=${encodeURIComponent(at)}`,
+		(answer: Checked) =>
+			answer.findings.some((f) => f.kind === 'leaf') &&
+			answer.tunnels['BLUE-HOU-IAD'] === 'mismatch'
+				? true
+				: undefined
+	);
+	await page.goto(`/?at=${encodeURIComponent(at)}`);
+	await page.keyboard.press('d');
+	const list = page.getByRole('region', { name: 'Discovery' });
+	await expect(
+		list.getByRole('heading', { name: 'E-Tree leaves that see each other (1)' })
+	).toBeVisible();
+	await expect(list.getByText('mem-wan-01 sees okc-wan-02 across Harbor E-Tree')).toBeVisible();
+	await expect(list.getByText('BLUE-HOU-IAD on another tunnel interface')).toBeVisible();
+	await expect(list.getByText(/tunnels confirmed over CDP or inside MACsec/)).toBeVisible();
+	// The tunnel's details say what CDP over it shows.
+	await page.goto(`/?at=${encodeURIComponent(at)}&select=tunnel:BLUE-HOU-IAD&discovery=1`);
+	await expect(heading(page)).toHaveText('BLUE-HOU-IAD');
+	await expect(details(page).getByText('Not as documented')).toBeVisible();
+	await expect(details(page).getByText(/sees iad-blu-01 Tunnel112 over CDP/)).toBeVisible();
 });

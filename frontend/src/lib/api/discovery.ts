@@ -14,6 +14,7 @@ export type Finding = Schemas['Finding'];
 export type SeenLink = Schemas['SeenLink'];
 export type FindingKind = Finding['kind'];
 export type LinkCheck = NonNullable<Comparison['links'][string]>;
+export type TunnelCheck = NonNullable<Comparison['tunnels'][string]>;
 
 /**
  * Fetch the comparison in effect at a moment.

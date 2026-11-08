@@ -421,20 +421,26 @@ links:
   - {network: grey, vlan: 200}
   medium: copper
   enterprise_cid: IAD-C0019
-- a: {device: dal-wan-02, interface: HundredGigE1/0/0}
-  b: {device: iad-wan-02, interface: HundredGigE1/0/0}
+- a: {device: dal-wan-02, interface: HundredGigE1/0/0, lag: Port-channel1}
+  b: {device: iad-wan-02, interface: HundredGigE1/0/0, lag: Port-channel1}
   speed_mbps: 100000
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-736944}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-736944, service: e-line, technology: VPWS}
+  carries:
+  - {network: metro}
   medium: fiber
   enterprise_cid: DAL-IAD-01
-- a: {device: dal-wan-02, interface: HundredGigE1/0/1}
-  b: {device: iad-wan-02, interface: HundredGigE1/0/1}
+  neighbors: far-end
+- a: {device: dal-wan-02, interface: HundredGigE1/0/1, lag: Port-channel1}
+  b: {device: iad-wan-02, interface: HundredGigE1/0/1, lag: Port-channel1}
   speed_mbps: 100000
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-899308}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-899308, service: e-line, technology: VPWS}
+  carries:
+  - {network: metro}
   medium: fiber
   enterprise_cid: DAL-IAD-02
+  neighbors: far-end
 - a: {device: aus-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
@@ -1225,15 +1231,18 @@ links:
   circuit: {provider: Mesa Carrier, circuit_id: ME-105986}
   medium: microwave
   enterprise_cid: DAL-FTW-01
-- a: {device: aus-wan-01, interface: TenGigabitEthernet0/1/0}
-  b: {device: sat-wan-02, interface: TenGigabitEthernet0/1/0}
+- a: {device: aus-wan-01, interface: TenGigabitEthernet0/1/0, lag: Port-channel10}
+  b: {device: sat-wan-02, interface: TenGigabitEthernet0/1/0, lag: Port-channel10}
   speed_mbps: 10000
   kind: wan
   circuit:
     provider: Mesa Carrier
     circuit_id: {a: ME-502327 / Pecos Bell 12/KXFU/204411, z: ME-502327 / Gulf Coast Bell 31/KQGS/558120}
+    service: e-line
+    technology: 802.1Q-in-Q
   medium: fiber
   enterprise_cid: {a: AUS-SAT-01, z: SAT-AUS-01}
+  neighbors: [provider, far-end]
 - a: {device: iad-wan-02, interface: TenGigabitEthernet0/1/2}
   b: {external: Nimbus Cloud}
   speed_mbps: 10000
@@ -1343,6 +1352,116 @@ links:
   enterprise_cid: DAL-REN-01
   edges: [open]
   neighbors: provider
+- a: {device: dal-wan-02, interface: GigabitEthernet0/0/2}
+  b: {transport: Mesa E-LAN}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-876474}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: DAL-ELAN-01
+  edges: [transit]
+  neighbors: [provider, far-end]
+- a: {device: ftw-wan-01, interface: GigabitEthernet0/0/2}
+  b: {transport: Mesa E-LAN}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-637395 / Pecos Bell 12/KXFU/132485, service: e-access}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: FTW-ELAN-01
+  edges: [transit]
+  neighbors: [provider, far-end]
+- a: {device: aus-wan-02, interface: GigabitEthernet0/0/2}
+  b: {transport: Mesa E-LAN}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-948444 / Pecos Bell 12/KXFU/784488, service: e-access}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: AUS-ELAN-01
+  edges: [transit]
+  neighbors: [provider, far-end]
+- a: {device: sat-wan-02, interface: GigabitEthernet0/0/4}
+  b: {transport: Mesa E-LAN}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Mesa Carrier, circuit_id: ME-235527 / Pecos Bell 12/KXFU/703053, service: e-access}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: SAT-ELAN-01
+  edges: [transit]
+  neighbors: [provider, far-end]
+- a: {device: dal-wan-02, interface: GigabitEthernet0/0/3}
+  b: {transport: Harbor E-Tree, role: root}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-643873}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: DAL-ETREE-01
+  edges: [transit]
+  neighbors: far-end
+- a: {device: iad-wan-02, interface: GigabitEthernet0/0/1}
+  b: {transport: Harbor E-Tree, role: root}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-915160}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: IAD-ETREE-01
+  edges: [transit]
+  neighbors: far-end
+- a: {device: okc-wan-02, interface: GigabitEthernet0/0/4}
+  b: {transport: Harbor E-Tree}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-688626}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: OKC-ETREE-01
+  edges: [transit]
+  neighbors: far-end
+- a: {device: tul-wan-01, interface: GigabitEthernet0/0/3}
+  b: {transport: Harbor E-Tree}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-315466}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: TUL-ETREE-01
+  edges: [transit]
+  neighbors: far-end
+- a: {device: lit-wan-02, interface: GigabitEthernet0/0/4}
+  b: {transport: Harbor E-Tree}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-546788}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: LIT-ETREE-01
+  edges: [transit]
+  neighbors: far-end
+- a: {device: mem-wan-01, interface: GigabitEthernet0/0/4}
+  b: {transport: Harbor E-Tree}
+  speed_mbps: 1000
+  kind: wan
+  circuit: {provider: Harbor Transit, circuit_id: HA-158849}
+  carries:
+  - {network: metro}
+  medium: fiber
+  enterprise_cid: MEM-ETREE-01
+  edges: [transit]
+  neighbors: far-end
 regions:
 - {name: Central}
 - {name: Eastern}
@@ -1383,11 +1502,19 @@ networks:
   rides: [grey]
   description: Bravo's own network
 - {name: partners, description: Tunnels to partners}
+- name: metro
+  boundary: outside
+  anchors: [DAL, IAD]
+  description: 'Carrier Ethernet: E-Line, E-LAN, and E-Tree'
 transports:
 - {name: INET, kind: internet, network: black, description: The Internet}
 - {name: Mesa MPLS, kind: private-wan, network: black, provider: Mesa Carrier, description: Carrier MPLS VPN}
 - {name: Prairie REN, kind: research, network: black, provider: Prairie Research Network, description: Research and education
     network}
+- {name: Mesa E-LAN, kind: private-wan, network: metro, provider: Mesa Carrier, service: e-lan, technology: VPLS, description: Metro
+    Ethernet across North and Central Texas}
+- {name: Harbor E-Tree, kind: private-wan, network: metro, provider: Harbor Transit, service: e-tree, technology: MPLS EVPN,
+  description: Rooted at the data centers}
 externals:
 - name: Nimbus Cloud
   kind: application
@@ -1594,6 +1721,60 @@ tunnels:
   a: {device: dal-wan-01, interface: Tunnel50, source: Loopback0}
   b: {external: Acme Logistics, peer: 198.51.100.7}
   enterprise_cid: TUN-0026
+- name: DCI-MACSEC-1
+  network: dci
+  rides: metro
+  kind: macsec
+  technology: GCM-AES-XPN-256
+  neighbors: inside
+  a: {device: dal-wan-02, interface: HundredGigE1/0/0}
+  b: {device: iad-wan-02, interface: HundredGigE1/0/0}
+  enterprise_cid: TUN-0027
+- name: DCI-MACSEC-2
+  network: dci
+  rides: metro
+  kind: macsec
+  technology: GCM-AES-XPN-256
+  neighbors: inside
+  a: {device: dal-wan-02, interface: HundredGigE1/0/1}
+  b: {device: iad-wan-02, interface: HundredGigE1/0/1}
+  enterprise_cid: TUN-0028
+- name: MACSEC-DAL-FTW
+  network: corp
+  rides: metro
+  kind: macsec
+  technology: GCM-AES-XPN-256
+  neighbors: alongside
+  a: {device: dal-wan-02, interface: GigabitEthernet0/0/2}
+  b: {device: ftw-wan-01, interface: GigabitEthernet0/0/2}
+  enterprise_cid: TUN-0029
+- name: MACSEC-DAL-AUS
+  network: corp
+  rides: metro
+  kind: macsec
+  technology: GCM-AES-XPN-256
+  neighbors: alongside
+  a: {device: dal-wan-02, interface: GigabitEthernet0/0/2}
+  b: {device: aus-wan-02, interface: GigabitEthernet0/0/2}
+  enterprise_cid: TUN-0030
+- name: MACSEC-DAL-SAT
+  network: corp
+  rides: metro
+  kind: macsec
+  technology: GCM-AES-XPN-256
+  neighbors: alongside
+  a: {device: dal-wan-02, interface: GigabitEthernet0/0/2}
+  b: {device: sat-wan-02, interface: GigabitEthernet0/0/4}
+  enterprise_cid: TUN-0031
+- name: MACSEC-AUS-SAT
+  network: corp
+  rides: metro
+  kind: macsec
+  technology: GCM-AES-XPN-256
+  neighbors: alongside
+  a: {device: aus-wan-02, interface: GigabitEthernet0/0/2}
+  b: {device: sat-wan-02, interface: GigabitEthernet0/0/4}
+  enterprise_cid: TUN-0032
 fabrics:
 - name: DMVPN-INET
   network: corp
@@ -1652,3 +1833,10 @@ fabrics:
   - {device: mem-bl2-01, interface: Tunnel300, role: spoke, source: Loopback0}
   - {device: bna-bl2-01, interface: Tunnel300, role: spoke, source: Loopback0}
   enterprise_cid: FAB-03
+lags:
+- a: {device: dal-wan-02, interface: Port-channel1}
+  b: {device: iad-wan-02, interface: Port-channel1}
+  enterprise_cid: DAL-IAD-PO01
+- a: {device: aus-wan-01, interface: Port-channel10}
+  b: {device: sat-wan-02, interface: Port-channel10}
+  enterprise_cid: AUS-SAT-PO01

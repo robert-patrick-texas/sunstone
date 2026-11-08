@@ -244,9 +244,9 @@ class TestRoles:
     def test_what_a_port_shows_defaults_to_the_far_end_between_our_devices(
         self, topology: Topology
     ) -> None:
-        assert shows(link(topology, "a-wan-01", "Te0/1/1")) == "far-end"
-        assert shows(link(topology, "b-wan-01", "Gi0/0/0")) is None
-        assert shows(link(topology, "a-acc-01", "Gi0/0/1")) == "nothing"
+        assert shows(link(topology, "a-wan-01", "Te0/1/1")) == ("far-end",)
+        assert shows(link(topology, "b-wan-01", "Gi0/0/0")) == ()
+        assert shows(link(topology, "a-acc-01", "Gi0/0/1")) == ("nothing",)
 
     def test_a_transport_joins_only_circuits_for_transit_or_tbd(
         self, topology: Topology
@@ -344,7 +344,7 @@ class TestDiscoveryAcrossCircuits:
         assert "documented as showing the far end" in finding.detail
         assert finding.fix and finding.fix.kind == "document"
         fixed = applied(topology, [finding.fix])
-        assert link(fixed, "a-wan-01", "Te0/1/1").neighbors == "nothing"
+        assert link(fixed, "a-wan-01", "Te0/1/1").neighbors == ["nothing"]
         again = compare(fixed, run(found), up(fixed))
         assert again.findings == []
         assert again.links[finding.link or ""] == "nothing"
@@ -361,7 +361,7 @@ class TestDiscoveryAcrossCircuits:
         assert unsaid.title == "Circuit BL-1 shows the provider's equipment"
         assert unsaid.detail.endswith("it does not say what it shows")
         assert unsaid.fix and unsaid.fix.after
-        assert unsaid.fix.after.neighbors == "provider"
+        assert unsaid.fix.after.neighbors == ["provider"]
         missing = by_link[link(topology, "a-wan-01", "Gi0/0/0").id]
         assert missing.title == "Circuit A-INET-01 shows nothing"
         assert result.links[unsaid.link or ""] == "differs"
@@ -397,8 +397,8 @@ class TestSimulated:
         beyond = Beyond(layers, watched=everyone)
         assert beyond.bridged
         assert {ln.a.device for ln in beyond.bridged} == {"dal-wan-01", "iad-wan-01"}
-        assert beyond.filtered and beyond.real[beyond.filtered] == "nothing"
-        assert beyond.unsaid and beyond.real[beyond.unsaid] == "provider"
+        assert beyond.filtered and beyond.real[beyond.filtered] == ("nothing",)
+        assert beyond.unsaid and beyond.real[beyond.unsaid] == ("provider",)
         cabling = Cabling(cabled(layers))
         discovery = SimulatedDiscovery(layers, cabling, AllUp(layers), beyond)
         result = compare(layers, discovery.discover(AT), up(layers))
@@ -437,7 +437,7 @@ def test_documenting_what_a_circuit_shows_is_reviewed_and_accepted(
     assert accepted.status_code == 201
     links = client.get("/api/topology").json()["links"]
     circuit = next(ln for ln in links if ln["id"] == finding["link"])
-    assert circuit["neighbors"] == "nothing"
+    assert circuit["neighbors"] == ["nothing"]
     comparison = client.get("/api/discovery").json()
     assert finding["id"] not in {f["id"] for f in comparison["findings"]}
     assert comparison["links"][finding["link"]] == "nothing"
