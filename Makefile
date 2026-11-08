@@ -2,7 +2,7 @@
 
 TOPOLOGY ?= data/sample/small.yaml
 
-.PHONY: help setup dev-api dev-web build serve test e2e bench data api-types deb package-test release-dry-run
+.PHONY: help setup dev-api dev-web dev-up dev-down dev-logs build serve test e2e bench data api-types deb package-test release-dry-run
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -16,6 +16,15 @@ dev-api: ## API on :8000, restarting on code or topology changes (TOPOLOGY=file)
 
 dev-web: ## Vite dev server on :5173, proxying /api to dev-api
 	cd frontend && npm run dev
+
+dev-up: ## Dev instance in a container on 127.0.0.1:8000, rebuilt as the tree changes
+	docker compose -f tools/dev-instance/compose.yaml up -d --build
+
+dev-down: ## Stop the dev instance; its saved state is kept
+	docker compose -f tools/dev-instance/compose.yaml down
+
+dev-logs: ## Follow the dev instance's output
+	docker compose -f tools/dev-instance/compose.yaml logs -f
 
 build: ## Build the web UI into frontend/build
 	cd frontend && npm run build

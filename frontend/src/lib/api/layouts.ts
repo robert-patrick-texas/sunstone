@@ -11,7 +11,7 @@ export type LayoutIn = Schemas['LayoutIn'];
 export type SavedLayout = Schemas['SavedLayout'];
 export type LayoutSummary = Schemas['LayoutSummary'];
 
-const url = (name: string) => `/api/layouts/${encodeURIComponent(name)}`;
+const url = (name: string) => `api/layouts/${encodeURIComponent(name)}`;
 
 /** Await a response; a failure becomes an Error saying what failed and why. */
 async function call<T>(request: Promise<Response>, what: string): Promise<T> {
@@ -34,7 +34,7 @@ async function call<T>(request: Promise<Response>, what: string): Promise<T> {
  * @throws Error when the request fails.
  */
 export function listLayouts(): Promise<LayoutSummary[]> {
-	return call(fetch('/api/layouts'), 'Listing saved layouts');
+	return call(fetch('api/layouts'), 'Listing saved layouts');
 }
 
 /**

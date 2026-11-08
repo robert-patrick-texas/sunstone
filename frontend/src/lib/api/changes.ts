@@ -21,7 +21,7 @@ export type PortNow = Schemas['PortNow'];
  * @throws Error when the API refuses.
  */
 export async function fetchChanges(): Promise<Change[]> {
-	const found = await send<Schemas['ChangeSet']>('GET', '/api/changes');
+	const found = await send<Schemas['ChangeSet']>('GET', 'api/changes');
 	return found.changes;
 }
 
@@ -36,7 +36,7 @@ export async function fetchChanges(): Promise<Change[]> {
  */
 export function fetchReview(finding: string, expect = false): Promise<Review> {
 	const query = `finding=${encodeURIComponent(finding)}${expect ? '&expect=true' : ''}`;
-	return send('GET', `/api/review?${query}`);
+	return send('GET', `api/review?${query}`);
 }
 
 /**
@@ -55,7 +55,7 @@ export function acceptFix(
 	by: string,
 	expect = false
 ): Promise<Change> {
-	return send('POST', '/api/changes', { finding, note, by, expect });
+	return send('POST', 'api/changes', { finding, note, by, expect });
 }
 
 /**
@@ -65,5 +65,5 @@ export function acceptFix(
  * @throws Error with the API's reason when it refuses (a later change depends on it).
  */
 export function revertChange(id: string): Promise<void> {
-	return send('DELETE', `/api/changes/${encodeURIComponent(id)}`);
+	return send('DELETE', `api/changes/${encodeURIComponent(id)}`);
 }

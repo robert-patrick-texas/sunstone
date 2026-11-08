@@ -165,35 +165,6 @@ export function lineDetail(line: NetworkLine): string {
 }
 
 /**
- * The named networks a "what if" reaches, in one sentence: what each loses,
- * and which stay up.
- *
- * @param index - Topology index.
- * @param networks - The answer's networks.
- * @returns For example `blue would lose 2 of 9 tunnels, cutting off HOU; red-bravo stays up.`,
- *   or null when no named network is reached.
- */
-export function acrossSentence(index: TopologyIndex, networks: NetworkImpact[]): string | null {
-	const lines = networks.filter((n) => n.network !== null).map((n) => networkLine(index, n));
-	if (lines.length === 0) return null;
-	const losing = lines.filter((l) => l.losses.length || l.sitesLost.length);
-	const staying = lines.filter((l) => !losing.includes(l));
-	const parts = losing.slice(0, 3).map((l) => {
-		const sites = l.sitesLost.length ? siteList(l.sitesLost) : '';
-		if (!l.losses.length) return `${l.name} would lose ${sites}`;
-		const cutting = sites ? `, cutting off ${sites}` : '';
-		return `${l.name} would lose ${andList(l.losses)}${cutting}`;
-	});
-	if (losing.length > 3)
-		parts.push(`${andList(losing.slice(3).map((l) => l.name))} would lose some too`);
-	const up = staying.filter((l) => l.after === 'operational').map((l) => l.name);
-	const changed = staying.filter((l) => l.after !== 'operational');
-	for (const l of changed) parts.push(`${l.name} would be ${STATUS_LABEL[l.after].toLowerCase()}`);
-	if (up.length) parts.push(`${andList(up)} ${up.length === 1 ? 'stays' : 'stay'} up`);
-	return `${parts.join('; ')}.`;
-}
-
-/**
  * What a shared risk does, in a few words.
  *
  * @param index - Topology index.

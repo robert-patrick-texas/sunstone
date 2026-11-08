@@ -28,7 +28,7 @@ export type SignOff = Schemas['SignOff'];
  * @throws Error when the API refuses.
  */
 export function fetchHandover(hours: number): Promise<Handover> {
-	return send('GET', `/api/handover?hours=${hours}`);
+	return send('GET', `api/handover?hours=${hours}`);
 }
 
 /**
@@ -38,7 +38,7 @@ export function fetchHandover(hours: number): Promise<Handover> {
  * @throws Error when the API refuses.
  */
 export function fetchHandovers(): Promise<HandoverList> {
-	return send('GET', '/api/handovers');
+	return send('GET', 'api/handovers');
 }
 
 /**
@@ -49,7 +49,7 @@ export function fetchHandovers(): Promise<HandoverList> {
  * @throws Error when there is no such handover.
  */
 export function fetchSavedHandover(id: string): Promise<Handover> {
-	return send('GET', `/api/handovers/${encodeURIComponent(id)}`);
+	return send('GET', `api/handovers/${encodeURIComponent(id)}`);
 }
 
 /**
@@ -63,7 +63,7 @@ export function fetchSavedHandover(id: string): Promise<Handover> {
  *   or not the handover of the shift on now).
  */
 export function signHandover(id: string, by: string, note: string): Promise<Handover> {
-	return send('POST', `/api/handovers/${encodeURIComponent(id)}/sign-off`, { by, note });
+	return send('POST', `api/handovers/${encodeURIComponent(id)}/sign-off`, { by, note });
 }
 
 /**
@@ -75,7 +75,7 @@ export function signHandover(id: string, by: string, note: string): Promise<Hand
  * @throws Error with the API's reason when it refuses.
  */
 export function addShiftNote(text: string, by: string): Promise<ShiftNote> {
-	return send('POST', '/api/shift-notes', { text, by });
+	return send('POST', 'api/shift-notes', { text, by });
 }
 
 /**
@@ -85,5 +85,5 @@ export function addShiftNote(text: string, by: string): Promise<ShiftNote> {
  * @throws Error with the API's reason when it refuses (handed over already).
  */
 export function withdrawShiftNote(id: string): Promise<void> {
-	return send('DELETE', `/api/shift-notes/${encodeURIComponent(id)}`);
+	return send('DELETE', `api/shift-notes/${encodeURIComponent(id)}`);
 }

@@ -45,7 +45,7 @@ function toImpact(api: ApiImpact, tunnels: string[] = []): Impact {
  * @throws Error when the API answers with anything but 200.
  */
 export async function fetchProblems(at: string): Promise<Problem[]> {
-	const url = `/api/problems?at=${encodeURIComponent(at)}`;
+	const url = `api/problems?at=${encodeURIComponent(at)}`;
 	const response = await fetch(url);
 	if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`);
 	const list = (await response.json()) as Schemas['RoutedProblemList'];
@@ -64,7 +64,7 @@ export async function fetchProblems(at: string): Promise<Problem[]> {
  * @throws Error when the API answers with anything but 200.
  */
 export async function fetchWhatIf(failures: Failure[], at: string | null): Promise<WhatIf> {
-	const response = await fetch('/api/impact', {
+	const response = await fetch('api/impact', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ failures, at })

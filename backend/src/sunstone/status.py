@@ -26,7 +26,7 @@ is degraded beneath it.
 
 from collections import defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
@@ -91,13 +91,19 @@ class _Tree:
     parent: dict[str, str]
     leaf: dict[str, str]
     names: dict[str, str]
+    # Each group's chain, worked out once: a status asks for them for every
+    # device and link, tens of thousands of times on a large network.
+    _chains: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
-    def up(self, group: str) -> list[str]:
+    def up(self, group: str) -> tuple[str, ...]:
         """A group and every group above it, to the whole."""
-        chain = [group]
-        while chain[-1] != ROOT:
-            chain.append(self.parent.get(chain[-1], ROOT))
-        return chain
+        found = self._chains.get(group)
+        if found is None:
+            chain = [group]
+            while chain[-1] != ROOT:
+                chain.append(self.parent.get(chain[-1], ROOT))
+            found = self._chains[group] = tuple(chain)
+        return found
 
 
 class Statuses:
@@ -336,8 +342,8 @@ class Statuses:
         if healthy is None:
             # Spoke-to-spoke tunnels come and go: no part of how it is built.
             built = [e for e in edges if not e.dynamic]
-            healthy = self._healthy[network] = _parts(tree, holds, built, members)
-        now = _parts(tree, holds, live, reached)
+            healthy = self._healthy[network] = _parts(tree, built, members)
+        now = _parts(tree, live, reached)
         for g, parts in now.items():
             if g not in offline and parts > healthy.get(g, 1):
                 reasons[g].append(f"partitioned into {parts} parts")
@@ -462,47 +468,47 @@ def _components(edges: list[Edge]) -> dict[str, str]:
     return {n: find(n) for n in list(parent)}
 
 
-def _parts(
-    tree: _Tree, holds: dict[str, set[str]], edges: list[Edge], present: set[str]
-) -> dict[str, int]:
+def _parts(tree: _Tree, edges: list[Edge], present: set[str]) -> dict[str, int]:
     """For each group with parts, how many pieces its parts fall into using
     only the links and tunnels inside it. Its parts are the groups directly
     inside it, each taken as one, and the devices in it directly: a site
     split inside is that site's own outage, not its region's. A transport
     joins the circuits into it, which belong to the whole."""
-    # Each link and tunnel is inside the group it belongs to and every group
-    # above that one.
-    inside: dict[str, list[Edge]] = defaultdict(list)
+    # The parts of each group that hold a device present, and how many
+    # devices are present in it.
+    parts: dict[str, set[str]] = defaultdict(set)
+    count: dict[str, int] = defaultdict(int)
+    for d in present:
+        chain = tree.up(tree.leaf.get(d, ROOT))
+        for i, g in enumerate(chain):
+            parts[g].add(chain[i - 1] if i else d)
+            count[g] += 1
 
     def joins(node: str) -> bool:
         return node in present or node.startswith("transport:")
 
+    # Only the links and tunnels a group owns can join its parts: one further
+    # down lies inside one of them. Each joins the parts its ends are in.
+    owned: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for e in edges:
         if not joins(e.a) or not joins(e.b):
             continue
         ends = [tree.up(tree.leaf.get(e.a, ROOT)), tree.up(tree.leaf.get(e.b, ROOT))]
         owner = next(g for g in ends[0] if g in ends[1])
-        for g in tree.up(owner):
-            inside[g].append(e)
-    chains = {d: tree.up(tree.leaf.get(d, ROOT)) for d in present}
-    found = {}
-    for g, ds in holds.items():
-        mine = ds & present
-        if len(mine) >= 2:
-            part = {d: _part(chains[d], g, d) for d in mine}
-            found[g] = _pieces(mine, inside[g], part)
-    return found
+        owned[owner].append((_part(ends[0], owner, e.a), _part(ends[1], owner, e.b)))
+    return {g: _pieces(mine, owned[g]) for g, mine in parts.items() if count[g] >= 2}
 
 
-def _part(chain: list[str], group: str, device: str) -> str:
-    """The part of a group a device is in: the group directly inside it
-    holding the device, or the device itself."""
+def _part(chain: tuple[str, ...], group: str, node: str) -> str:
+    """The part of a group a node is in: the group directly inside it
+    holding the node, or the node itself."""
     i = chain.index(group)
-    return chain[i - 1] if i > 0 else device
+    return chain[i - 1] if i > 0 else node
 
 
-def _pieces(nodes: set[str], edges: list[Edge], part: dict[str, str]) -> int:
-    """How many pieces some nodes fall into, each joined to its part first."""
+def _pieces(nodes: set[str], pairs: list[tuple[str, str]]) -> int:
+    """How many pieces some nodes fall into, joined in pairs. A pair may join
+    through a node outside them, as a transport does."""
     parent = {n: n for n in nodes}
 
     def find(x: str) -> str:
@@ -512,10 +518,8 @@ def _pieces(nodes: set[str], edges: list[Edge], part: dict[str, str]) -> int:
             x = parent[x]
         return x
 
-    for n in nodes:
-        parent[find(n)] = find(part[n])
-    for e in edges:
-        parent[find(e.a)] = find(e.b)
+    for a, b in pairs:
+        parent[find(a)] = find(b)
     return len({find(n) for n in nodes})
 
 

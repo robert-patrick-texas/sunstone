@@ -15,6 +15,7 @@ open, and leaves it as it was when it closes.
 	import '../app.css';
 	import { onMount, untrack } from 'svelte';
 	import { pushState, replaceState } from '$app/navigation';
+	import { asset } from '$app/paths';
 	import {
 		fetchProblems,
 		fetchWhatIf,
@@ -702,7 +703,7 @@ open, and leaves it as it was when it closes.
 		{#if index}<WallDisplay {index} {problems} {live} {liveProblem} {oncall} {status} />{/if}
 	{:else}
 		<header>
-			<h1><img src="/favicon.svg" alt="" width="22" height="22" />Sunstone</h1>
+			<h1><img src={asset('favicon.svg')} alt="" width="22" height="22" />Sunstone</h1>
 			<div class="segmented" role="group" aria-label="View">
 				{#each VIEWS as view (view.id)}
 					<button aria-pressed={ui.view === view.id} onclick={() => (ui.view = view.id)}>

@@ -17,8 +17,15 @@ the providers of the circuits beneath it, that would each take two or more
 of its tunnels down at once on their own, with the sites of it they would
 cut off. They are worked out once, on the network as documented with
 everything up.
+
+What a "what if" compares with, every network's status before the
+failures, is worked out once for the healthy network and once for each
+live moment asked about, and kept: it is the same for every failure asked
+about there, and most of the work.
 """
 
+import threading
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -30,6 +37,7 @@ from sunstone.impact import Failures, Network, WhatIf
 from sunstone.layouts import DeviceCenter, LinksCenter, SiteCenter
 from sunstone.live import TunnelState
 from sunstone.model import device_ends
+from sunstone.monitor import KEPT_MOMENTS
 from sunstone.status import NetworkStatus, Status, Statuses, StatusReport
 
 # Most shared risks listed for one network.
@@ -127,6 +135,15 @@ class Before:
     tunnels: tuple[TunnelState, ...]
 
 
+@dataclass(frozen=True)
+class _Baseline:
+    """What failures are compared with: which tunnels are up, and every
+    network's status."""
+
+    up: dict[str, bool]
+    report: StatusReport
+
+
 class Across:
     """Follows failures through the named networks of one topology."""
 
@@ -145,6 +162,9 @@ class Across:
         self.layers = statuses.layers
         self.network_of = dict(self.layers.all_tunnels())
         self._risks: RiskReport | None = None
+        # By the moment they are for; None for the healthy network.
+        self._baselines: OrderedDict[datetime | None, _Baseline] = OrderedDict()
+        self._lock = threading.Lock()
 
     def providers(self) -> dict[str, list[str]]:
         """Each provider's circuits.
@@ -189,7 +209,8 @@ class Across:
         Args:
             failures: The failures to suppose.
             before: What is down already, or None for the healthy network.
-            at: The moment ``before`` is from.
+            at: The moment ``before`` is from. A moment always has the same
+                ``before``, so what it compares with is kept by moment.
 
         Returns:
             The physical impact, whether everything named was gone
@@ -205,14 +226,28 @@ class Across:
         built = {t.tunnel for t in reported if t.dynamic and t.status == "up"}
         dynamic = {t.tunnel: t.network for t in reported if t.dynamic}
         now = was | failures
-        up_before = self.layers.tunnels_up(
-            set(was.devices), set(was.links), failing, built
-        )
+        when = at or datetime.now(UTC)
+        # Without a moment, a before cannot be told from another one.
+        kept = before is None or at is not None
+        key = at if before else None
+        with self._lock:
+            base = self._baselines.get(key) if kept else None
+            if base is not None:
+                self._baselines.move_to_end(key)
+        if base is None:
+            up = self.layers.tunnels_up(
+                set(was.devices), set(was.links), failing, built
+            )
+            base = _Baseline(up, self._report(when, was, up, dynamic))
+            if kept:
+                with self._lock:
+                    self._baselines[key] = base
+                    while len(self._baselines) > KEPT_MOMENTS:
+                        self._baselines.popitem(last=False)
+        up_before, report_before = base.up, base.report
         up_after = self.layers.tunnels_up(
             set(now.devices), set(now.links), failing, built
         )
-        when = at or datetime.now(UTC)
-        report_before = self._report(when, was, up_before, dynamic)
         report_after = self._report(when, now, up_after, dynamic)
         lost = {t for t, ok in up_before.items() if ok and not up_after.get(t, False)}
         networks = []

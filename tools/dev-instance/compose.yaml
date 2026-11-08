@@ -1,0 +1,29 @@
+# The Sunstone dev instance: the working tree served on 127.0.0.1:8000 as it
+# changes, for a reverse proxy in front (nginx.conf here). `make dev-up` starts
+# it and `make dev-down` stops it; see the README's "Dev instance".
+name: sunstone-dev
+services:
+  sunstone:
+    build: .
+    image: sunstone-dev
+    init: true
+    restart: unless-stopped
+    # This host only: whoever else sees it, sees it through the proxy.
+    ports: ["127.0.0.1:8000:8000"]
+    environment:
+      # Relative to the working tree.
+      SUNSTONE_DEV_TOPOLOGY: ${SUNSTONE_DEV_TOPOLOGY:-data/sample/layers.yaml}
+    volumes:
+      # Read-only: the instance never writes to the working tree.
+      - ../..:/src:ro
+      # The web UI's copy and builds, the backend's environment, the saved
+      # state, and uv's and npm's downloads, kept across restarts.
+      - work:/work
+      - venv:/venv
+      - state:/state
+      - cache:/home/node/.cache
+volumes:
+  work:
+  venv:
+  state:
+  cache:

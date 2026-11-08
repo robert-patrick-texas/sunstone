@@ -20,7 +20,7 @@ export type Ack = Schemas['Ack'];
  * @throws Error when the API refuses.
  */
 export function fetchWindows(): Promise<Window[]> {
-	return send('GET', '/api/maintenance');
+	return send('GET', 'api/maintenance');
 }
 
 /**
@@ -33,8 +33,8 @@ export function fetchWindows(): Promise<Window[]> {
  */
 export function saveWindow(window: WindowIn, id?: string): Promise<Window> {
 	return id
-		? send('PUT', `/api/maintenance/${encodeURIComponent(id)}`, window)
-		: send('POST', '/api/maintenance', window);
+		? send('PUT', `api/maintenance/${encodeURIComponent(id)}`, window)
+		: send('POST', 'api/maintenance', window);
 }
 
 /**
@@ -44,7 +44,7 @@ export function saveWindow(window: WindowIn, id?: string): Promise<Window> {
  * @throws Error when the API refuses.
  */
 export function deleteWindow(id: string): Promise<void> {
-	return send('DELETE', `/api/maintenance/${encodeURIComponent(id)}`);
+	return send('DELETE', `api/maintenance/${encodeURIComponent(id)}`);
 }
 
 /**
@@ -57,7 +57,7 @@ export function deleteWindow(id: string): Promise<void> {
  * @throws Error with the API's reason when it refuses.
  */
 export function acknowledge(problem: string, note: string, by: string): Promise<Ack> {
-	return send('POST', '/api/acks', { problem, note, by });
+	return send('POST', 'api/acks', { problem, note, by });
 }
 
 /**
@@ -67,5 +67,5 @@ export function acknowledge(problem: string, note: string, by: string): Promise<
  * @throws Error when the API refuses.
  */
 export function unacknowledge(problem: string): Promise<void> {
-	return send('DELETE', `/api/acks?problem=${encodeURIComponent(problem)}`);
+	return send('DELETE', `api/acks?problem=${encodeURIComponent(problem)}`);
 }

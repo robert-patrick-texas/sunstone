@@ -143,6 +143,48 @@ def test_dry_run_signs_with_throwaway_key_and_publishes_nothing(
     assert "dry run uses a throwaway key" in report
 
 
+def test_dry_run_notes_catch_up_on_versions_never_released(
+    repo: Path,
+    run_git: Callable[..., str],
+    fake_runner: Any,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The notes carry every version since the last tag on the remote, and say so.
+
+    Args:
+        repo: Throwaway repository on ``main``.
+        run_git: Helper that runs git in a repository.
+        fake_runner: ``FakeRunner`` class from ``conftest.py``.
+        tmp_path: Per-test temporary directory.
+        capsys: Captures the tool's report.
+
+    Returns:
+        None
+
+    Raises:
+        AssertionError: If a skipped version is left out or not reported.
+    """
+    changes = "# Changelog\n\n## 1.2.3\n\n- Three.\n\n## 1.2.2\n\n- Two.\n\n## 1.2.1\n\n- One.\n"
+    (repo / "CHANGELOG.md").write_text(changes, "utf-8")
+    run_git(repo, "commit", "-q", "-am", "changelog")
+    run_git(repo, "tag", "v1.2.1")
+    run_git(repo, "push", "-q", "origin", "v1.2.1")
+    cfg = load_config(write_config(repo, run_git, tmp_path / "absent_key"), repo)
+    release.release(cfg, fake_runner(repo, FAKES), dry_run=True, environ={})
+    notes = (repo / "dist/release/v1.2.3/release-notes.txt").read_text("utf-8")
+    assert notes == (
+        "This release also carries the notes of 1.2.2, never released on their own;"
+        " the last release was 1.2.1.\n\n## 1.2.3\n\n- Three.\n\n## 1.2.2\n\n- Two."
+    )
+    report = capsys.readouterr().out
+    assert (
+        "[  ok] CHANGELOG.md has a 1.2.3 section: found; the notes also carry 1.2.2,"
+        " never released on their own (last release 1.2.1)"
+    ) in report
+    assert "release-notes.txt covers 1.2.3, 1.2.2" in report
+
+
 def test_release_tags_and_publishes_after_verification(
     repo: Path, run_git: Callable[..., str], fake_runner: Any, tmp_path: Path
 ) -> None:

@@ -19,7 +19,8 @@ yet tagged, and green in CI, and that the host has the configured build
 tools (Node and npm, ADR-035); runs the configured clean-container build;
 checksums and SSH-signs the artifacts; verifies that signature against the
 signers file the package ships; and only then tags, pushes, and creates the
-GitHub release with notes from the changelog. Everything project-specific
+GitHub release with notes from the changelog, catching up on versions never
+released on their own. Everything project-specific
 comes from ``release.toml`` (section 29).
 
 Dependencies:
@@ -52,7 +53,7 @@ import release_checks as checks
 import release_currency as currency
 from release_config import ConfigError, ReleaseConfig, load_config
 from release_proc import CommandError, Runner
-from release_publish import changelog_notes, publish, publish_commands
+from release_publish import Notes, publish, publish_commands, published_versions, release_notes
 from release_version import VERSION_FORMS, ReleaseVersion, VersionError, read_version_file
 
 DEFAULT_CONFIG = Path(__file__).with_name("release.toml")
@@ -80,7 +81,16 @@ def preflight(
         ci = checks.ci_green(runner, cfg.repo, sha, cfg.ci_ignore_checks)
     except CommandError as exc:
         ci = checks.Outcome("CI green for HEAD", False, str(exc))
-    notes = changelog_notes(_read(cfg.changelog), version.semver)
+    section = f"{cfg.changelog.name} has a {version.semver} section"
+    try:
+        notes = _notes(cfg, runner, version)
+        found = checks.Outcome(
+            section,
+            notes is not None,
+            _covers(notes) if notes else f"add a '## {version.semver}' section with release notes",
+        )
+    except CommandError as exc:
+        found = checks.Outcome(section, False, f"cannot list the tags on {cfg.remote}: {exc}")
     entries = artifacts.signer_entries(cfg.allowed_signers)
     return [
         checks.no_version_override(environ),
@@ -88,11 +98,7 @@ def preflight(
         checks.on_branch(runner, cfg.branch),
         checks.tag_absent(runner, cfg.remote, version.tag),
         ci,
-        checks.Outcome(
-            f"{cfg.changelog.name} has a {version.semver} section",
-            notes is not None,
-            "found" if notes else f"add a '## {version.semver}' section with release notes",
-        ),
+        found,
         checks.Outcome(
             f"{cfg.allowed_signers.name} lists a signer",
             entries > 0,
@@ -176,9 +182,12 @@ def release(
     try:
         with tempfile.TemporaryDirectory(prefix="release-") as tmp:
             files = build_sign_verify(cfg, runner, version, dry_run=dry_run, workdir=Path(tmp))
-        notes = files[-1].with_name("release-notes.txt")
-        notes.write_text(changelog_notes(_read(cfg.changelog), version.semver) or "", "utf-8")
-        publish(runner, publish_commands(cfg, version, notes, files), dry_run=dry_run)
+        notes = _notes(cfg, runner, version)
+        path = files[-1].with_name("release-notes.txt")
+        path.write_text(notes.text if notes else "", "utf-8")
+        if notes:
+            print(f"notes: {path} covers {', '.join(notes.versions)}")
+        publish(runner, publish_commands(cfg, version, path, files), dry_run=dry_run)
     except (CommandError, artifacts.ArtifactError, ConfigError, VersionError, OSError) as exc:
         print(f"{mode}: FAILED: {exc}")
         return 1
@@ -187,6 +196,44 @@ def release(
         return 1
     print(f"{mode}: complete")
     return 0
+
+
+def _notes(cfg: ReleaseConfig, runner: Runner, version: ReleaseVersion) -> Notes | None:
+    """Build the release notes, catching up from the last release on the remote.
+
+    Args:
+        cfg: Release configuration.
+        runner: Command runner in the repository.
+        version: Version being released.
+
+    Returns:
+        Notes | None: The notes, or ``None`` when the changelog has no
+        section for the version.
+
+    Raises:
+        CommandError: If the remote's tags cannot be listed.
+    """
+    published = published_versions(runner, cfg.remote)
+    return release_notes(_read(cfg.changelog), version, published)
+
+
+def _covers(notes: Notes) -> str:
+    """Say which versions the notes cover, for the preflight list.
+
+    Args:
+        notes: The release notes.
+
+    Returns:
+        str: ``found`` alone, or with the versions also carried.
+
+    Raises:
+        None
+    """
+    if len(notes.versions) == 1:
+        return "found"
+    others = ", ".join(notes.versions[1:])
+    since = f"last release {notes.since}" if notes.since else "no earlier release"
+    return f"found; the notes also carry {others}, never released on their own ({since})"
 
 
 def _read(path: Path) -> str:

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-	acrossSentence,
 	andList,
 	lineDetail,
 	circuitsOf,
@@ -101,35 +100,6 @@ describe('networkLine', () => {
 		]);
 		expect(line.worse).toBe(false);
 		expect(lineDetail(line)).toBe('Stays up, over black degraded at C');
-	});
-});
-
-describe('acrossSentence', () => {
-	it('says what each network would lose, and which stay up', () => {
-		const sentence = acrossSentence(index, [
-			impact(null, { after: status(null, { status: 'degraded' }) }),
-			impact('black', { links_lost: [circuitC] }),
-			impact('blue', { tunnels: 1, tunnels_lost: ['BLUE-A-C'], sites_lost: ['C'] }),
-			impact('grey', { after: status('grey', { caveats: ['blue degraded at C: x'] }) }),
-			impact('red', { after: status('red', { caveats: ['blue degraded at C: x'] }) })
-		]);
-		expect(sentence).toBe(
-			'black would lose 1 of 1 circuit at C; blue would lose 1 of 1 tunnel, cutting off C; grey and red stay up.'
-		);
-		expect(acrossSentence(index, [impact(null)])).toBeNull();
-	});
-
-	it('names the networks beyond the first three that would lose something', () => {
-		const sentence = acrossSentence(index, [
-			impact('black', { links_lost: [circuitC] }),
-			impact('blue', { tunnels: 1, tunnels_lost: ['BLUE-A-C'] }),
-			impact('grey', { sites_lost: ['C'] }),
-			impact('red', { sites_lost: ['C'] }),
-			impact('corp', { sites_lost: ['C'] })
-		]);
-		expect(sentence).toBe(
-			'black would lose 1 of 1 circuit at C; blue would lose 1 of 1 tunnel; grey would lose C; red and corp would lose some too.'
-		);
 	});
 });
 

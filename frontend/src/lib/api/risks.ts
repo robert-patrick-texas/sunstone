@@ -19,7 +19,7 @@ export type RiskItem = Schemas['RiskItem'];
  * @throws Error when the API answers with anything but 200.
  */
 export async function fetchRisks(): Promise<RiskReport> {
-	const response = await fetch('/api/risks');
+	const response = await fetch('api/risks');
 	if (!response.ok) throw new Error(`GET /api/risks answered ${response.status}`);
 	return (await response.json()) as RiskReport;
 }

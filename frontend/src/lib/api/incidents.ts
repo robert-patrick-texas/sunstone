@@ -24,7 +24,7 @@ export type Member = Schemas['Member'];
  * @throws Error when the API refuses.
  */
 export function fetchIncidents(): Promise<IncidentList> {
-	return send('GET', '/api/incidents');
+	return send('GET', 'api/incidents');
 }
 
 /**
@@ -35,7 +35,7 @@ export function fetchIncidents(): Promise<IncidentList> {
  * @throws Error when there is no such incident.
  */
 export function fetchIncident(number: number): Promise<IncidentReport> {
-	return send('GET', `/api/incidents/${number}`);
+	return send('GET', `api/incidents/${number}`);
 }
 
 /**
@@ -55,7 +55,7 @@ export function openIncident(
 	by: string,
 	note = ''
 ): Promise<IncidentReport> {
-	return send('POST', '/api/incidents', { problem, title, by, note });
+	return send('POST', 'api/incidents', { problem, title, by, note });
 }
 
 /**
@@ -68,7 +68,7 @@ export function openIncident(
  * @throws Error with the API's reason when it refuses.
  */
 export function joinIncident(number: number, problem: string, by: string): Promise<IncidentReport> {
-	return send('POST', `/api/incidents/${number}/problems`, { problem, by });
+	return send('POST', `api/incidents/${number}/problems`, { problem, by });
 }
 
 /**
@@ -81,7 +81,7 @@ export function joinIncident(number: number, problem: string, by: string): Promi
  * @throws Error with the API's reason when it refuses (closed).
  */
 export function noteIncident(number: number, text: string, by: string): Promise<IncidentNote> {
-	return send('POST', `/api/incidents/${number}/notes`, { text, by });
+	return send('POST', `api/incidents/${number}/notes`, { text, by });
 }
 
 /**
@@ -98,5 +98,5 @@ export function closeIncident(
 	summary: string,
 	by: string
 ): Promise<IncidentReport> {
-	return send('POST', `/api/incidents/${number}/close`, { summary, by });
+	return send('POST', `api/incidents/${number}/close`, { summary, by });
 }

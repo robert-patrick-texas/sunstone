@@ -2,9 +2,9 @@
 @component
 Details of the current selection: a device and its neighbors, a site and
 its WAN links, or a set of links. With live state, also health, round-trip
-times from each monitoring position, and load on each link, and what
-failing it would do. Above it, the shortest paths between two devices when
-a path is shown, hop by hop with interfaces; or the impact being shown, of
+times from each monitoring position, and load on each link. Above it, the
+shortest paths between two devices when a path is shown, hop by hop with
+interfaces; or the impact being shown, of
 a problem or of "what if" failures, with what the failures do to each
 named network they reach. With live state, charts of the last
 day: round trip to a device, load on each of its links, and load on a
@@ -12,8 +12,8 @@ selected link; clicking a chart replays that moment. Names in the panel are
 links that select and bring that item into view.
 -->
 <script lang="ts">
-	import { acrossSentence, lineDetail, networkLine } from './across.ts';
-	import { fetchWhatIf, type NetworkImpact, type Problem, type WhatIf } from './api/analysis.ts';
+	import { lineDetail, networkLine } from './across.ts';
+	import type { NetworkImpact, Problem } from './api/analysis.ts';
 	import type { RiskReport } from './api/risks.ts';
 	import type { Change } from './api/changes.ts';
 	import type { Comparison } from './api/discovery.ts';
@@ -269,45 +269,8 @@ links that select and bring that item into view.
 		const at = live?.state.positions.find((p) => p.name === name);
 		return at ? `${name} (${at.site})` : name;
 	}
-	// What failing the selection alone would do, on top of what live state
-	// shows down now, asked of the server. Each answer is kept with the
-	// selection it is for, so an old one never shows beside a new selection.
-	let answered = $state.raw<{ key: string; answer: WhatIf } | null>(null);
-	const selectionKey = $derived(JSON.stringify(selection));
-	const ifFails = $derived(answered?.key === selectionKey ? answered.answer : null);
-
-	$effect(() => {
-		const target = selection ? $state.snapshot(selection) : null;
-		const key = JSON.stringify(target);
-		const at = live?.state.generated_at ?? null;
-		if (!target) return;
-		let stopped = false;
-		fetchWhatIf([target], at).then(
-			(answer) => {
-				if (!stopped) answered = { key, answer };
-			},
-			// Without an answer the line is left out; the details are still there.
-			(e: unknown) => console.warn('Could not ask what failing the selection would do', e)
-		);
-		return () => {
-			stopped = true;
-		};
-	});
-
 	function plural(n: number, noun: string): string {
 		return `${n} ${noun}${n === 1 ? '' : 's'}`;
-	}
-
-	function consequence({ impact: i, already, networks }: WhatIf, subject: string): string {
-		if (already) return `Live state already shows ${subject} down or cut off.`;
-		const parts: string[] = [];
-		if (i.cutOff.size) parts.push(`cut off ${plural(i.cutOff.size, 'device')}`);
-		if (i.exposed.size) parts.push(`leave ${plural(i.exposed.size, 'device')} without redundancy`);
-		const physical = parts.length
-			? `Failing ${subject} would ${parts.join(' and ')}.`
-			: `Failing ${subject} would cut nothing else off, and every device would keep a second path.`;
-		const across = acrossSentence(index, networks);
-		return across ? `${physical} Across the networks: ${across}` : physical;
 	}
 
 	function itemName(item: Failure): string {
@@ -781,7 +744,6 @@ links that select and bring that item into view.
 							{@render whatIf(selection, 'What if it fails?')}
 							{@render planButton(selection)}
 						</p>
-						{#if ifFails}<p class="muted">{consequence(ifFails, 'it')}</p>{/if}
 						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
 						<DiscoveryFor {index} {comparison} {changes} item={selection} />
@@ -888,7 +850,6 @@ links that select and bring that item into view.
 							{@render whatIf(selection, 'What if it fails?')}
 							{@render planButton(selection)}
 						</p>
-						{#if ifFails}<p class="muted">{consequence(ifFails, 'the whole site')}</p>{/if}
 						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
 						<DiscoveryFor {index} {comparison} {changes} item={selection} />
@@ -949,9 +910,6 @@ links that select and bring that item into view.
 						{/if}
 						{@render planButton(selection)}
 					</p>
-					{#if ifFails}
-						<p class="muted">{consequence(ifFails, links.length === 1 ? 'it' : 'them')}</p>
-					{/if}
 					<OnCallFor {index} {oncall} {ownership} item={selection} />
 					{@render maintenanceOf(selection)}
 					<DiscoveryFor {index} {comparison} {changes} item={selection} />

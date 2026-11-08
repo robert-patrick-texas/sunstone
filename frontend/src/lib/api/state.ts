@@ -32,7 +32,7 @@ async function get<T>(url: string): Promise<T> {
  * @throws Error when the API answers with anything but 200.
  */
 export function fetchState(at?: string): Promise<NetworkState> {
-	return get(at ? `/api/state?at=${encodeURIComponent(at)}` : '/api/state');
+	return get(at ? `api/state?at=${encodeURIComponent(at)}` : 'api/state');
 }
 
 /**
@@ -42,7 +42,7 @@ export function fetchState(at?: string): Promise<NetworkState> {
  * @throws Error when the API answers with anything but 200.
  */
 export function fetchEvents(): Promise<EventLog> {
-	return get('/api/events');
+	return get('api/events');
 }
 
 /**
@@ -53,7 +53,7 @@ export function fetchEvents(): Promise<EventLog> {
  * @throws Error when the API answers with anything but 200 or 404.
  */
 export async function fetchHistory(device: string): Promise<DeviceHistory | null> {
-	const url = `/api/history/${encodeURIComponent(device)}`;
+	const url = `api/history/${encodeURIComponent(device)}`;
 	const response = await fetch(url);
 	if (response.status === 404) return null;
 	if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`);

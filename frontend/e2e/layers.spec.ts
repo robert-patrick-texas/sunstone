@@ -111,8 +111,6 @@ test('what if a WAN switch fails, through every network it reaches', async ({ pa
 	await expect(networkRow(impact, 'black')).toContainText('2 of 4 circuits at HOU');
 	await expect(networkRow(impact, 'blue')).toContainText('Stays up, over black degraded at HOU');
 	await expect(networkRow(impact, 'grey')).toContainText('Operational*');
-	// The details say it too, for the selection alone.
-	await expect(details(page)).toContainText('blue, grey, and red-alpha stay up');
 });
 
 test('a carrier failing takes all its circuits, and the tunnels over them', async ({ page }) => {
