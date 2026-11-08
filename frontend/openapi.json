@@ -229,8 +229,27 @@
   "/api/risks": {
    "get": {
     "summary": "Get Risks",
-    "description": "Return each named network's shared risks: the devices, links, and\nproviders beneath it whose failure alone would take two or more of\nits tunnels, worked out on the network as documented.",
+    "description": "Return each named network's shared risks: the devices, links, and\nproviders beneath it whose failure alone would take two or more of\nits tunnels, worked out on the network as documented; or, with\n``at``, on top of what is down at that moment, where a risk only\nthen is new.",
     "operationId": "get_risks_api_risks_get",
+    "parameters": [
+     {
+      "name": "at",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "At"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
@@ -238,6 +257,16 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/RiskReport"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
         }
        }
       }
@@ -5223,6 +5252,11 @@
       },
       "type": "array",
       "title": "Sites"
+     },
+     "new": {
+      "type": "boolean",
+      "title": "New",
+      "default": false
      }
     },
     "additionalProperties": false,
@@ -5262,6 +5296,18 @@
    },
    "RiskReport": {
     "properties": {
+     "at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "At"
+     },
      "networks": {
       "items": {
        "$ref": "#/components/schemas/NetworkRisks"
@@ -5402,6 +5448,14 @@
        }
       ],
       "title": "Incident"
+     },
+     "networks": {
+      "items": {
+       "$ref": "#/components/schemas/NetworkImpact"
+      },
+      "type": "array",
+      "title": "Networks",
+      "default": []
      }
     },
     "additionalProperties": false,

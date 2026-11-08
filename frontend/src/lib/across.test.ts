@@ -4,6 +4,7 @@ import {
 	lineDetail,
 	circuitsOf,
 	networkLine,
+	problemNetworks,
 	riskFailure,
 	riskItemName,
 	riskSummary,
@@ -56,6 +57,24 @@ describe('lists', () => {
 	});
 });
 
+describe('problemNetworks', () => {
+	it('names the networks a problem takes something from, and what', () => {
+		const line = problemNetworks(index, [
+			impact(null, { after: status(null, { status: 'degraded' }) }),
+			impact('black', { links_lost: [circuitC] }),
+			impact('grey', { tunnels: 1, tunnels_lost: ['GREY-A-C'], sites_lost: ['C'] }),
+			// A network whose status alone changes takes nothing to name.
+			impact('blue', { after: status('blue', { status: 'degraded' }) })
+		]);
+		expect(line).toBe('black: 1 of 1 circuit at C; grey: 1 of 1 tunnel · C cut off');
+	});
+
+	it('says nothing when a problem takes nothing from any named network', () => {
+		expect(problemNetworks(index, [impact(null), impact('blue')])).toBeNull();
+		expect(problemNetworks(index, [])).toBeNull();
+	});
+});
+
 describe('networkLine', () => {
 	it('counts circuits lost against those the network has at the site', () => {
 		const line = networkLine(
@@ -67,6 +86,12 @@ describe('networkLine', () => {
 		);
 		expect(line.losses).toEqual(['1 of 1 circuit at C']);
 		expect([line.status, line.worse]).toEqual(['Operational → Degraded', true]);
+	});
+
+	it("reads a problem's change of status from now to fixed", () => {
+		const changed = impact('grey', { after: status('grey', { status: 'offline' }) });
+		expect(networkLine(index, changed).status).toBe('Operational → Offline');
+		expect(networkLine(index, changed, true).status).toBe('Offline → Operational');
 	});
 
 	it('counts tunnels, and names sites cut off', () => {
@@ -111,7 +136,8 @@ describe('shared risk', () => {
 				{ kind: 'link' as const, id: circuitC }
 			],
 			tunnels: ['BLUE-A-C', 'GREY-A-C'],
-			sites: ['C']
+			sites: ['C'],
+			new: false
 		};
 		expect(riskSummary(index, risk, 2)).toBe('2 of 2 tunnels · cuts off C');
 		expect(risk.items.map((i) => riskItemName(index, i))).toEqual([

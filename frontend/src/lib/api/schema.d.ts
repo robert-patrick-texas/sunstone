@@ -149,7 +149,9 @@ export interface paths {
          * Get Risks
          * @description Return each named network's shared risks: the devices, links, and
          *     providers beneath it whose failure alone would take two or more of
-         *     its tunnels, worked out on the network as documented.
+         *     its tunnels, worked out on the network as documented; or, with
+         *     ``at``, on top of what is down at that moment, where a risk only
+         *     then is new.
          */
         get: operations["get_risks_api_risks_get"];
         put?: never;
@@ -2236,6 +2238,11 @@ export interface components {
             tunnels: string[];
             /** Sites */
             sites: string[];
+            /**
+             * New
+             * @default false
+             */
+            new: boolean;
         };
         /**
          * RiskItem
@@ -2255,6 +2262,8 @@ export interface components {
          * @description Every named network with tunnels, and its shared risks.
          */
         RiskReport: {
+            /** At */
+            at?: string | null;
             /** Networks */
             networks: components["schemas"]["NetworkRisks"][];
         };
@@ -2298,6 +2307,11 @@ export interface components {
             paging?: components["schemas"]["Paging"] | null;
             /** Incident */
             incident?: number | null;
+            /**
+             * Networks
+             * @default []
+             */
+            networks: components["schemas"]["NetworkImpact"][];
         };
         /**
          * RoutedProblemList
@@ -2991,7 +3005,9 @@ export interface operations {
     };
     get_risks_api_risks_get: {
         parameters: {
-            query?: never;
+            query?: {
+                at?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3005,6 +3021,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RiskReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

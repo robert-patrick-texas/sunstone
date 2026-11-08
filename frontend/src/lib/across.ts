@@ -25,7 +25,10 @@ export interface NetworkLine {
 	/** The named network, or null for the whole. */
 	network: string | null;
 	name: string;
-	/** Its status, with what it was if that changes: `Operational → Degraded`. */
+	/**
+	 * Its status, with what it was if that changes: `Operational → Degraded`;
+	 * for a problem, from now to fixed: `Degraded → Operational`.
+	 */
 	status: string;
 	after: Status;
 	/** Whether its status gets worse. */
@@ -112,13 +115,20 @@ function linkLosses(index: TopologyIndex, network: string, ids: string[]): strin
 }
 
 /**
- * One network's line in a "what if" answer.
+ * One network's line in a "what if" answer, or in what fixing a problem
+ * would bring back.
  *
  * @param index - Topology index.
  * @param impact - What the failures do to it.
+ * @param fixing - Whether it is what fixing a problem would bring back, so a
+ *   change of status reads from now to fixed.
  * @returns Its name, status, losses, and why it reads as it does.
  */
-export function networkLine(index: TopologyIndex, impact: NetworkImpact): NetworkLine {
+export function networkLine(
+	index: TopologyIndex,
+	impact: NetworkImpact,
+	fixing = false
+): NetworkLine {
 	const { network, before, after } = impact;
 	const losses: string[] = [];
 	if (impact.tunnels_lost.length) {
@@ -140,7 +150,11 @@ export function networkLine(index: TopologyIndex, impact: NetworkImpact): Networ
 	return {
 		network,
 		name: after.name,
-		status: changed ? `${STATUS_LABEL[before]} → ${statusWord(after)}` : statusWord(after),
+		status: !changed
+			? statusWord(after)
+			: fixing
+				? `${statusWord(after)} → ${STATUS_LABEL[before]}`
+				: `${STATUS_LABEL[before]} → ${statusWord(after)}`,
 		after: after.status,
 		worse: RANK[after.status] > RANK[before],
 		losses,
@@ -162,6 +176,29 @@ export function lineDetail(line: NetworkLine): string {
 	if (lost.length) return lost.join(' · ');
 	const up = line.network !== null && line.after === 'operational';
 	return [up ? 'Stays up' : '', line.note ?? ''].filter(Boolean).join(', ');
+}
+
+/** Most networks named in a problem's line before "and N more". */
+const PROBLEM_NETWORKS = 3;
+
+/**
+ * What a problem takes from the named networks, in a few words, for the
+ * problems list: each network that loses something, and what.
+ *
+ * @param index - Topology index.
+ * @param networks - What fixing the problem would bring back to each network.
+ * @returns For example `blue: 1 of 9 tunnels · HOU cut off; grey: 2 of 9 tunnels`,
+ *   or null when it takes nothing from any named network.
+ */
+export function problemNetworks(index: TopologyIndex, networks: NetworkImpact[]): string | null {
+	const lines = networks
+		.filter((n) => n.network !== null)
+		.map((n) => networkLine(index, n))
+		.filter((l) => l.losses.length || l.sitesLost.length);
+	if (lines.length === 0) return null;
+	const parts = lines.slice(0, PROBLEM_NETWORKS).map((l) => `${l.name}: ${lineDetail(l)}`);
+	if (lines.length > PROBLEM_NETWORKS) parts.push(`${lines.length - PROBLEM_NETWORKS} more`);
+	return parts.join('; ');
 }
 
 /**

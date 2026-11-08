@@ -19,7 +19,7 @@ shown in every view from here.
 	import type { Fabric, Link } from './api/topology.ts';
 	import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
 	import type { StatusReport } from './api/status.ts';
-	import { tunnelName } from './history.ts';
+	import { clock, tunnelName } from './history.ts';
 	import { HEALTH_LABEL, linkLive, type LiveIndex } from './live.ts';
 	import { STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL, statusOf, statusWord } from './status.ts';
 	import {
@@ -242,12 +242,21 @@ shown in every view from here.
 					{term(index, 'tunnel', true)} that look like separate paths but fail together: any one of these
 					failing alone takes down the {term(index, 'tunnel', true).toLowerCase()} beside it.
 				</p>
+				{#if risks?.at}
+					<p class="muted">
+						With what is down at {clock(risks.at)}, only what is still up counts. A new one is a
+						risk only because of it, and comes first.
+					</p>
+				{/if}
 				<table class="risks">
 					<tbody>
 						{#each own.risks.slice(0, allRisks ? undefined : RISKS_SHOWN) as risk (risk.tunnels.join())}
 							{@const first = risk.items[0]}
 							<tr>
-								<td>{@render riskItems(risk)}</td>
+								<td
+									>{#if risk.new}<span class="tag new">New</span>
+									{/if}{@render riskItems(risk)}</td
+								>
 								<td class="muted">{riskSummary(index, risk, own.tunnels)}</td>
 								<td class="nowrap">
 									{#if first}<button
@@ -522,7 +531,10 @@ shown in every view from here.
 					{#each shared as risk (risk.tunnels.join())}
 						{@const others = risk.tunnels.filter((t) => t !== tunnel.name)}
 						<tr>
-							<td>{@render riskItems(risk)}</td>
+							<td
+								>{#if risk.new}<span class="tag new">New</span>
+								{/if}{@render riskItems(risk)}</td
+							>
 							<td class="muted">
 								with {others.slice(0, 2).map(tunnelName).join(', ')}{others.length > 2
 									? ` and ${others.length - 2} more`
@@ -704,6 +716,10 @@ shown in every view from here.
 	.tag.outside {
 		border-style: dashed;
 		border-color: var(--muted);
+	}
+	.tag.new {
+		border-color: var(--live);
+		color: var(--text);
 	}
 	.dot {
 		display: inline-block;

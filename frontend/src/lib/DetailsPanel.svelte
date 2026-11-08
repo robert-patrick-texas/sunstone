@@ -4,10 +4,10 @@ Details of the current selection: a device and its neighbors, a site and
 its WAN links, or a set of links. With live state, also health, round-trip
 times from each monitoring position, and load on each link. Above it, the
 shortest paths between two devices when a path is shown, hop by hop with
-interfaces; or the impact being shown, of
-a problem or of "what if" failures, with what the failures do to each
-named network they reach. With live state, charts of the last
-day: round trip to a device, load on each of its links, and load on a
+interfaces; or the impact being shown, of a problem or of "what if"
+failures, with what the failures do to each named network they reach (for
+a problem, what fixing it would bring back). With live state, charts of the
+last day: round trip to a device, load on each of its links, and load on a
 selected link; clicking a chart replays that moment. Names in the panel are
 links that select and bring that item into view.
 -->
@@ -269,6 +269,10 @@ links that select and bring that item into view.
 		const at = live?.state.positions.find((p) => p.name === name);
 		return at ? `${name} (${at.site})` : name;
 	}
+	/** What a problem's networks say: unlike a "what if", what it takes now. */
+	const FIXING =
+		'What fixing it would bring back to each network, with everything else still down.';
+
 	function plural(n: number, noun: string): string {
 		return `${n} ${noun}${n === 1 ? '' : 's'}`;
 	}
@@ -366,13 +370,14 @@ links that select and bring that item into view.
 	</button>
 {/snippet}
 
-{#snippet acrossNetworks(networks: NetworkImpact[])}
-	{@const lines = networks.map((n) => networkLine(index, n))}
+{#snippet acrossNetworks(networks: NetworkImpact[], fixing: boolean)}
+	{@const lines = networks.map((n) => networkLine(index, n, fixing))}
 	{@const slices = layersOf(index).slices}
 	{@const hidden = networks.filter(
 		(n) => n.network !== null && n.tunnels_lost.length && !ui.networks.includes(n.network)
 	)}
 	<h3>Networks ({lines.filter((l) => l.network !== null).length})</h3>
+	{#if fixing}<p class="muted">{FIXING}</p>{/if}
 	<table class="across">
 		<tbody>
 			{#each lines as l (l.network ?? '')}
@@ -664,7 +669,11 @@ links that select and bring that item into view.
 					{/if}
 				{/if}
 				{#if impact}{@render consequences(impact)}{/if}
-				{#if ui.whatIf.length && whatIfNetworks.length}{@render acrossNetworks(whatIfNetworks)}{/if}
+				{#if ui.whatIf.length && whatIfNetworks.length}
+					{@render acrossNetworks(whatIfNetworks, false)}
+				{:else if !ui.whatIf.length && problem?.networks.length}
+					{@render acrossNetworks(problem.networks, true)}
+				{/if}
 			</section>
 		{/if}
 

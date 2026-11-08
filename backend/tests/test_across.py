@@ -13,6 +13,7 @@ from sunstone.impact import Failures, Network
 from sunstone.layouts import DeviceCenter
 from sunstone.live import TunnelState
 from sunstone.model import Topology
+from sunstone.problems import Problem
 from sunstone.status import Statuses
 
 
@@ -111,7 +112,11 @@ def device(name: str) -> Failures:
 
 
 def by_network(answer) -> dict:
-    return {n.network: n for n in answer.networks}
+    return by_name(answer.networks)
+
+
+def by_name(networks: list) -> dict:
+    return {n.network: n for n in networks}
 
 
 def test_a_switch_takes_two_circuits_and_blue_stays_up(across: Across) -> None:
@@ -198,6 +203,105 @@ def test_each_moment_is_compared_with_its_own_before(topology: Topology) -> None
     assert second == grey(Across(Network(topology), Statuses(topology)), up, two)
 
 
+TRUNKS = frozenset({"h-blu-01:p1--h-wsw-01:p1", "h-blu-01:p2--h-wsw-02:p1"})
+TO_A_GRY_01 = "a-blu-01:p2--a-gry-01:p1"
+TO_A_GRY_02 = "a-blu-01:p3--a-gry-02:p1"
+AT = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def problem(across: Across, name: str, failed: Failures) -> Problem:
+    """A problem standing for some failures, as live state finds one."""
+    return Problem(
+        id=name,
+        kind="outage",
+        title=name,
+        detail="",
+        target=DeviceCenter(kind="device", id="a-core-01"),
+        impact=across.network.impact(failed),
+        lost=0,
+        exposed=0,
+    )
+
+
+def reported(across: Across, now: Failures, *failing: str) -> list[TunnelState]:
+    """The tunnels' states live state would show with some failures."""
+    up = across.layers.tunnels_up(set(now.devices), set(now.links), failing)
+    return [
+        TunnelState(tunnel=t, network=n, status="up" if up[t] else "down")
+        for t, n in across.layers.all_tunnels()
+    ]
+
+
+def test_fixing_a_problem_brings_back_what_it_takes_with_the_rest_down(
+    across: Across,
+) -> None:
+    # H's blue router loses both trunks, and grey's first router at A its
+    # only cable: two outages, with grey's first tunnel down at both ends.
+    now = Failures(links=TRUNKS | {TO_A_GRY_01})
+    problems = [
+        problem(across, "h", Failures(links=TRUNKS)),
+        problem(across, "a", Failures(links=frozenset([TO_A_GRY_01]))),
+    ]
+    answer = across.fixing(AT, now, reported(across, now), problems)
+    h = by_name(answer["h"])
+    assert (h["blue"].tunnels_lost, h["blue"].sites_lost) == (["BLUE-H-A"], ["H"])
+    assert h["black"].links_lost == sorted(TRUNKS)
+    # Fixing H brings back the second grey tunnel only: the first still
+    # ends at a router cut off at A.
+    assert (h["grey"].tunnels_lost, h["grey"].sites_lost) == (["GREY-H-A2"], ["H"])
+    # Fixed, grey would be up, its first tunnel down degrading only the
+    # groups it joins; as things are, its two sites cannot reach each other.
+    assert (h["grey"].before, h["grey"].after.status) == ("operational", "offline")
+    # Fixing A's cable brings back blue's link to it, and no grey tunnel
+    # while H is still down.
+    a = by_name(answer["a"])
+    assert a["blue"].links_lost == [TO_A_GRY_01]
+    assert "grey" not in a or a["grey"].tunnels_lost == []
+    # The whole network's part is each problem's physical impact.
+    assert all(n.network is not None for n in answer["h"] + answer["a"])
+
+
+def test_fixing_an_outage_brings_back_the_links_down_inside_it(across: Across) -> None:
+    # Live state shows the link between the two routers cut off at H down
+    # too; fixing the outage brings it back with them.
+    inside = "h-blu-01:p3--h-gry-01:p1"
+    now = Failures(links=TRUNKS | {inside})
+    answer = across.fixing(
+        AT, now, reported(across, now), [problem(across, "h", Failures(links=TRUNKS))]
+    )
+    grey = by_name(answer["h"])["grey"]
+    assert grey.tunnels_lost == ["GREY-H-A1", "GREY-H-A2"]
+    assert by_name(answer["h"])["blue"].links_lost == [inside]
+
+
+def test_a_tunnel_down_of_its_own_accord_stays_down_after_a_fix(across: Across) -> None:
+    now = Failures(links=frozenset([TO_A_GRY_02]))
+    # The first grey tunnel is down although everything it rides works.
+    tunnels = reported(across, now, "GREY-H-A1")
+    answer = across.fixing(AT, now, tunnels, [problem(across, "a", now)])
+    grey = by_name(answer["a"])["grey"]
+    assert (grey.tunnels_lost, grey.sites_lost) == (["GREY-H-A2"], ["H"])
+    # Asked again with the same things down, the answer is kept.
+    assert across.fixing(AT, now, tunnels, [problem(across, "a", now)]) == answer
+
+
+def test_shared_risks_on_top_of_what_is_down(across: Across) -> None:
+    # With one of H's switches down, the other carries grey's tunnels alone.
+    now = Failures(devices=frozenset(["h-wsw-01"]))
+    grey = across.risks(now, reported(across, now)).networks[0]
+    new = [r for r in grey.risks if r.new]
+    assert [[(i.kind, i.id) for i in r.items] for r in new] == [
+        [("device", "h-wsw-02"), ("link", "h-blu-01:p2--h-wsw-02:p1")]
+    ]
+    assert (new[0].tunnels, new[0].sites) == (["GREY-H-A1", "GREY-H-A2"], ["H"])
+    # What was a risk on the network as documented still is, and is not
+    # new; what is down already is no risk.
+    old = next(r for r in grey.risks if not r.new)
+    assert ("provider", "Northwind Fiber") in [(i.kind, i.id) for i in old.items]
+    assert "h-wsw-01" not in {i.id for r in grey.risks for i in r.items}
+    assert not any(r.new for r in across.risks().networks[0].risks)
+
+
 def test_networks_nothing_reaches_are_left_out(across: Across) -> None:
     answer = across.what_if(device("a-gry-02"), None)
     # Its link to the blue router carries blue; black is not reached.
@@ -245,3 +349,11 @@ def test_the_api_answers_across_the_layers(tmp_path: Path) -> None:
     assert first["sites"] == ["ATL", "CLT", "RDU"]
     hou = next(r for r in grey["risks"] if r["sites"] == ["HOU"])
     assert {"kind": "device", "id": "hou-blu-01"} in hou["items"]
+    # With live state: what fixing each outage and link down would bring
+    # back to each named network, and the risks as things stand.
+    at = client.get("/api/state").json()["generated_at"]
+    problems = client.get("/api/problems", params={"at": at}).json()["problems"]
+    assert all(p["networks"] == [] for p in problems if p["impact"] is None)
+    assert all(n["network"] is not None for p in problems for n in p["networks"])
+    now = client.get("/api/risks", params={"at": at}).json()["networks"]
+    assert [n["network"] for n in now] == [n["network"] for n in risks]

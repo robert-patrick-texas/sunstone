@@ -214,13 +214,33 @@ class Statuses:
             None
         """
         states = list(tunnels)
-        gone = {t.tunnel for t in states if t.status == "down"}
         whole_edges = [
             Edge(link.id, link.a.device, far_key(link)) for link in self.topology.links
         ]
         whole = self._status(
             None, self.whole_tree, set(self.site_of), whole_edges, down, cut, self.cores
         )
+        return StatusReport(at=at, whole=whole, networks=self.named(down, cut, states))
+
+    def named(
+        self, down: set[str], cut: set[str], tunnels: Iterable[TunnelState]
+    ) -> list[NetworkStatus]:
+        """Each named network's status, given what is down, without the
+        whole network's, which takes most of the work on a large network.
+
+        Args:
+            down: Devices down.
+            cut: Links down, by id.
+            tunnels: The tunnels' states; a tunnel left out is taken to be up.
+
+        Returns:
+            Each named network's status, bottom up.
+
+        Raises:
+            None
+        """
+        states = list(tunnels)
+        gone = {t.tunnel for t in states if t.status == "down"}
         found: dict[str, NetworkStatus] = {}
         joined: dict[str, dict[str, str]] = {}
         for name in self.layers.order:
@@ -253,8 +273,7 @@ class Statuses:
                 cut | gone,
                 self.anchors[name],
             )
-        networks = [self._with_caveats(found[n], found) for n in self.layers.order]
-        return StatusReport(at=at, whole=whole, networks=networks)
+        return [self._with_caveats(found[n], found) for n in self.layers.order]
 
     def reached(self, network: str, down: set[str], cut: set[str]) -> set[str]:
         """The sites of a named network its anchors reach around some

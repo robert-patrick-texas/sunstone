@@ -287,7 +287,7 @@ def create_app(
             owners=ownership(directory, documented) if directory else None,
             state=state,
             monitor=monitor,
-            across=Across(network, monitor.statuses),
+            across=monitor.across,
             log=DiscoveryLog(cables, SimulatedDiscovery(cables, real, state), state),
             stop=threading.Event(),
         )
@@ -416,7 +416,8 @@ def create_app(
     def routed(d: _Documented, when: datetime) -> RoutedProblemList:
         """The problems at a moment, each with the maintenance that accounts
         for it, who is on it, the team that owns it, and its page."""
-        found = d.monitor.moment(when).problems
+        moment = d.monitor.moment(when)
+        found = moment.problems
         windows = [w for w in operations.windows() if w.start <= when < w.end]
         # The present is rounded down; acknowledgements made since still count.
         now = datetime.now(UTC)
@@ -445,6 +446,7 @@ def create_app(
                 "incident": in_incident.number
                 if (in_incident := incidents.containing(p.id))
                 else None,
+                "networks": moment.fixing.get(p.id, []),
             }
             problems.append(RoutedProblem.model_validate({**dict(p), **routed}))
         return RoutedProblemList(at=found.at, problems=problems)
@@ -464,11 +466,19 @@ def create_app(
         return d.across.what_if(failures, Before(moment.failures, moment.tunnels), when)
 
     @app.get("/api/risks")
-    def get_risks() -> RiskReport:
+    def get_risks(at: datetime | None = None) -> RiskReport:
         """Return each named network's shared risks: the devices, links, and
         providers beneath it whose failure alone would take two or more of
-        its tunnels, worked out on the network as documented."""
-        return docs.across.risks()
+        its tunnels, worked out on the network as documented; or, with
+        ``at``, on top of what is down at that moment, where a risk only
+        then is new."""
+        d = docs
+        if at is None:
+            return d.across.risks()
+        when = moment_at(d, at)
+        moment = d.monitor.moment(when)
+        found = d.across.risks(moment.failures, moment.tunnels)
+        return found.model_copy(update={"at": when})
 
     @app.get("/api/events")
     def get_events() -> EventLog:

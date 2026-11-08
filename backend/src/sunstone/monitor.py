@@ -17,6 +17,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from sunstone.across import Across, NetworkImpact
 from sunstone.impact import Failures, Network
 from sunstone.live import StateSource, TunnelState
 from sunstone.problems import LiveView, ProblemList, current_failures, find_problems
@@ -45,6 +46,9 @@ class Moment:
     """The tunnels it reports, for the same."""
     status: StatusReport
     """The whole network's status, and each named network's."""
+    fixing: dict[str, list[NetworkImpact]]
+    """What fixing each outage and link down would bring back to each named
+    network, by problem id."""
 
 
 class Monitor:
@@ -63,6 +67,7 @@ class Monitor:
         self.network = network
         self.source = source
         self.statuses = Statuses(network.topology)
+        self.across = Across(network, self.statuses)
         self._moments: OrderedDict[datetime, Moment] = OrderedDict()
         self._lock = threading.Lock()
         self._asked: datetime | None = None
@@ -101,13 +106,16 @@ class Monitor:
             state = self.source.snapshot(at)
             body = state.model_dump_json().encode()
             view = LiveView(state)
+            problems = find_problems(self.network, view)
+            failures = current_failures(self.network, view)
             found = Moment(
                 body=body,
                 gzipped=gzip.compress(body, compresslevel=6),
-                problems=ProblemList(at=at, problems=find_problems(self.network, view)),
-                failures=current_failures(self.network, view),
+                problems=ProblemList(at=at, problems=problems),
+                failures=failures,
                 tunnels=tuple(state.tunnels),
                 status=self.statuses.report(at, view),
+                fixing=self.across.fixing(at, failures, state.tunnels, problems),
             )
             self._moments[at] = found
             while len(self._moments) > KEPT_MOMENTS:
