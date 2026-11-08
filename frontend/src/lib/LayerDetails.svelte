@@ -15,6 +15,8 @@ shown in every view from here.
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { riskFailure, riskItemName, riskSummary } from './across.ts';
+	import ConnectionFacts from './ConnectionFacts.svelte';
+	import { cidOf, TRANSPORT_KIND } from './connections.ts';
 	import type { Risk, RiskReport } from './api/risks.ts';
 	import type { Fabric, Link } from './api/topology.ts';
 	import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
@@ -346,7 +348,7 @@ shown in every view from here.
 		<h2>{transport.name}</h2>
 		<p>
 			{@render boundary(true)}
-			<span class="tag">{transport.kind === 'internet' ? 'Internet' : 'Private WAN'}</span>
+			<span class="tag">{TRANSPORT_KIND[transport.kind]}</span>
 		</p>
 		{#if transport.description}<p class="muted">{transport.description}</p>{/if}
 		<dl>
@@ -372,7 +374,7 @@ shown in every view from here.
 							<span class="mono">{shortInterface(link.a.interface)}</span>
 						</td>
 						<td class="muted">
-							{link.circuit ? `${link.circuit.provider} ${link.circuit.circuit_id}` : ''}
+							{link.circuit ? `${link.circuit.provider} ${cidOf(link) ?? ''}` : ''}
 						</td>
 						<td>{formatSpeed(link.speed_mbps)}</td>
 						{#if live}<td>{circuitState(link)}</td>{/if}
@@ -520,6 +522,7 @@ shown in every view from here.
 			</tbody>
 		</table>
 		{#if tunnel.tags.length}<p class="muted">Tags: {tunnel.tags.join(', ')}</p>{/if}
+		<ConnectionFacts {index} item={{ kind: 'tunnel', tunnel }} />
 		{@const shared = (
 			risks?.networks.find((n) => n.network === tunnel.network)?.risks ?? []
 		).filter((r) => r.tunnels.includes(tunnel.name))}
@@ -576,6 +579,7 @@ shown in every view from here.
 			{#each now.down as t (t)}<p class="reason">{tunnelName(t)} down</p>{/each}
 			{#each now.built as t (t)}<p class="muted">{tunnelName(t)}</p>{/each}
 		{/if}
+		<ConnectionFacts {index} item={{ kind: 'fabric', fabric }} />
 		<h3>Members ({fabric.members.length})</h3>
 		<table>
 			<thead><tr><th>Device</th><th>Site</th><th>Role</th><th>Interface</th></tr></thead>

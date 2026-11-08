@@ -16,12 +16,15 @@ test.beforeEach(async ({ page }) => {
 	await expect(page.getByText('5 sites · 52 devices · 106 links')).toBeVisible();
 });
 
-test('finds a circuit by its ID and a link by the interface at one end', async ({ page }) => {
+test('finds a circuit by either CID and a link by the interface at one end', async ({ page }) => {
+	// The carrier's CID finds the circuit, named by the enterprise's.
 	await box(page).fill('me-595185');
-	await expect(results(page).getByRole('option').first()).toContainText('Circuit ME-595185');
+	await expect(results(page).getByRole('option').first()).toContainText('Circuit HOU-DAL-01');
 	await page.keyboard.press('Enter');
 	await expect(heading(page)).toHaveText('Link');
 	await expect(details(page)).toContainText('ME-595185');
+	await box(page).fill('hou-dal-01');
+	await expect(results(page).getByRole('option').first()).toContainText('Circuit HOU-DAL-01');
 
 	// Full or short interface names, with the device to say which end.
 	await box(page).fill('dal-core-01 Hu1/0/5');

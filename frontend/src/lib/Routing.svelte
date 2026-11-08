@@ -135,9 +135,14 @@ the page as it stood then, without the buttons.
 			</form>
 			<p class="note">Simulated: Sunstone records the page and escalates it; nothing is sent.</p>
 		{/if}
-		{#each carriers.slice(0, 3) as c (c.circuit)}
+		{#each carriers.slice(0, 3) as c (c.link)}
 			<p>
-				{c.provider} <span class="muted">· circuit {c.circuit}</span>
+				{c.provider}
+				<span class="muted"
+					>· circuit <span class="mono">{c.circuit}</span>{c.ours ? ' · ours ' : ''}<span
+						class="mono">{c.ours ?? ''}</span
+					></span
+				>
 				{#if c.carrier}
 					· NOC <a class="mono" href="tel:{c.carrier.phone.replaceAll(' ', '')}"
 						>{c.carrier.phone}</a

@@ -1,6 +1,7 @@
 /**
  * Lookups over a loaded topology, and the formatting every view shares.
  */
+import { cidOf } from './connections.ts';
 import type {
 	Device,
 	Endpoint,
@@ -208,12 +209,13 @@ export function endLetters(links: Link[]): { a: string; b: string; word: string 
  * A short name for a link.
  *
  * @param link - The link.
- * @returns A circuit by its ID, any other link by its two devices.
+ * @returns A circuit or cross-connect by its ID (the enterprise's, else the
+ *   carrier's), any other link by its two devices.
  */
 export function linkName(link: Link): string {
-	return link.circuit
-		? `Circuit ${link.circuit.circuit_id}`
-		: `${link.a.device} – ${endName(link.b)}`;
+	const id = cidOf(link);
+	if (!link.circuit || !id) return `${link.a.device} – ${endName(link.b)}`;
+	return `${link.circuit.type === 'cross-connect' ? 'Cross-connect' : 'Circuit'} ${id}`;
 }
 
 // Case does not matter, so names typed into search abbreviate too.

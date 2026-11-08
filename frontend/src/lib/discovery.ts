@@ -6,33 +6,42 @@
 import type { Change, PortNow, Review } from './api/changes.ts';
 import type { Comparison, Finding, FindingKind, LinkCheck } from './api/discovery.ts';
 import type { Link } from './api/topology.ts';
+import { showsOf } from './connections.ts';
 import { clock } from './history.ts';
 import type { Selection } from './state.svelte.ts';
-import {
-	deviceEnds,
-	isDeviceEnd,
-	portName,
-	shortInterface,
-	type TopologyIndex
-} from './topology.ts';
+import { deviceEnds, portName, shortInterface, type TopologyIndex } from './topology.ts';
 
 /** Kinds in the order the server ranks them, most misleading first. */
 export const FINDING_KINDS: { kind: FindingKind; label: string }[] = [
+	{ kind: 'boundary', label: 'Our own devices across the boundary' },
 	{ kind: 'wrong-neighbor', label: 'Another device on the port' },
 	{ kind: 'wrong-port', label: 'On another port' },
 	{ kind: 'not-seen', label: 'Documented, not seen' },
 	{ kind: 'undocumented', label: 'Seen, not documented' },
+	{ kind: 'shows', label: 'Circuits showing other than they say' },
 	{ kind: 'unknown-device', label: 'Neighbors not in the topology' },
 	{ kind: 'no-neighbors', label: 'Reporting no neighbors' }
 ];
 
 export const CHECK_LABEL: Record<LinkCheck, string> = {
 	confirmed: 'Confirmed',
+	provider: "Provider's equipment seen",
+	nothing: 'Nothing seen, as documented',
 	mismatch: 'Seen elsewhere',
 	'not-seen': 'Not seen',
 	expected: 'Not seen, expected',
 	down: 'Down, so not seen',
-	unchecked: 'Not checked'
+	unchecked: 'Not checked',
+	unstated: 'Not said what it shows',
+	differs: 'Not as documented'
+};
+
+/** What a link's check means, where its label alone does not say. */
+export const CHECK_DETAIL: Partial<Record<LinkCheck, string>> = {
+	provider: 'as documented',
+	nothing: 'LLDP and CDP show nothing across it',
+	unchecked: 'neither end answers discovery',
+	unstated: 'say what LLDP and CDP show across it (neighbors), and it is checked'
 };
 
 /**
@@ -97,9 +106,14 @@ export function seenWhen(finding: Finding, historyFrom: string | null | undefine
 export interface DeviceCheck {
 	/** It answered the latest run. */
 	polled: boolean;
-	/** Its documented links, and how many of them are confirmed. */
+	/**
+	 * Its documented links that should show something to LLDP and CDP, and
+	 * how many do as documented: the far end, or the provider's equipment.
+	 */
 	links: number;
 	confirmed: number;
+	/** Endpoints (phones, hosts) seen on its ports no link documents. */
+	endpoints: number;
 	findings: Finding[];
 }
 
@@ -109,20 +123,25 @@ export interface DeviceCheck {
  * @param comparison - The comparison.
  * @param index - Topology index.
  * @param device - The device's name.
- * @returns Whether it answered, its cables to other devices and how many are
- *   confirmed, and the findings that involve it.
+ * @returns Whether it answered, its links that show something and how many
+ *   show it as documented, its endpoints, and the findings that involve it.
  */
 export function deviceCheck(
 	comparison: Comparison,
 	index: TopologyIndex,
 	device: string
 ): DeviceCheck {
-	// Discovery compares only links between two devices so far, not circuits into a transport.
-	const links = (index.linksByDevice.get(device) ?? []).filter((l) => isDeviceEnd(l.b));
+	// Links documented to show nothing, or that do not say, have nothing to confirm.
+	const links = (index.linksByDevice.get(device) ?? []).filter((l) => {
+		const shows = showsOf(l);
+		return shows === 'far-end' || shows === 'provider';
+	});
 	return {
 		polled: comparison.polled.includes(device),
 		links: links.length,
-		confirmed: links.filter((l) => linkCheck(comparison, l.id) === 'confirmed').length,
+		confirmed: links.filter((l) => ['confirmed', 'provider'].includes(linkCheck(comparison, l.id)))
+			.length,
+		endpoints: comparison.endpoints[device] ?? 0,
 		findings: comparison.findings.filter((f) => f.devices.includes(device))
 	};
 }
@@ -158,6 +177,7 @@ const DONE: Record<Change['fix']['kind'], string> = {
 	move: 'Moved to',
 	add: 'Added',
 	retire: 'Retired',
+	document: 'Documented',
 	expect: 'Expected:'
 };
 
@@ -165,9 +185,13 @@ const DONE: Record<Change['fix']['kind'], string> = {
  * What a change did, for its line in the change set.
  *
  * @param change - The change.
- * @returns For example "Moved to d-dist-02 Te1/0/48 – d-acc-05 Te1/0/1".
+ * @returns For example "Moved to d-dist-02 Te1/0/48 – d-acc-05 Te1/0/1", or
+ *   "Documented that Circuit DAL-IAD-01 shows nothing".
  */
 export function changeLine(change: Change): string {
+	// Documenting what a circuit shows moves nothing: say what it says.
+	if (change.fix.kind === 'document')
+		return change.fix.summary.replace(/^Document /, 'Documented ');
 	const link = change.fix.after ?? change.fix.before;
 	return link
 		? `${DONE[change.fix.kind]} ${linkEnds(link)}`

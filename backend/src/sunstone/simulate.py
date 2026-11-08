@@ -65,6 +65,7 @@ from sunstone.model import (
     cabled,
     device_ends,
     end_key,
+    joins,
 )
 
 FAULT_WINDOW_S = 300
@@ -292,8 +293,9 @@ class SimulatedState:
                 self.adjacent.setdefault(port.near.device, []).append(
                     (port.far.device, port.link.id)
                 )
-            elif isinstance(port.link.b, TransportEnd):
-                # A transport joins every device with a circuit into it.
+            elif isinstance(port.link.b, TransportEnd) and joins(port.link):
+                # A transport joins every device with a circuit for transit
+                # into it.
                 cloud = end_key(port.link.b)
                 self.adjacent.setdefault(port.near.device, []).append(
                     (cloud, port.link.id)

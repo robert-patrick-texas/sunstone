@@ -31,6 +31,7 @@ from sunstone.model import (
     ExternalEnd,
     Link,
     TransportEnd,
+    cid,
     device_ends,
     end_name,
 )
@@ -302,7 +303,7 @@ def _outages(
         devices = sorted(group, key=natural)
         sites = sorted({network.site_of[d] for d in devices}, key=natural)
         whole = all(d in group for s in sites for d in network.devices_of[s])
-        circuits = [link.circuit.circuit_id for link in boundary if link.circuit]
+        circuits = [c for c in (cid(link) for link in boundary if link.circuit) if c]
         if len(group) == 1:
             title = f"{start} {'down' if down else 'unreachable'}"
         elif whole:
@@ -481,7 +482,8 @@ def format_speed(mbps: int) -> str:
 
 
 def link_name(link: Link) -> str:
-    """A short name for a link: a circuit by its ID, any other by its devices.
+    """A short name for a link: a circuit or cross-connect by its ID (the
+    enterprise's, else the carrier's), any other by its devices.
 
     Args:
         link: The link.
@@ -492,8 +494,10 @@ def link_name(link: Link) -> str:
     Raises:
         None
     """
-    if link.circuit:
-        return f"Circuit {link.circuit.circuit_id}"
+    name = cid(link)
+    if link.circuit and name:
+        kind = "Cross-connect" if link.circuit.type == "cross-connect" else "Circuit"
+        return f"{kind} {name}"
     return f"{link.a.device} – {end_name(link.b)}"
 
 

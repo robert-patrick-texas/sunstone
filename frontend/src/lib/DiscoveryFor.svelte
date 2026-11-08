@@ -12,6 +12,7 @@ Sunstone, or expected not to be seen, says so.
 	import type { Comparison, Finding } from './api/discovery.ts';
 	import {
 		changeOf,
+		CHECK_DETAIL,
 		CHECK_LABEL,
 		deviceCheck,
 		EXPECTABLE,
@@ -23,7 +24,7 @@ Sunstone, or expected not to be seen, says so.
 	} from './discovery.ts';
 	import { clock } from './history.ts';
 	import { reviewFix, ui, type Selection } from './state.svelte.ts';
-	import { isDeviceEnd, linkName, type TopologyIndex } from './topology.ts';
+	import { linkName, type TopologyIndex } from './topology.ts';
 
 	const {
 		index,
@@ -72,6 +73,12 @@ Sunstone, or expected not to be seen, says so.
 				{check.confirmed} of {check.links} documented links confirmed
 				<span class="muted">· at {clock(comparison.at)}</span>
 			</p>
+			{#if check.endpoints}
+				<p class="muted">
+					{check.endpoints} endpoint{check.endpoints === 1 ? '' : 's'} (phones, hosts) on ports no link
+					documents: access, not findings
+				</p>
+			{/if}
 		{:else}
 			<p class="muted">
 				It did not answer the latest run (not polled, or down), so only its neighbors can confirm
@@ -97,24 +104,17 @@ Sunstone, or expected not to be seen, says so.
 			{@const check = linkCheck(comparison, id)}
 			{@const finding = comparison.findings.find((f) => f.link === id)}
 			{@const fixed = changeOf(changes, id)}
-			{#if link && !isDeviceEnd(link.b)}
-				<p>
+			{#if link}
+				<p class:finding={!['confirmed', 'provider', 'nothing'].includes(check)}>
 					{#if item.ids.length > 1}{linkName(link)}:
-					{/if}<b>{CHECK_LABEL.unchecked}</b>
-					<span class="muted"
-						>· discovery does not compare {'transport' in link.b
-							? 'circuits into a transport'
-							: 'links to something someone else runs'} yet</span
+					{/if}<b
+						>{finding?.kind === 'boundary' ? 'Our own device across it' : CHECK_LABEL[check]}</b
 					>
-				</p>
-			{:else}
-				<p class:finding={check !== 'confirmed'}>
-					{#if item.ids.length > 1 && link}{linkName(link)}:
-					{/if}<b>{CHECK_LABEL[check]}</b>
 					<span class="muted">
 						{#if finding}· {finding.detail}
-						{:else if check === 'confirmed'}· seen at {clock(comparison.at)}
-						{:else if check === 'unchecked'}· neither end answers discovery
+						{:else if check === 'confirmed' || check === 'provider'}· {CHECK_DETAIL[check] ??
+								'seen'} at {clock(comparison.at)}
+						{:else if CHECK_DETAIL[check]}· {CHECK_DETAIL[check]}
 						{/if}
 					</span>
 					{#if finding}{@render fixOf(finding)}{/if}

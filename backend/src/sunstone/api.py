@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
 from sunstone.across import Across, Before, Failing, LayeredWhatIf, RiskReport
-from sunstone.cabling import Cabling
+from sunstone.cabling import Beyond, Cabling
 from sunstone.changes import (
     Change,
     ChangeConflict,
@@ -268,15 +268,15 @@ def create_app(
     )
     # The simulated network is cabled a little differently from its
     # documentation, and stays so however the documentation changes.
-    cabling = Cabling(cabled(base), watched=set(monitored(base)))
+    watched = set(monitored(base))
+    cabling = Cabling(cabled(base), watched=watched)
+    # And what circuits and links beyond our devices really show.
+    beyond = Beyond(base, watched=watched)
 
     def build(documented: Topology) -> _Documented:
         """Work out everything that follows the documentation."""
         network = Network(documented)
-        # Discovery compares only links between two devices so far, not
-        # circuits into a transport or links to external nodes.
-        cables = cabled(documented)
-        real = cabling.documenting(cables)
+        real = cabling.documenting(cabled(documented))
         state = state_source or SimulatedState(
             documented, plans=operations, cabling=real
         )
@@ -288,7 +288,11 @@ def create_app(
             state=state,
             monitor=monitor,
             across=monitor.across,
-            log=DiscoveryLog(cables, SimulatedDiscovery(cables, real, state), state),
+            log=DiscoveryLog(
+                documented,
+                SimulatedDiscovery(documented, real, state, beyond),
+                state,
+            ),
             stop=threading.Event(),
         )
 
@@ -950,9 +954,7 @@ def create_app(
 
     def discovered(d: _Documented, at: datetime) -> Comparison:
         """The comparison in effect at a moment, with expected findings set aside."""
-        return expecting(
-            d.log.comparison(at), expected(changes.changes()), cabled(d.topology)
-        )
+        return expecting(d.log.comparison(at), expected(changes.changes()), d.topology)
 
     def offered(d: _Documented, finding: str, expect: bool) -> tuple[Finding, Fix]:
         """A finding of the latest discovery run, and the fix it offers, or
@@ -1019,6 +1021,9 @@ def create_app(
         except ChangeConflict as e:
             raise HTTPException(409, str(e)) from e
         old, new = ports(fix.before), ports(fix.after)
+        # Documenting what a link shows changes none of its ports: say how
+        # they read instead.
+        shown = old if fix.kind == "document" else []
         was, will = d.network.reach(Failures()), would.network.reach(Failures())
         before = {p.title for p in d.monitor.moment(now).problems.problems}
         after = {p.title for p in would.monitor.moment(now).problems.problems}
@@ -1047,6 +1052,12 @@ def create_app(
             cut_off=sorted(was.reached - will.reached),
             cleared=sorted(before - after),
             raised=sorted(after - before),
+            involved=[
+                PortNow(
+                    device=dev, interface=ifname, reading=readings.get((dev, ifname))
+                )
+                for dev, ifname in shown
+            ],
         )
 
     @app.post("/api/changes", status_code=201)

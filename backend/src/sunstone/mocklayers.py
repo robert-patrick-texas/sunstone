@@ -19,17 +19,32 @@ WAN, or both, a few point-to-point circuits, and networks stacked over them:
 Houston has two WAN switches with two Internet circuits each, from three
 providers, and a blue router trunked to both. Tampa has one switch carrying
 grey and black in different VLANs, trunked to a router whose grey tunnel
-rides black directly. Everything is fictional.
+rides black directly.
+
+Each circuit has its roles at the edge, as routing policy would set them at
+its site. Every one is transit, since tunnels to other sites ride it. The
+data centers' Internet circuits are also the way out (egress, through the
+central gateway) and the way in to what they publish (ingress, a DMZ).
+Branches with both transports break out locally to the mail service
+(egress); the others send everything through the data centers. A research
+network joins the data centers to its other members: at IAD for peering
+among them only, at DAL as open, carrying Internet routes too. Tampa's
+Internet circuit has no roles yet (TBD). IAD is in a co-location facility
+whose cross-connects join its two halls. Circuits say what LLDP and CDP
+show on our port, the provider's NTU or nothing, by provider. Everything
+is fictional.
 """
 
 import random
+import zlib
 from collections import Counter
 
-from sunstone.mockgen import CITIES, with_groups
+from sunstone.mockgen import CITIES, labeled, with_groups
 from sunstone.model import (
     Carried,
     Circuit,
     Device,
+    Edge,
     Endpoint,
     External,
     ExternalEnd,
@@ -37,8 +52,10 @@ from sunstone.model import (
     FabricMember,
     Link,
     NamedNetwork,
+    Neighbors,
     Role,
     SegmentIds,
+    Sides,
     Site,
     Tenant,
     Topology,
@@ -57,6 +74,12 @@ INTERNET = [
 ]
 MPLS_PROVIDER = "Mesa Carrier"
 INET, MPLS = "INET", "Mesa MPLS"
+REN, REN_PROVIDER = "Prairie REN", "Prairie Research Network"
+COLO = "Granite Colo"
+# Providers whose NTU shows on our port over LLDP or CDP; the rest show nothing.
+SHOWS_NTU = {"Northwind Fiber", "Harbor Transit", MPLS_PROVIDER, REN_PROVIDER}
+# The local exchange carrier that hands Mesa's circuits off at the branches.
+LEC = "Pecos Bell"
 HUBS = ["DAL", "IAD"]
 BLACK_VLAN, GREY_VLAN = 30, 200
 PLATFORM = {
@@ -133,11 +156,22 @@ class _Layers:
         self._ports[(device, slot[speed_mbps])] += 1
         return f"{slot[speed_mbps]}{self._ports[(device, slot[speed_mbps])] - 1}"
 
-    def circuit(self, provider: str) -> Circuit:
-        """A circuit from a provider, numbered like its others."""
+    def circuit(
+        self, provider: str, shared: bool = False, lec: bool = False
+    ) -> Circuit:
+        """A circuit from a provider, numbered like its others; into a shared
+        transport, the Z side has no CID. Handed off by the local exchange
+        carrier, it has the LEC's CID too."""
         self._circuits[provider] += 1
         number = self.rng.randrange(100_000, 1_000_000)
-        return Circuit(provider=provider, circuit_id=f"{provider[:2].upper()}-{number}")
+        cid = f"{provider[:2].upper()}-{number}"
+        if lec:
+            # The LEC's own number, made from the carrier's so the rest of
+            # the sample's random numbers stay as they were.
+            cid += f" / {LEC} 12/KXFU/{zlib.crc32(cid.encode()) % 900_000 + 100_000}"
+        return Circuit(
+            provider=provider, circuit_id=Sides(a=cid, z=None if shared else cid)
+        )
 
     def cable(
         self,
@@ -158,29 +192,52 @@ class _Layers:
         )
         return pa, pb
 
-    def into(self, device: str, transport: str, speed_mbps: int, provider: str) -> None:
-        """A circuit from a device into a transport."""
+    def into(
+        self,
+        device: str,
+        transport: str,
+        speed_mbps: int,
+        provider: str,
+        edges: list[Edge] | None,
+    ) -> None:
+        """A circuit from a device into a transport, with its roles at the
+        edge (None: not given yet, TBD); it shows the provider's NTU if the
+        provider leaves LLDP and CDP on, and else nothing."""
         vlan = BLACK_VLAN if device.split("-")[1] == "wsw" else None
+        shown: Neighbors = "provider" if provider in SHOWS_NTU else "nothing"
+        lec = provider == MPLS_PROVIDER and device.split("-")[0].upper() not in HUBS
         self.links.append(
             Link(
                 a=Endpoint(device=device, interface=self.port(device)),
                 b=TransportEnd(transport=transport),
                 speed_mbps=speed_mbps,
                 kind="wan",
-                circuit=self.circuit(provider),
+                circuit=self.circuit(provider, shared=True, lec=lec),
                 carries=[Carried(network="black", vlan=vlan)] if vlan else [],
+                edges=edges or [],
+                neighbors=shown if edges is not None else None,
             )
         )
 
-    def internet(self, device: str) -> None:
+    def internet(self, device: str, edges: list[Edge] | None) -> None:
         """An Internet circuit from a random provider."""
         self.into(
-            device, INET, self.rng.choice([500, 1_000]), self.rng.choice(INTERNET)
+            device,
+            INET,
+            self.rng.choice([500, 1_000]),
+            self.rng.choice(INTERNET),
+            edges,
         )
 
     def mpls(self, device: str) -> None:
-        """A circuit into the carrier's private WAN."""
-        self.into(device, MPLS, self.rng.choice([100, 200, 500]), MPLS_PROVIDER)
+        """A circuit into the carrier's private WAN, for tunnels to other sites."""
+        self.into(
+            device,
+            MPLS,
+            self.rng.choice([100, 200, 500]),
+            MPLS_PROVIDER,
+            ["transit"],
+        )
 
     def tunnel(
         self, name: str, network: str, rides: str, a: str, b: str, technology: str
@@ -227,6 +284,8 @@ class _Layers:
                 b=ExternalEnd(external=name, interface="ciphertext"),
                 speed_mbps=1_000,
                 carries=[_grey()],
+                # Inline encryptors do not run LLDP or CDP.
+                neighbors="nothing",
             )
         )
 
@@ -260,8 +319,9 @@ def _datacenter(g: _Layers, site: str) -> dict[str, str]:
         acc = g.device(site, "acc", n)
         for d in dists:
             g.cable(d, acc)
-    g.internet(wans[0])
-    g.internet(wans[0])
+    # Tunnels to the branches, the central way out, and the DMZ.
+    for _ in range(2):
+        g.internet(wans[0], ["transit", "egress", "ingress"])
     g.mpls(wans[1])
     blue = g.device(site, "blu")
     g.cable(wans[0], blue, carries=_carries("black"))
@@ -284,7 +344,8 @@ def _branch(g: _Layers, site: str, inet: bool, mpls: bool) -> dict[str, str]:
     """A branch's WAN routers and access switches."""
     wans = [g.device(site, "wan", i + 1) for i in range(int(inet) + int(mpls))]
     if inet:
-        g.internet(wans[0])
+        # Branches with both transports break out locally to the mail service.
+        g.internet(wans[0], ["transit", "egress"] if site in BOTH else ["transit"])
     if mpls:
         g.mpls(wans[-1])
     for n in range(1, g.rng.randint(2, 4)):
@@ -319,7 +380,7 @@ def _houston(g: _Layers) -> dict[str, str]:
         switches, [INTERNET[0:3:2], [INTERNET[0], INTERNET[3]]], strict=True
     ):
         for provider in providers:
-            g.into(sw, INET, 1_000, provider)
+            g.into(sw, INET, 1_000, provider, ["transit", "egress"])
     blue = g.device("HOU", "blu")
     for sw in switches:
         g.cable(sw, blue, carries=_carries("black", BLACK_VLAN))
@@ -339,8 +400,9 @@ def _tampa(g: _Layers) -> dict[str, str]:
     grey = g.device("TPA", "gry")
     # Gi0/0/0: access port in grey VLAN 200, to the grey switch.
     g.cable(sw, gsw, carries=[_grey()])
-    # Gi0/0/1: access port in black VLAN 30, to the Internet circuit.
-    g.into(sw, INET, 1_000, INTERNET[1])
+    # Gi0/0/1: access port in black VLAN 30, to the Internet circuit, whose
+    # roles and what it shows are still to be documented.
+    g.into(sw, INET, 1_000, INTERNET[1], None)
     # Gi0/0/2: trunk to the router with both.
     g.cable(sw, grey, carries=[_grey(), *_carries("black", BLACK_VLAN)])
     return {"gry": grey, "gsw": gsw}
@@ -392,20 +454,35 @@ def generate_layers(seed: int) -> Topology:
         secure[code] = _secure(g, code, "", branches[code]["inet"])
     secure |= {code: dc[code] for code in ("DAL", "IAD")}
 
-    # Point-to-point circuits, beside the transports.
+    # Point-to-point circuits, beside the transports: a licensed microwave
+    # service, and a circuit each of whose sides has its own IDs.
     for a, b in (("DAL", "FTW"), ("AUS", "SAT")):
         near = dc["DAL"]["wan2"] if a == "DAL" else branches[a]["inet"]
         far = branches[b]["mpls"] or branches[b]["inet"]
+        circuit = g.circuit(MPLS_PROVIDER)
+        if a == "AUS":
+            cid = circuit.circuit_id.a
+            circuit = circuit.model_copy(
+                update={
+                    "circuit_id": Sides(
+                        a=f"{cid} / {LEC} 12/KXFU/204411",
+                        z=f"{cid} / Gulf Coast Bell 31/KQGS/558120",
+                    )
+                }
+            )
         g.links.append(
             Link(
                 a=Endpoint(device=near, interface=g.port(near, 10_000)),
                 b=Endpoint(device=far, interface=g.port(far, 10_000)),
                 speed_mbps=10_000,
                 kind="wan",
-                circuit=g.circuit(MPLS_PROVIDER),
+                circuit=circuit,
+                medium="microwave" if a == "DAL" else None,
+                enterprise_cid=Sides(a="AUS-SAT-01", z="SAT-AUS-01")
+                if a == "AUS"
+                else None,
             )
         )
-
     # dci: between the data centers, on the routers that are DMVPN hubs.
     g.tunnel(
         "DCI-1", "dci", "black", dc["DAL"]["wan1"], dc["IAD"]["wan1"], "GRE+IPsec+MPLS"
@@ -512,7 +589,7 @@ def generate_layers(seed: int) -> Topology:
     ]
 
     # A cloud reached over the Internet and by a direct interconnect, and a
-    # mail service reached over the Internet only.
+    # mail application reached over the Internet only.
     iad_wan2 = dc["IAD"]["wan2"]
     g.links.append(
         Link(
@@ -522,18 +599,21 @@ def generate_layers(seed: int) -> Topology:
             kind="wan",
             circuit=g.circuit("Nimbus Cloud"),
             carries=_carries("corp"),
+            # A cloud region joined directly, its edge router seen on our port.
+            edges=["interconnect"],
+            neighbors="far-end",
         )
     )
     g.externals += [
         External(
             name="Nimbus Cloud",
-            kind="service",
+            kind="application",
             reached_over=[INET],
             description="Cloud provider",
         ),
         External(
             name="Stratus Mail",
-            kind="service",
+            kind="application",
             reached_over=[INET],
             description="Email and calendars",
         ),
@@ -546,6 +626,22 @@ def generate_layers(seed: int) -> Topology:
     for tenant, sites in (("Alpha", ALPHA), ("Bravo", BRAVO)):
         for code in sites:
             g.encryptor(tenant, code, secure[code]["gsw"])
+
+    # The research network, at each data center's Internet router.
+    research: list[tuple[str, list[Edge]]] = [("IAD", ["peering"]), ("DAL", ["open"])]
+    for code, edges in research:
+        router = dc[code]["wan1"]
+        g.links.append(
+            Link(
+                a=Endpoint(device=router, interface=g.port(router, 10_000)),
+                b=TransportEnd(transport=REN),
+                speed_mbps=10_000,
+                kind="wan",
+                circuit=g.circuit(REN_PROVIDER, shared=True),
+                edges=edges,
+                neighbors="provider",
+            )
+        )
 
     topology = Topology(
         sites=list(g.sites.values()),
@@ -604,6 +700,13 @@ def generate_layers(seed: int) -> Topology:
                 provider=MPLS_PROVIDER,
                 description="Carrier MPLS VPN",
             ),
+            Transport(
+                name=REN,
+                kind="research",
+                network="black",
+                provider=REN_PROVIDER,
+                description="Research and education network",
+            ),
         ],
         externals=g.externals,
         tenants=[
@@ -613,7 +716,34 @@ def generate_layers(seed: int) -> Topology:
         tunnels=g.tunnels,
         fabrics=fabrics,
     )
-    return with_groups(topology)
+    return labeled(_cross_connected(with_groups(topology), "IAD"))
+
+
+def _cross_connected(topology: Topology, code: str) -> Topology:
+    """Make the links between a site's halls the co-location provider's
+    cross-connects, each with the provider's order number."""
+    hall = {d.name: d.location for d in topology.devices if d.site == code}
+    links = []
+    n = 0
+    for ln in topology.links:
+        b = ln.b
+        if (
+            isinstance(b, Endpoint)
+            and ln.a.device in hall
+            and b.device in hall
+            and hall[ln.a.device] != hall[b.device]
+        ):
+            n += 1
+            order = Sides(a=f"XC-{40_000 + n * 17}")
+            ln = ln.model_copy(
+                update={
+                    "circuit": Circuit(
+                        provider=COLO, circuit_id=order, type="cross-connect"
+                    )
+                }
+            )
+        links.append(ln)
+    return topology.model_copy(update={"links": links})
 
 
 def _fabric(

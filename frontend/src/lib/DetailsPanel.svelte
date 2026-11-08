@@ -58,6 +58,8 @@ links that select and bring that item into view.
 	import { layersOf } from './layers.ts';
 	import { term } from './terms.ts';
 	import DiscoveryFor from './DiscoveryFor.svelte';
+	import ConnectionFacts from './ConnectionFacts.svelte';
+	import { cidOf } from './connections.ts';
 	import OnCallFor from './OnCallFor.svelte';
 	import Routing from './Routing.svelte';
 	import Spark from './Spark.svelte';
@@ -912,9 +914,7 @@ links that select and bring that item into view.
 										>
 										<td>{formatSpeed(n.link.speed_mbps)}</td>
 										<td class="muted">
-											{n.link.circuit
-												? `${n.link.circuit.provider} ${n.link.circuit.circuit_id}`
-												: ''}
+											{n.link.circuit ? `${n.link.circuit.provider} ${cidOf(n.link) ?? ''}` : ''}
 										</td>
 									</tr>
 								{/each}
@@ -981,16 +981,19 @@ links that select and bring that item into view.
 										<td class="nowrap">{@render load(at.health, at.out, at.in)}</td>
 									{/if}
 								</tr>
-								{#if link.circuit}
+								{#if link.circuit && links.length > 1}
 									<tr class="sub">
 										<td colspan={live ? 4 : 3}>
-											Circuit {link.circuit.circuit_id} · {link.circuit.provider}
+											{linkName(link)} · {link.circuit.provider}
 										</td>
 									</tr>
 								{/if}
 							{/each}
 						</tbody>
 					</table>
+					{#if links.length === 1 && links[0]}
+						<ConnectionFacts {index} item={{ kind: 'link', link: links[0] }} />
+					{/if}
 					{#if links.length === 1 && links[0] && history}
 						{@const series = linkHistory(history, links[0])}
 						{#if series}

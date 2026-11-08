@@ -11,7 +11,7 @@ export const DEFAULT_TERMS: Record<Term, string> = {
 	network: 'Network',
 	transport: 'Transport',
 	external: 'External',
-	service: 'Service',
+	application: 'Application',
 	partner: 'Partner',
 	tenant: 'Tenant',
 	tunnel: 'Tunnel',

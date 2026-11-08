@@ -21,16 +21,34 @@ The cables stay put when the documentation changes: ``documenting`` matches
 the same cables against another version of it, so a link documented where
 its cable really is reads as up, and a cable no longer documented carries
 traffic all the same.
+
+What LLDP and CDP show where no cable of ours reaches the far end is in
+``Beyond``: across each circuit and on each link to someone else's device,
+what each says it shows, except that a circuit into a transport that does
+not say shows the provider's NTU, and a few disagree with the documentation
+as drift; and on access ports, phones and printers no one documents.
 """
 
 import copy
 import random
+import re
 import zlib
 from collections.abc import Set
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
-from sunstone.model import Endpoint, Link, Topology, device_b
+from sunstone.model import (
+    Endpoint,
+    ExternalEnd,
+    Link,
+    Neighbors,
+    Topology,
+    TransportEnd,
+    device_b,
+    device_ends,
+    link_roles,
+    shows,
+)
 from sunstone.problems import natural
 
 UNKNOWN_PLATFORM = "WS-C2960X-24TS"
@@ -349,3 +367,236 @@ class Cabling:
                 temporary=platform is not None,
             )
         )
+
+
+@dataclass(frozen=True)
+class Shown:
+    """One neighbor LLDP or CDP shows on a port, when it is not one of our
+    cables: the provider's NTU, someone else's device, one of our devices
+    across a circuit, or an endpoint."""
+
+    device: str
+    """The device reporting it."""
+    interface: str
+    remote: str
+    remote_port: str
+    platform: str | None
+    capabilities: tuple[str, ...]
+
+
+NTU_PLATFORM = "Ethernet NTU"
+# Endpoints on access ports: phones over LLDP-MED, and printers.
+PHONE_PLATFORM, PRINTER_PLATFORM = "IP Phone 8865", "Printer"
+
+
+class Beyond:
+    """What LLDP and CDP really show across circuits, on links to someone
+    else's device, and on access ports, in the simulated network.
+
+    Each circuit and link beyond our devices shows what its documentation
+    first said, or for a circuit into a transport that does not say, the
+    provider's NTU; a link to an external node that does not say shows
+    nothing. Like cabling, a little of it disagrees with the documentation,
+    chosen with a seed so it stays put: a circuit between two of our devices
+    whose provider passes nothing, though it does not say so; a circuit into
+    a transport said to show nothing that shows its NTU; and where two
+    circuits into one transport are for something other than transit (two
+    sites peering with a research network), a layer-2 path across it that
+    lets each see the other's router. Watched access switches each report up
+    to three phones and printers on ports no link documents.
+
+    What a link really shows stays as first documented, keyed by its id,
+    however the documentation changes later.
+    """
+
+    def __init__(
+        self,
+        topology: Topology,
+        watched: Set[str] | None = None,
+        seed: int = 1,
+    ) -> None:
+        """Work out what each link beyond our cables really shows.
+
+        Args:
+            topology: The network as first documented.
+            watched: Devices the simulator watches, to put drift and
+                endpoints where discovery can see them; None for exactly
+                as documented, without endpoints.
+            seed: Random seed; the same seed gives the same drift.
+
+        Raises:
+            None
+        """
+        self.topology = topology
+        externals = {e.name: e for e in topology.externals}
+        self.real: dict[str, Neighbors] = {}
+        """What each circuit and link beyond our devices really shows."""
+        for ln in topology.links:
+            if isinstance(ln.b, Endpoint) and not _carrier(ln):
+                continue
+            said = shows(ln)
+            if said is None:
+                said = "provider" if isinstance(ln.b, TransportEnd) else "nothing"
+            self.real[ln.id] = said
+        self.filtered: str | None = None
+        """A circuit between two of our devices said to show the far end
+        that really shows nothing."""
+        self.unsaid: str | None = None
+        """A circuit into a transport said to show nothing that shows its NTU."""
+        self.bridged: tuple[Link, Link] | None = None
+        """Two circuits into one transport, for something other than
+        transit, across which each sees the other's router."""
+        self.endpoints: list[Shown] = []
+        if watched is None:
+            return
+        rng = random.Random(seed)
+        links = sorted(topology.links, key=lambda ln: ln.id)
+        answering = watched
+
+        def seen(ln: Link) -> bool:
+            return all(e.device in answering for e in device_ends(ln))
+
+        between = [
+            ln
+            for ln in links
+            if isinstance(ln.b, Endpoint)
+            and _carrier(ln)
+            and ln.neighbors is None
+            and seen(ln)
+        ]
+        if between:
+            self.filtered = between[rng.randrange(len(between))].id
+            self.real[self.filtered] = "nothing"
+        quiet = [
+            ln
+            for ln in links
+            if isinstance(ln.b, TransportEnd) and ln.neighbors == "nothing" and seen(ln)
+        ]
+        if quiet:
+            self.unsaid = quiet[rng.randrange(len(quiet))].id
+            self.real[self.unsaid] = "provider"
+        by_transport: dict[str, list[Link]] = {}
+        for ln in links:
+            roles = link_roles(ln, externals)
+            if (
+                isinstance(ln.b, TransportEnd)
+                and roles.source == "declared"
+                and "transit" not in roles.edges
+                and seen(ln)
+            ):
+                by_transport.setdefault(ln.b.transport, []).append(ln)
+        pairs = [
+            found[:2] for _, found in sorted(by_transport.items()) if len(found) > 1
+        ]
+        if pairs:
+            self.bridged = (pairs[0][0], pairs[0][1])
+        self._endpoints(watched)
+
+    def rows(self, link: Link) -> list[Shown]:
+        """What LLDP and CDP show at our end, or ends, of a circuit or a link
+        beyond our devices, other than our own cable's far end.
+
+        Args:
+            link: A link as now documented.
+
+        Returns:
+            The provider's NTU at each of our ends, someone else's device,
+            or our own router across a layer-2 path; none for a link that
+            shows nothing, and none for one that shows our far end, which
+            the cable reports.
+
+        Raises:
+            None
+        """
+        if self.bridged and link.id in {ln.id for ln in self.bridged}:
+            here, there = (
+                self.bridged if self.bridged[0].id == link.id else self.bridged[::-1]
+            )
+            return [
+                Shown(
+                    device=here.a.device,
+                    interface=here.a.interface,
+                    remote=there.a.device,
+                    remote_port=there.a.interface,
+                    platform=None,
+                    capabilities=("router",),
+                )
+            ]
+        real = self.real.get(link.id)
+        if real is None or real == "nothing":
+            return []
+        if real == "far-end":
+            b = link.b
+            if not isinstance(b, ExternalEnd):
+                return []
+            external = next(
+                (e for e in self.topology.externals if e.name == b.external), None
+            )
+            return [
+                Shown(
+                    device=link.a.device,
+                    interface=link.a.interface,
+                    remote=f"{b.external.split()[0].lower()}-edge-"
+                    f"{link.a.device.split('-')[0]}",
+                    remote_port=b.interface or "Ethernet1",
+                    platform=external.platform if external else None,
+                    capabilities=("router",),
+                )
+            ]
+        ends = device_ends(link)
+        return [
+            Shown(
+                device=end.device,
+                interface=end.interface,
+                remote=_ntu(link, "" if len(ends) == 1 else "az"[i]),
+                remote_port="LAN1",
+                platform=NTU_PLATFORM,
+                capabilities=("switch",),
+            )
+            for i, end in enumerate(ends)
+        ]
+
+    def _endpoints(self, watched: Set[str]) -> None:
+        """Up to three phones and printers on each watched access switch."""
+        used: dict[str, set[str]] = {}
+        for ln in self.topology.links:
+            for end in device_ends(ln):
+                used.setdefault(end.device, set()).add(end.interface)
+        for d in self.topology.devices:
+            if d.role != "access" or d.name not in watched:
+                continue
+            count = zlib.crc32(d.name.encode()) % 4
+            port = 10
+            for i in range(count):
+                while f"GigabitEthernet1/0/{port}" in used.get(d.name, set()):
+                    port += 1
+                phone = i % 2 == 0
+                mac = f"{zlib.crc32(f'{d.name}|{i}'.encode()):08X}"
+                self.endpoints.append(
+                    Shown(
+                        device=d.name,
+                        interface=f"GigabitEthernet1/0/{port}",
+                        remote=f"SEP0040{mac}" if phone else f"prn-{d.name}-{i + 1}",
+                        remote_port="Port 1",
+                        platform=PHONE_PLATFORM if phone else PRINTER_PLATFORM,
+                        capabilities=("phone",) if phone else ("host",),
+                    )
+                )
+                port += 1
+
+
+def _carrier(link: Link) -> bool:
+    """Whether a carrier's service, not a cable, joins a link's ends."""
+    return link.circuit is not None and link.circuit.type == "carrier"
+
+
+def _ntu(link: Link, side: str) -> str:
+    """The name a provider's NTU gives itself: the provider and the number
+    of the circuit it terminates, and the side, for a circuit between two of
+    our devices."""
+    circuit = link.circuit
+    if circuit is None:
+        return f"ntu-{side}"
+    provider = circuit.provider.split()[0].lower()
+    digits = re.sub(r"\D", "", circuit.circuit_id.a.split()[0]) or "0"
+    return f"{provider}-ntu-{digits}{side}"

@@ -18,7 +18,7 @@ import {
 } from './discovery.ts';
 import { clock } from './history.ts';
 import { fixtureIndex, layeredIndex } from './test-fixture.ts';
-import { farDevice } from './topology.ts';
+import { farDevice, indexTopology } from './topology.ts';
 
 const index = fixtureIndex();
 const [first, second] = index.topology.links.map((l) => l.id) as [string, string];
@@ -43,6 +43,7 @@ const COMPARISON: Comparison = {
 	polled: ['a-wan-01', 'a-core-01'],
 	links: { [first]: 'not-seen', [second]: 'unchecked' },
 	confirmed: 7,
+	endpoints: {},
 	seen: [],
 	gone: [],
 	expected: [],
@@ -86,10 +87,23 @@ describe('linkCheck and deviceCheck', () => {
 		expect(deviceCheck(COMPARISON, index, 'c-acc-01').polled).toBe(false);
 	});
 
-	it('leave out circuits into a transport, which discovery does not see', () => {
-		// c-wan-01 has four cables and, in the layered fixture, an Internet circuit.
+	it('leave out links that do not say what they show, and count endpoints', () => {
+		// c-wan-01 has four cables and, in the layered fixture, an Internet
+		// circuit that does not say what LLDP and CDP show across it.
 		const wan = deviceCheck(COMPARISON, layeredIndex(), 'c-wan-01');
-		expect([wan.links, wan.confirmed]).toEqual([4, 4]);
+		expect([wan.links, wan.confirmed, wan.endpoints]).toEqual([4, 4, 0]);
+		const topology = structuredClone(layeredIndex().topology);
+		const inet = 'c-wan-01:GigabitEthernet0/0/0--transport:INET';
+		topology.links = topology.links.map((l) =>
+			l.id === inet ? { ...l, neighbors: 'provider' } : l
+		);
+		const said = deviceCheck(
+			{ ...COMPARISON, links: { [inet]: 'provider' }, endpoints: { 'c-wan-01': 3 } },
+			indexTopology(topology),
+			'c-wan-01'
+		);
+		// The provider's equipment, seen as documented, counts as confirmed.
+		expect([said.links, said.confirmed, said.endpoints]).toEqual([5, 5, 3]);
 	});
 });
 
@@ -200,6 +214,16 @@ describe('reviews', () => {
 		expect(changeLine({ ...change('x', null), fix: { kind: 'expect', summary: '' } })).toBe(
 			'Expected: f'
 		);
+		const documented: Change = {
+			...change('d', moved),
+			fix: {
+				kind: 'document',
+				summary: 'Document that Circuit DAL-IAD-01 shows nothing',
+				before: moved,
+				after: { ...moved, neighbors: 'nothing' }
+			}
+		};
+		expect(changeLine(documented)).toBe('Documented that Circuit DAL-IAD-01 shows nothing');
 		expect(changedTarget(null, moved)).toEqual({ kind: 'device', id: moved.a.device });
 		expect(changedTarget(moved, null)).toEqual({ kind: 'links', ids: [moved.id] });
 	});

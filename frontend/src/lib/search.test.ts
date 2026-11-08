@@ -27,7 +27,14 @@ const index = indexTopology({
 	})),
 	links: fixture.links.map((l) =>
 		l.id === link('c-wan-01:Gi1/0/2', 'b-wan-01:Gi1/0/1').id
-			? { ...l, circuit: { provider: 'Granite Fiber', circuit_id: 'GF-20417' } }
+			? {
+					...l,
+					circuit: {
+						provider: 'Granite Fiber',
+						circuit_id: { a: 'GF-20417', z: 'GF-20417' },
+						type: 'carrier' as const
+					}
+				}
 			: l
 	)
 });
@@ -237,6 +244,6 @@ describe('networks and what is layered over the links', () => {
 	it('finds a circuit into a transport by the transport', () => {
 		const found = look('inet NO-2');
 		expect(labels(found)).toEqual([['Links', ['Circuit NO-2']]]);
-		expect(found[0]?.entries[0]?.detail).toBe('Northwind Fiber · c-wan-01 – INET · 500M');
+		expect(found[0]?.entries[0]?.detail).toBe('Northwind Fiber · c-wan-01 – INET · 500M · TBD');
 	});
 });

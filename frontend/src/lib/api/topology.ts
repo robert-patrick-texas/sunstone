@@ -23,7 +23,7 @@ export type Fabric = Schemas['Fabric'];
 export type FabricMember = Schemas['FabricMember'];
 /** Sunstone's words an organization can give its own for, as `terms` keys. */
 export type Term =
-	'network' | 'transport' | 'external' | 'service' | 'partner' | 'tenant' | 'tunnel' | 'fabric';
+	'network' | 'transport' | 'external' | 'application' | 'partner' | 'tenant' | 'tunnel' | 'fabric';
 
 /**
  * Fetch the whole topology.

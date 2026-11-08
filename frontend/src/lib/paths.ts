@@ -7,6 +7,7 @@
  * way traffic could go. Parallel links (LAG members) are one hop, and every
  * member is part of the path.
  */
+import { joins } from './connections.ts';
 import type { Link } from './api/topology.ts';
 import { compareNatural, isDeviceEnd, nodeKey, type TopologyIndex } from './topology.ts';
 
@@ -30,10 +31,12 @@ export interface PathResult {
 
 /**
  * Where a link leads from one node of a path: a device, or a transport by
- * its key. A path crosses a transport like a device; an external node
- * leads nowhere.
+ * its key. A path crosses a transport like a device, by circuits for
+ * transit; an external node leads nowhere, and neither does a circuit for
+ * peering, open, ingress, or egress alone.
  */
 const other = (link: Link, node: string): string | null => {
+	if (!joins(link)) return null;
 	if (link.a.device !== node) return link.a.device;
 	if (isDeviceEnd(link.b)) return link.b.device;
 	return 'transport' in link.b ? nodeKey(link.b) : null;

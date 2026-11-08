@@ -27,6 +27,7 @@ from sunstone.model import (
     TunnelEnd,
     device_ends,
     end_key,
+    joins,
 )
 
 
@@ -238,10 +239,16 @@ class Layers:
             name: The network.
 
         Returns:
-            One edge per link, from its device to its far end's key.
+            One edge per link, from its device to its far end's key; a
+            circuit into a transport that is not for transit leads to a
+            cloud of its own, joining it to nothing else.
         """
         return [
-            Edge(link.id, link.a.device, far_key(link))
+            Edge(
+                link.id,
+                link.a.device,
+                far_key(link) if joins(link) else f"{far_key(link)}~{link.id}",
+            )
             for link in self.slices[name].links
         ]
 

@@ -1,10 +1,11 @@
 """Fixes accepted into the documentation: Sunstone's change set.
 
 Discovery offers a fix for each finding it can (``discovery.Fix``): move a
-link's end to where its cable is seen, add a cable no one documented, or
-retire a link no one sees. Someone reviews it, seeing what Live reads on
-the ports involved now and what the change would do to redundancy and to
-the problems there are now, and accepts it, with their name and a note.
+link's end to where its cable is seen, add a cable no one documented,
+retire a link no one sees, or document what a circuit shows. Someone
+reviews it, seeing what Live reads on the ports involved now and what the
+change would do to redundancy and to the problems there are now, and
+accepts it, with their name and a note.
 
 Accepted fixes make up the change set: the documentation as Sunstone shows
 it is the topology file with every change applied in turn, so every view,
@@ -31,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from sunstone.discovery import Finding, Fix
 from sunstone.live import InterfaceState
-from sunstone.model import Link, Topology, device_b
+from sunstone.model import Link, Topology, device_ends
 from sunstone.problems import Note, PersonName
 
 
@@ -183,17 +184,14 @@ def ports(link: Link | None) -> list[tuple[str, str]]:
         link: The link, or None.
 
     Returns:
-        Its A end, then its B end; none for no link.
+        Its A end, then its B end if that is a device's; none for no link.
 
     Raises:
         None
     """
     if link is None:
         return []
-    return [
-        (link.a.device, link.a.interface),
-        (device_b(link).device, device_b(link).interface),
-    ]
+    return [(e.device, e.interface) for e in device_ends(link)]
 
 
 class ChangeStore:

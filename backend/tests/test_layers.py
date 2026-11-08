@@ -91,7 +91,7 @@ def layered() -> dict:
                 "platform": "TACLANE",
             },
             {"name": "Acme Logistics", "kind": "partner"},
-            {"name": "Nimbus Cloud", "kind": "service", "reached_over": ["INET"]},
+            {"name": "Nimbus Cloud", "kind": "application", "reached_over": ["INET"]},
         ],
         "tenants": [{"name": "Alpha"}],
         "tunnels": [
