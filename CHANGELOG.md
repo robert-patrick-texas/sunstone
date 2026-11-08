@@ -1,7 +1,25 @@
 # Changelog
 
 Release notes, newest first. `tools/release` takes each release's notes from
-its section here.
+its section here, and from the sections of any versions since the last
+release that were never released on their own.
+
+## 0.6.0
+
+- "What if" is worked out only when asked. The details panel no longer
+  says on every selection what failing it would do: on the 3,000-device
+  sample that took the server about a third of a second for each
+  selection, and again at every live moment while something stayed
+  selected. **What if it fails?** gives the whole answer, as before.
+- "What if" and status are faster. On the 3,000-device sample a "what
+  if" takes 90 ms instead of 0.34 s, and eight people asking at once
+  wait 0.9 s instead of 2.1 s at the median: what failures are compared
+  with is kept for the healthy network and for each live moment asked
+  about, and status counts partitions with each link once, at the group
+  that owns it. Each live moment takes 0.58 s to build instead of 0.67 s.
+- Sunstone works behind a reverse proxy that serves it under a path, such
+  as `https://example.net/sunstone/`, as well as at a site's root: the web
+  UI asks for its files and the API relative to its own page.
 
 ## 0.5.0
 

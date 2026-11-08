@@ -19,7 +19,7 @@ export type Status = NetworkStatus['status'];
  * @throws Error when the API answers with anything but 200.
  */
 export async function fetchStatus(at: string): Promise<StatusReport> {
-	const url = `/api/status?at=${encodeURIComponent(at)}`;
+	const url = `api/status?at=${encodeURIComponent(at)}`;
 	const response = await fetch(url);
 	if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`);
 	return (await response.json()) as StatusReport;

@@ -24,7 +24,7 @@ export type LinkCheck = NonNullable<Comparison['links'][string]>;
  * @throws Error when the API answers with anything but 200.
  */
 export async function fetchDiscovery(at?: string): Promise<Comparison> {
-	const url = at ? `/api/discovery?at=${encodeURIComponent(at)}` : '/api/discovery';
+	const url = at ? `api/discovery?at=${encodeURIComponent(at)}` : 'api/discovery';
 	const response = await fetch(url);
 	if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`);
 	return (await response.json()) as Comparison;

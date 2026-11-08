@@ -175,6 +175,29 @@ def test_what_is_down_already_is_not_lost_again(across: Across) -> None:
     assert grey.after.status == "offline"
 
 
+def test_each_moment_is_compared_with_its_own_before(topology: Topology) -> None:
+    # What each moment compares with is kept: asking at one moment, then at
+    # another, then at the first again, answers each as if asked first.
+    across = Across(Network(topology), Statuses(topology))
+    one = datetime(2026, 1, 1, tzinfo=UTC)
+    two = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
+    down = Before(
+        Failures(),
+        (TunnelState(tunnel="GREY-H-A1", network="grey", status="down"),),
+    )
+    up = Before(Failures(), ())
+
+    def grey(a: Across, before: Before, at: datetime):
+        return by_network(a.what_if(device("h-blu-01"), before, at))["grey"]
+
+    first = grey(across, down, one)
+    second = grey(across, up, two)
+    assert first.tunnels_lost == ["GREY-H-A2"]
+    assert second.tunnels_lost == ["GREY-H-A1", "GREY-H-A2"]
+    assert grey(across, down, one) == first
+    assert second == grey(Across(Network(topology), Statuses(topology)), up, two)
+
+
 def test_networks_nothing_reaches_are_left_out(across: Across) -> None:
     answer = across.what_if(device("a-gry-02"), None)
     # Its link to the blue router carries blue; black is not reached.

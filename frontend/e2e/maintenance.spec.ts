@@ -61,7 +61,11 @@ test('a problem is acknowledged with a note, then the acknowledgement withdrawn'
 }) => {
 	await open(page);
 	await page.getByRole('button', { name: 'Live' }).click();
-	const first = problems(page).getByRole('button').first();
+	// A device unreachable, never one of the networks listed above the problems.
+	const first = problems(page)
+		.locator('h3:has-text("Unreachable") + ul')
+		.getByRole('button')
+		.first();
 	const title = (await first.locator('.title').textContent()) ?? '';
 	await first.click();
 	await impact(page).getByLabel('Note').fill('Carrier ticket 4411');

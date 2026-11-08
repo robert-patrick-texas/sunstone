@@ -32,7 +32,7 @@ export type Term =
  * @throws Error when the API answers with anything but 200.
  */
 export async function fetchTopology(): Promise<Topology> {
-	const response = await fetch('/api/topology');
+	const response = await fetch('api/topology');
 	if (!response.ok) throw new Error(`GET /api/topology answered ${response.status}`);
 	return (await response.json()) as Topology;
 }

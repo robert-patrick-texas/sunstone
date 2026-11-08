@@ -45,7 +45,7 @@ async function get<T>(url: string): Promise<T> {
  * @throws Error when the API answers with anything else but 200.
  */
 export function fetchOnCall(at?: string): Promise<OnCall> {
-	return get(at ? `/api/oncall?at=${encodeURIComponent(at)}` : '/api/oncall');
+	return get(at ? `api/oncall?at=${encodeURIComponent(at)}` : 'api/oncall');
 }
 
 /**
@@ -56,7 +56,7 @@ export function fetchOnCall(at?: string): Promise<OnCall> {
  * @throws Error when the API answers with anything else but 200.
  */
 export function fetchOwnership(): Promise<Ownership> {
-	return get('/api/ownership');
+	return get('api/ownership');
 }
 
 /**
@@ -69,7 +69,7 @@ export function fetchOwnership(): Promise<Ownership> {
  * @throws Error with the API's reason when it refuses.
  */
 export function sendPage(problem: string, by: string, link: string): Promise<Page> {
-	return send('POST', '/api/pages', { problem, by, link });
+	return send('POST', 'api/pages', { problem, by, link });
 }
 
 /**
@@ -79,7 +79,7 @@ export function sendPage(problem: string, by: string, link: string): Promise<Pag
  * @throws Error when the API refuses.
  */
 export function withdrawPage(problem: string): Promise<void> {
-	return send('DELETE', `/api/pages?problem=${encodeURIComponent(problem)}`);
+	return send('DELETE', `api/pages?problem=${encodeURIComponent(problem)}`);
 }
 
 /**
@@ -90,7 +90,7 @@ export function withdrawPage(problem: string): Promise<void> {
  * @throws Error with the API's reason when it refuses.
  */
 export function saveCover(cover: CoverIn): Promise<Cover> {
-	return send('POST', '/api/covers', cover);
+	return send('POST', 'api/covers', cover);
 }
 
 /**
@@ -100,5 +100,5 @@ export function saveCover(cover: CoverIn): Promise<Cover> {
  * @throws Error when the API refuses.
  */
 export function deleteCover(id: string): Promise<void> {
-	return send('DELETE', `/api/covers/${encodeURIComponent(id)}`);
+	return send('DELETE', `api/covers/${encodeURIComponent(id)}`);
 }

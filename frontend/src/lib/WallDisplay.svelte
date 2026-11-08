@@ -12,6 +12,7 @@ pauses, the arrow keys step, and Escape leaves.
 	import type { StatusReport } from './api/status.ts';
 	import { needing, STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL } from './status.ts';
 	import { onMount, untrack } from 'svelte';
+	import { asset } from '$app/paths';
 	import type { Problem } from './api/analysis.ts';
 	import type { OnCall } from './api/oncall.ts';
 	import type { LiveIndex } from './live.ts';
@@ -158,7 +159,8 @@ pauses, the arrow keys step, and Escape leaves.
 <svelte:window onkeydown={onkey} onmousemove={wake} />
 
 <div class="bar">
-	<span class="brand"><img src="/favicon.svg" alt="" width="26" height="26" />Sunstone</span>
+	<span class="brand"><img src={asset('favicon.svg')} alt="" width="26" height="26" />Sunstone</span
+	>
 	<span class="counts" aria-live="polite">
 		{#if counts.kinds.length === 0}<span class="clear">No open problems</span>{/if}
 		{#each counts.kinds as k (k.kind)}

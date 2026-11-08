@@ -10,16 +10,20 @@ async function searchFor(page: Page, text: string): Promise<void> {
 }
 
 test('what if one distribution switch fails, then its pair', async ({ page }) => {
+	const asked: string[] = [];
+	page.on('request', (r) => {
+		if (new URL(r.url()).pathname === '/api/impact') asked.push(r.method());
+	});
 	await page.goto('/');
 	await expect(page.getByText('5 sites · 52 devices · 106 links')).toBeVisible();
 	await searchFor(page, 'dal-dist-01');
-	await expect(
-		details(page).getByText('Failing it would leave 6 devices without redundancy.')
-	).toBeVisible();
+	await expect(details(page).getByRole('heading', { name: 'dal-dist-01' })).toBeVisible();
 
+	// Selecting works nothing out; the button asks, once.
 	await details(page).getByRole('button', { name: 'What if it fails?' }).click();
 	await expect(impact(page).getByRole('heading', { name: 'What if this fails' })).toBeVisible();
 	await expect(impact(page).getByText('No redundancy left (6)')).toBeVisible();
+	expect(asked).toEqual(['POST']);
 	await expect(impact(page).getByText('6 devices at DAL depend on dal-dist-02')).toBeVisible();
 	await expect(legend(page).getByText('Cut off')).toBeVisible();
 	await expect(details(page).getByRole('button', { name: 'In what if' })).toBeDisabled();
@@ -48,9 +52,10 @@ test('live problems are listed, and one shows what it affects', async ({ page })
 	const problems = side.getByRole('region', { name: 'Problems' });
 	await expect(side.getByRole('tab', { name: /^Problems \d+$/ })).toBeVisible();
 
-	// A few devices are always down, so an unreachable device heads the list.
+	// A few devices are always down, so unreachable devices head the problems;
+	// networks not working as they should come above them, when there are any.
 	await expect(problems.getByRole('heading', { name: /^Unreachable/ })).toBeVisible();
-	const first = problems.getByRole('button').first();
+	const first = problems.locator('h3:has-text("Unreachable") + ul').getByRole('button').first();
 	await first.click();
 	await expect(first).toHaveAttribute('aria-pressed', 'true');
 	// Outages read "x down", "SITE cut off", or "N devices unreachable at SITE".
