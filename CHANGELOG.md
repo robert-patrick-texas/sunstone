@@ -4,6 +4,56 @@ Release notes, newest first. `tools/release` takes each release's notes from
 its section here, and from the sections of any versions since the last
 release that were never released on their own.
 
+## 0.9.0
+
+- What each connection is for at the edge of the enterprise. Links,
+  tunnels, and fabrics take `edges`: access, transit, interconnect,
+  ingress, egress, peering, and open, as routing policy at each site sets
+  them. Where the far end leaves no doubt they are implied: transit across
+  a provider between two of our devices, access for a tenant's device,
+  interconnect for a partner's, egress for an application's. A circuit
+  into a transport says them or reads **TBD**. A link's details list them,
+  each with what it does to the security boundary ("Egress · Crosses it
+  outward; inbound only as replies"), and search finds them ("egress",
+  "tbd").
+- What carries each connection. A link's `medium` (fiber, copper, twinax,
+  radio, microwave, cellular, satellite) and its path: our own cable, a
+  provider's `cross-connect` (as between co-location cages), or a
+  carrier's circuit.
+- The IDs operations staff quote. Links, tunnels, and fabrics carry the
+  enterprise's own CID (`enterprise_cid`; a cable ID on our own cable) and
+  the carrier's (`circuit_id`, free-form, so it can hold the local
+  exchange carrier's too). Each is the same at the A and Z sides unless
+  the Z side has its own or none; into a shared transport, the Z side has
+  none. A circuit is named by the enterprise's CID wherever Sunstone names
+  it, the carrier's line on a problem gives both, and search finds either,
+  or any part of the carrier's.
+- Discovery across circuits. Each link says what LLDP and CDP show on our
+  port (`neighbors`: the far end, the provider's equipment, or nothing),
+  and discovery checks circuits into a transport and links to someone
+  else's device too, not only cables. A circuit showing other than it
+  says, or one that does not say, is a finding that offers to document
+  what is seen ("Document that Circuit TPA-INET-01 shows the provider's
+  equipment"), reviewed and accepted like any other fix.
+- Our own devices across the boundary. One of our devices seen across a
+  link for anything but transit means the boundary is not where it is
+  documented; it comes first among the findings.
+- Phones and printers on access ports no link documents are endpoints:
+  counted, not findings. A switch there still is one.
+- A transport joins only the circuits into it that are for transit, or
+  whose roles are TBD: a circuit for peering, open, ingress, or egress
+  alone carries none of our traffic between our sites, for reach, paths,
+  tunnels, and status.
+- The layered sample has a research network, peering at IAD and open at
+  DAL; a DMZ (ingress) on the data centers' Internet circuits; local
+  breakout (egress) at the branches with both transports; co-location
+  cross-connects between IAD's halls; a microwave circuit; a circuit whose
+  sides have their own IDs; and Tampa's Internet circuit, still TBD.
+- An external node whose application we use (a cloud, a SaaS) is
+  `kind: application`, not `service`: a service edge is where we publish
+  our own, which Sunstone calls ingress. `terms` takes `application` in
+  place of `service`.
+
 ## 0.8.0
 
 - Problems and Events follow the networks chosen in the header. Choosing

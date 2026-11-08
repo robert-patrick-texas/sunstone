@@ -1874,8 +1874,16 @@
       "title": "Provider"
      },
      "circuit_id": {
+      "$ref": "#/components/schemas/Sides"
+     },
+     "type": {
       "type": "string",
-      "title": "Circuit Id"
+      "enum": [
+       "carrier",
+       "cross-connect"
+      ],
+      "title": "Type",
+      "default": "carrier"
      }
     },
     "additionalProperties": false,
@@ -1885,7 +1893,7 @@
      "circuit_id"
     ],
     "title": "Circuit",
-    "description": "A carrier circuit carrying a WAN link."
+    "description": "What a provider supplies for a connection: a carrier's circuit, or a\nprovider's cable such as a co-location cross-connect."
    },
    "CloseIn": {
     "properties": {
@@ -1964,11 +1972,15 @@
        "type": "string",
        "enum": [
         "confirmed",
+        "provider",
+        "nothing",
         "mismatch",
         "not-seen",
         "expected",
         "down",
-        "unchecked"
+        "unchecked",
+        "unstated",
+        "differs"
        ]
       },
       "type": "object",
@@ -1991,6 +2003,14 @@
       },
       "type": "array",
       "title": "Seen"
+     },
+     "endpoints": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Endpoints",
+      "default": {}
      },
      "gone": {
       "items": {
@@ -2505,7 +2525,7 @@
      "kind": {
       "type": "string",
       "enum": [
-       "service",
+       "application",
        "partner",
        "tenant"
       ],
@@ -2579,7 +2599,7 @@
      "kind"
     ],
     "title": "External",
-    "description": "A node beyond what Sunstone manages: a service, a partner's device,\nor a tenant's."
+    "description": "A node beyond what Sunstone manages: an application someone else\nprovides (a cloud, a SaaS), a partner's device, or a tenant's."
    },
    "ExternalEnd": {
     "properties": {
@@ -2655,6 +2675,43 @@
       },
       "type": "array",
       "title": "Tags",
+      "default": []
+     },
+     "enterprise_cid": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Sides"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "circuit": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Circuit"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "edges": {
+      "items": {
+       "type": "string",
+       "enum": [
+        "access",
+        "transit",
+        "interconnect",
+        "ingress",
+        "egress",
+        "peering",
+        "open"
+       ]
+      },
+      "type": "array",
+      "title": "Edges",
       "default": []
      }
     },
@@ -2746,10 +2803,12 @@
      "kind": {
       "type": "string",
       "enum": [
+       "boundary",
        "wrong-neighbor",
        "wrong-port",
        "not-seen",
        "undocumented",
+       "shows",
        "unknown-device",
        "no-neighbors"
       ],
@@ -2863,6 +2922,7 @@
        "move",
        "add",
        "retire",
+       "document",
        "expect"
       ],
       "title": "Kind"
@@ -4014,6 +4074,69 @@
       "type": "array",
       "title": "Carries",
       "default": []
+     },
+     "medium": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "fiber",
+         "copper",
+         "twinax",
+         "radio",
+         "microwave",
+         "cellular",
+         "satellite"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Medium"
+     },
+     "enterprise_cid": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Sides"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "edges": {
+      "items": {
+       "type": "string",
+       "enum": [
+        "access",
+        "transit",
+        "interconnect",
+        "ingress",
+        "egress",
+        "peering",
+        "open"
+       ]
+      },
+      "type": "array",
+      "title": "Edges",
+      "default": []
+     },
+     "neighbors": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "far-end",
+         "provider",
+         "nothing"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Neighbors"
      },
      "id": {
       "type": "string",
@@ -5576,7 +5699,7 @@
      "finding"
     ],
     "title": "SeenLink",
-    "description": "A cable discovery sees that the documentation does not have as it is:\none no one documented, one to a device not in the topology, or the real\ncable of a documented link seen on another port or device."
+    "description": "A cable discovery sees that the documentation does not have as it is:\none no one documented, one to a device not in the topology, the real\ncable of a documented link seen on another port or device, or what a\ncircuit shows other than as documented."
    },
    "SegmentIds": {
     "properties": {
@@ -5749,6 +5872,33 @@
     ],
     "title": "ShiftNoteIn",
     "description": "Something the outgoing shift wants the next one to know."
+   },
+   "Sides": {
+    "properties": {
+     "a": {
+      "type": "string",
+      "minLength": 1,
+      "title": "A"
+     },
+     "z": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Z"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "a"
+    ],
+    "title": "Sides",
+    "description": "An ID as each side of a connection knows it: the same at both sides\nunless the Z side has its own, or none.\n\nWritten as a plain value for both sides, or as ``{a: ..., z: ...}``;\n``z`` left out is the same as ``a``, and ``z: ''`` (or null) leaves the\nZ side blank. Into a shared transport, a plain value is the A side's\nonly, since the Z side is the provider's network."
    },
    "SignOff": {
     "properties": {
@@ -6205,7 +6355,7 @@
         "network",
         "transport",
         "external",
-        "service",
+        "application",
         "partner",
         "tenant",
         "tunnel",
@@ -6237,7 +6387,8 @@
       "type": "string",
       "enum": [
        "internet",
-       "private-wan"
+       "private-wan",
+       "research"
       ],
       "title": "Kind"
      },
@@ -6352,6 +6503,43 @@
       },
       "type": "array",
       "title": "Tags",
+      "default": []
+     },
+     "enterprise_cid": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Sides"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "circuit": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Circuit"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "edges": {
+      "items": {
+       "type": "string",
+       "enum": [
+        "access",
+        "transit",
+        "interconnect",
+        "ingress",
+        "egress",
+        "peering",
+        "open"
+       ]
+      },
+      "type": "array",
+      "title": "Edges",
       "default": []
      }
     },

@@ -76,6 +76,10 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 		return [...found].filter(([, n]) => n > 0);
 	});
 
+	const endpoints = $derived(
+		Object.values(comparison?.endpoints ?? {}).reduce((sum, n) => sum + n, 0)
+	);
+
 	function show(finding: Finding): void {
 		showDiscovery(findingTarget(finding));
 	}
@@ -102,7 +106,9 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 		<p class="summary">
 			<b>{comparison.confirmed}</b> of {index.topology.links.length} documented links confirmed{#each counts as [check, n] (check)}<span
 					class="muted">{` · ${n} ${CHECK_LABEL[check].toLowerCase()}`}</span
-				>{/each}
+				>{/each}{#if endpoints}<span class="muted"
+					>{` · ${endpoints} endpoints on access ports`}</span
+				>{/if}
 		</p>
 		<p class="actions">
 			<button

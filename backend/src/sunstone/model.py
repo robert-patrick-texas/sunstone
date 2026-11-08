@@ -8,6 +8,19 @@ A link's B end can instead be a transport (the Internet, a carrier's private
 WAN) or an external node beyond what Sunstone manages; its A end is always
 one of the network's own devices.
 
+Each connection also says what carries it and what it is for. ``medium`` is
+what carries the bits at our port (fiber, copper, radio). A link with a
+``circuit`` crosses a provider's path: a carrier's service, or a provider's
+cable such as a co-location cross-connect; one without is our own cable,
+fiber, or radio. ``edges`` are its roles at the edge of the enterprise
+(access, transit, interconnect, ingress, egress, peering, open), set by
+routing policy at each site and so documented, never worked out from the
+transport; Sunstone implies them only where the far end leaves no doubt
+(``link_roles``). ``neighbors`` says what LLDP and CDP should show on our
+port. Links, tunnels, and fabrics carry the IDs operations staff quote: the
+enterprise's own CID (a cable ID on our own cables) and the carrier's, each
+the same at the A and Z sides unless the Z side has its own or none.
+
 A named network is a slice of the whole: the links that carry it, the
 tunnels and fabrics in it, and the transports whose circuits are in it.
 Tunnels and fabrics each say which network they ride, so networks stack.
@@ -17,24 +30,41 @@ terminations.
 """
 
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from functools import cached_property
-from typing import Literal, Self
+from typing import Any, Literal, NamedTuple, Self, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    model_validator,
+)
 
 Role = Literal["wan-edge", "core", "distribution", "access"]
 LinkKind = Literal["lan", "wan"]
 Boundary = Literal["inside", "outside"]
-TransportKind = Literal["internet", "private-wan"]
-ExternalKind = Literal["service", "partner", "tenant"]
+TransportKind = Literal["internet", "private-wan", "research"]
+ExternalKind = Literal["application", "partner", "tenant"]
+Medium = Literal[
+    "fiber", "copper", "twinax", "radio", "microwave", "cellular", "satellite"
+]
+CircuitType = Literal["carrier", "cross-connect"]
+Edge = Literal[
+    "access", "transit", "interconnect", "ingress", "egress", "peering", "open"
+]
+EDGES: tuple[Edge, ...] = get_args(Edge)
+Neighbors = Literal["far-end", "provider", "nothing"]
+"""What LLDP and CDP show on our port: the device at the far end (ours or
+someone else's), the provider's own equipment (an NTU or PE), or nothing."""
 FabricShape = Literal["hub-spoke", "hub-spoke-dynamic", "full-mesh", "group"]
 MemberRole = Literal["hub", "spoke", "peer"]
 Term = Literal[
     "network",
     "transport",
     "external",
-    "service",
+    "application",
     "partner",
     "tenant",
     "tunnel",
@@ -108,11 +138,64 @@ class ExternalEnd(_Record):
     """Its port, if known."""
 
 
+class Sides(_Record):
+    """An ID as each side of a connection knows it: the same at both sides
+    unless the Z side has its own, or none.
+
+    Written as a plain value for both sides, or as ``{a: ..., z: ...}``;
+    ``z`` left out is the same as ``a``, and ``z: ''`` (or null) leaves the
+    Z side blank. Into a shared transport, a plain value is the A side's
+    only, since the Z side is the provider's network.
+    """
+
+    a: str = Field(min_length=1)
+    z: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _same_unless_said(cls, data: Any) -> Any:
+        """Read a plain value as both sides', and a missing Z side as the A side's.
+
+        Args:
+            data: What was written.
+
+        Returns:
+            The sides, with Z worked out.
+        """
+        return _sides(data, shared=False)
+
+
+def _sides(data: Any, shared: bool) -> Any:
+    """An ID as written, with its Z side worked out.
+
+    Args:
+        data: A plain value, ``{a, z}``, or anything else (left to validation).
+        shared: It is for a circuit into a shared transport, whose Z side
+            is the provider's network: a plain value is the A side's only.
+
+    Returns:
+        ``{a, z}`` for a value or a mapping; anything else as it was.
+    """
+    if isinstance(data, str):
+        return {"a": data, "z": None if shared else data}
+    if isinstance(data, Mapping) and "a" in data:
+        if "z" not in data:
+            return {**data, "z": None if shared else data["a"]}
+        return {**data, "z": data["z"] or None}
+    return data
+
+
 class Circuit(_Record):
-    """A carrier circuit carrying a WAN link."""
+    """What a provider supplies for a connection: a carrier's circuit, or a
+    provider's cable such as a co-location cross-connect."""
 
     provider: str
-    circuit_id: str
+    circuit_id: Sides
+    """The carrier's CID, as the carrier writes it: free-form, and it may
+    hold several, such as the local exchange carrier's and the carrier's."""
+    type: CircuitType = "carrier"
+    """``carrier``: a communications service, whose path the provider runs.
+    ``cross-connect``: the provider's cable, as between co-location cages."""
 
 
 class SegmentIds(_Record):
@@ -152,6 +235,48 @@ class Link(_Record):
     carries: list[Carried] = []
     """The named networks it carries; a circuit into a transport carries the
     transport's network whether or not it says so."""
+    medium: Medium | None = None
+    """What carries the bits at our port."""
+    enterprise_cid: Sides | None = None
+    """The enterprise's own ID for it: a circuit ID, or on our own cable,
+    its cable ID."""
+    edges: list[Edge] = []
+    """Its roles at the edge of the enterprise, as routing policy sets them;
+    without any, ``link_roles`` implies them where the far end leaves no doubt."""
+    neighbors: Neighbors | None = None
+    """What LLDP and CDP show on our port; without it, the far end between
+    two of our devices, and not said otherwise."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ids_into_transport(cls, data: Any) -> Any:
+        """Leave the Z side of a circuit into a shared transport blank
+        unless it is written out.
+
+        Args:
+            data: The link as written.
+
+        Returns:
+            The link, with its IDs' sides worked out.
+        """
+        if not isinstance(data, Mapping):
+            return data
+        b = data.get("b")
+        shared = isinstance(b, TransportEnd) or (
+            isinstance(b, Mapping) and "transport" in b
+        )
+        if not shared:
+            return data
+        fixed = dict(data)
+        if "enterprise_cid" in fixed:
+            fixed["enterprise_cid"] = _sides(fixed["enterprise_cid"], shared=True)
+        circuit = fixed.get("circuit")
+        if isinstance(circuit, Mapping) and "circuit_id" in circuit:
+            fixed["circuit"] = {
+                **circuit,
+                "circuit_id": _sides(circuit["circuit_id"], shared=True),
+            }
+        return fixed
 
     # Worked out once: links are frozen, and ids are looked up all the time.
     @computed_field
@@ -241,8 +366,8 @@ class Transport(_Record):
 
 
 class External(_Record):
-    """A node beyond what Sunstone manages: a service, a partner's device,
-    or a tenant's."""
+    """A node beyond what Sunstone manages: an application someone else
+    provides (a cloud, a SaaS), a partner's device, or a tenant's."""
 
     name: str
     kind: ExternalKind
@@ -250,7 +375,7 @@ class External(_Record):
     network: str | None = None
     """The named network it is part of, such as a tenant's network."""
     reached_over: list[str] = []
-    """Transports it is reached across, as a cloud service is over the Internet."""
+    """Transports it is reached across, as a cloud is over the Internet."""
     platform: str | None = None
     description: str | None = None
     tags: list[str] = []
@@ -284,6 +409,10 @@ class Tunnel(_Record):
     a: TunnelEnd
     b: TunnelEnd | TunnelPeer
     tags: list[str] = []
+    enterprise_cid: Sides | None = None
+    circuit: Circuit | None = None
+    """The provider whose service it is, and the provider's CID, if any."""
+    edges: list[Edge] = []
 
 
 class FabricMember(_Record):
@@ -309,6 +438,10 @@ class Fabric(_Record):
     technology: str | None = None
     members: list[FabricMember]
     tags: list[str] = []
+    enterprise_cid: Sides | None = None
+    circuit: Circuit | None = None
+    """The provider whose service it is, and the provider's CID, if any."""
+    edges: list[Edge] = []
 
 
 class Topology(_Record):
@@ -464,6 +597,17 @@ class Topology(_Record):
                     for c in link.carries
                     if c.network != own
                 ]
+        for link in self.links:
+            problems += _connection_problems(link)
+        for what, edges in (
+            *((f"tunnel {t.name!r}", t.edges) for t in self.tunnels),
+            *((f"fabric {f.name!r}", f.edges) for f in self.fabrics),
+        ):
+            problems += [
+                f"{what} names edge {e!r} twice"
+                for e, n in Counter(edges).items()
+                if n > 1
+            ]
         carried = _carried_at(self.links, transports)
         tunnel_ends: Counter[tuple[str, str]] = Counter()
         for what, net, rides, ends in self._tunnel_ends():
@@ -611,6 +755,32 @@ class Topology(_Record):
         return rides
 
 
+def _connection_problems(link: Link) -> list[str]:
+    """Problems with what a link says carries it and what it shows.
+
+    Args:
+        link: A link.
+
+    Returns:
+        One message per problem found.
+    """
+    problems = [
+        f"link {link.id} names edge {e!r} twice"
+        for e, n in Counter(link.edges).items()
+        if n > 1
+    ]
+    if link.neighbors == "provider" and link.circuit is None:
+        problems.append(
+            f"link {link.id} shows the provider's equipment, but has no circuit"
+        )
+    if link.neighbors == "far-end" and isinstance(link.b, TransportEnd):
+        problems.append(
+            f"link {link.id} into {link.b.transport!r} shows the far end, but a "
+            "transport's far end is the provider's network: say provider or nothing"
+        )
+    return problems
+
+
 def _carried_at(
     links: list[Link], transports: dict[str, Transport]
 ) -> dict[tuple[str, str], set[str]]:
@@ -738,3 +908,154 @@ def end_name(end: Endpoint | TransportEnd | ExternalEnd) -> str:
     if isinstance(end, TransportEnd):
         return end.transport
     return end.external
+
+
+RoleSource = Literal["declared", "implied", "tbd"]
+
+
+class Roles(NamedTuple):
+    """A connection's roles at the edge of the enterprise, and where they come from."""
+
+    edges: tuple[Edge, ...]
+    """Empty and implied for a link between two of our devices: internal."""
+    source: RoleSource
+    """``declared`` in the topology; ``implied`` by what is at the far end;
+    ``tbd`` where only routing policy could say, as for a circuit into a
+    transport no one has given roles yet."""
+
+
+_BY_KIND: dict[ExternalKind, Edge] = {
+    "tenant": "access",
+    "partner": "interconnect",
+    "application": "egress",
+}
+
+
+def link_roles(link: Link, externals: Mapping[str, External]) -> Roles:
+    """A link's roles at the edge: as documented, or implied by its far end.
+
+    A link between two of our devices is internal, with no role, unless a
+    provider's circuit or cable joins them, which makes it transit. A tenant's
+    device is let in (access), a partner's network is joined (interconnect),
+    and an application is used (egress). What a circuit into a transport is
+    for depends on routing policy at its site, so it is TBD until documented.
+
+    Args:
+        link: The link.
+        externals: External nodes by name, for what kind each is.
+
+    Returns:
+        Its roles, and where they come from.
+
+    Raises:
+        None
+    """
+    if link.edges:
+        return Roles(tuple(link.edges), "declared")
+    b = link.b
+    if isinstance(b, Endpoint):
+        return Roles(("transit",) if link.circuit else (), "implied")
+    if isinstance(b, ExternalEnd) and b.external in externals:
+        return Roles((_BY_KIND[externals[b.external].kind],), "implied")
+    return Roles((), "tbd")
+
+
+def tunnel_roles(tunnel: Tunnel, externals: Mapping[str, External]) -> Roles:
+    """A tunnel's roles at the edge: as documented, or implied by its far end.
+
+    Args:
+        tunnel: The tunnel.
+        externals: External nodes by name.
+
+    Returns:
+        Transit between two of our devices; to an external node, by its kind.
+
+    Raises:
+        None
+    """
+    if tunnel.edges:
+        return Roles(tuple(tunnel.edges), "declared")
+    b = tunnel.b
+    if isinstance(b, TunnelEnd):
+        return Roles(("transit",), "implied")
+    if b.external in externals:
+        return Roles((_BY_KIND[externals[b.external].kind],), "implied")
+    return Roles((), "tbd")
+
+
+def fabric_roles(fabric: Fabric) -> Roles:
+    """A fabric's roles at the edge: as documented, else transit, since its
+    members are all ours.
+
+    Args:
+        fabric: The fabric.
+
+    Returns:
+        Its roles.
+
+    Raises:
+        None
+    """
+    if fabric.edges:
+        return Roles(tuple(fabric.edges), "declared")
+    return Roles(("transit",), "implied")
+
+
+def joins(link: Link) -> bool:
+    """Whether a link joins its far end to the rest of the network, for
+    reach, paths, and the tunnels riding it.
+
+    A circuit into a transport carries our traffic to our other sites
+    across it only when it is for transit, or its roles are still to be
+    documented: routing policy keeps it off one only for peering, open,
+    ingress, or egress. Every other link joins its ends.
+
+    Args:
+        link: The link.
+
+    Returns:
+        False for a circuit into a transport whose documented roles leave
+        out transit; else True.
+
+    Raises:
+        None
+    """
+    return not (
+        isinstance(link.b, TransportEnd) and link.edges and "transit" not in link.edges
+    )
+
+
+def shows(link: Link) -> Neighbors | None:
+    """What LLDP and CDP should show on a link's port at our end.
+
+    Args:
+        link: The link.
+
+    Returns:
+        As documented; else the far end between two of our devices, which
+        is how they have always been compared; else None: not said.
+
+    Raises:
+        None
+    """
+    if link.neighbors is not None:
+        return link.neighbors
+    return "far-end" if isinstance(link.b, Endpoint) else None
+
+
+def cid(link: Link) -> str | None:
+    """The ID a connection is named by: the enterprise's own CID, else the
+    carrier's, at the A side.
+
+    Args:
+        link: The link.
+
+    Returns:
+        The ID, or None if it has neither.
+
+    Raises:
+        None
+    """
+    if link.enterprise_cid is not None:
+        return link.enterprise_cid.a
+    return link.circuit.circuit_id.a if link.circuit else None

@@ -57,9 +57,9 @@ test('a transport lists its circuits, and a circuit names its transport', async 
 	// A circuit's ends are its A and Z sides, as carriers name them.
 	await expect(details(page).getByRole('columnheader', { name: 'A side' })).toBeVisible();
 	await expect(details(page).getByRole('columnheader', { name: 'Z side' })).toBeVisible();
-	await expect(
-		details(page).getByText('discovery does not compare circuits into a transport yet')
-	).toBeVisible();
+	// What it is for at the edge, and what LLDP and CDP show across it.
+	await expect(details(page).getByText('Transit, Egress')).toBeVisible();
+	await expect(details(page).getByText("The provider's equipment")).toBeVisible();
 	await expect(details(page).getByRole('button', { name: 'INET' })).toBeVisible();
 	await details(page).getByRole('button', { name: 'INET' }).click();
 	await expect(heading(page)).toHaveText('INET');
@@ -302,4 +302,76 @@ test("a network's details say what kind of place is not working", async ({ page 
 			.getByRole('cell', { name: `${found.name} location`, exact: true })
 			.first()
 	).toBeVisible();
+});
+
+test('a circuit says what it is for at the edge, and the IDs it goes by', async ({ page }) => {
+	// A circuit each of whose sides has its own IDs, the carrier's with the LEC's.
+	await searchFor(page, 'AUS-SAT-01');
+	await expect(heading(page)).toHaveText('Link');
+	const facts = details(page).locator('dd');
+	await expect(facts.filter({ hasText: 'AUS-SAT-01 (A) · SAT-AUS-01 (Z)' })).toBeVisible();
+	await expect(facts.filter({ hasText: /Pecos Bell 12\/KXFU\/204411 \(A\)/ })).toBeVisible();
+	await expect(details(page).getByText('Carrier circuit · Mesa Carrier')).toBeVisible();
+	await expect(details(page).getByText('implied by the far end')).toBeVisible();
+	// The research network: peering at IAD, with what that does to the boundary.
+	await searchFor(page, 'IAD-REN-01');
+	await expect(
+		details(page).getByText('Crosses it both ways with a known community')
+	).toBeVisible();
+	// A circuit no one has given roles yet.
+	await page.getByRole('combobox', { name: 'Search' }).fill('tbd');
+	await expect(page.getByRole('option').first()).toContainText('Circuit TPA-INET-01');
+	await page.keyboard.press('Enter');
+	await expect(details(page).getByText('TBD', { exact: true })).toBeVisible();
+	// Cross-connects join IAD's halls, each with its cable ID.
+	await searchFor(page, 'IAD-C0006');
+	await expect(details(page).getByText('Cross-connect · Granite Colo')).toBeVisible();
+});
+
+interface Comparison {
+	findings: { kind: string; title: string; fix: { summary: string } | null }[];
+}
+
+test('discovery finds our own devices seeing each other across a peering edge', async ({
+	page
+}) => {
+	const { at } = await momentWith(
+		page,
+		(at) => `/api/discovery?at=${encodeURIComponent(at)}`,
+		(answer: Comparison) =>
+			answer.findings.filter((f) => f.kind === 'boundary').length === 2 ? true : undefined
+	);
+	await page.goto(`/?at=${encodeURIComponent(at)}`);
+	await page.keyboard.press('d');
+	const list = page.getByRole('region', { name: 'Discovery' });
+	await expect(
+		list.getByRole('heading', { name: 'Our own devices across the boundary (2)' })
+	).toBeVisible();
+	await expect(list.getByText('dal-wan-01 sees iad-wan-01 across Prairie REN')).toBeVisible();
+	await expect(list.getByText(/Circuit IAD-REN-01 is a peering edge/)).toBeVisible();
+	await expect(list.getByText(/endpoints on access ports/)).toBeVisible();
+});
+
+test('a circuit that does not say what it shows is offered what discovery sees', async ({
+	page
+}) => {
+	const now = (await (await page.request.get('/api/discovery')).json()) as Comparison;
+	const title = "Circuit TPA-INET-01 shows the provider's equipment";
+	test.skip(
+		!now.findings.some((f) => f.title === title),
+		'tpa-wsw-01 is not answering discovery now'
+	);
+	await page.keyboard.press('d');
+	const list = page.getByRole('region', { name: 'Discovery' });
+	await expect(
+		list.getByRole('heading', { name: /^Circuits showing other than they say/ })
+	).toBeVisible();
+	await list
+		.getByRole('button', {
+			name: "Fix: Document that Circuit TPA-INET-01 shows the provider's equipment"
+		})
+		.click();
+	const review = page.getByRole('form', { name: 'Review fix' });
+	await expect(review.getByText('Does not say what it shows', { exact: true })).toBeVisible();
+	await expect(review.getByText("Shows the provider's equipment", { exact: true })).toBeVisible();
 });

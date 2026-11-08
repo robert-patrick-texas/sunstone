@@ -144,511 +144,863 @@ links:
 - a: {device: dal-wan-01, interface: TenGigabitEthernet0/1/0}
   b: {device: dal-core-01, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: DAL-C0001
 - a: {device: dal-wan-01, interface: TenGigabitEthernet0/1/1}
   b: {device: dal-core-02, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: DAL-C0002
 - a: {device: dal-wan-02, interface: TenGigabitEthernet0/1/0}
   b: {device: dal-core-01, interface: TenGigabitEthernet0/1/1}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: DAL-C0003
 - a: {device: dal-wan-02, interface: TenGigabitEthernet0/1/1}
   b: {device: dal-core-02, interface: TenGigabitEthernet0/1/1}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: DAL-C0004
 - a: {device: dal-core-01, interface: HundredGigE1/0/0}
   b: {device: dal-core-02, interface: HundredGigE1/0/0}
   speed_mbps: 100000
+  medium: fiber
+  enterprise_cid: DAL-C0005
 - a: {device: dal-core-01, interface: TenGigabitEthernet0/1/2}
   b: {device: dal-dist-01, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: DAL-C0006
 - a: {device: dal-core-02, interface: TenGigabitEthernet0/1/2}
   b: {device: dal-dist-01, interface: TenGigabitEthernet0/1/1}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: DAL-C0007
 - a: {device: dal-core-01, interface: TenGigabitEthernet0/1/3}
   b: {device: dal-dist-02, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: DAL-C0008
 - a: {device: dal-core-02, interface: TenGigabitEthernet0/1/3}
   b: {device: dal-dist-02, interface: TenGigabitEthernet0/1/1}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: DAL-C0009
 - a: {device: dal-dist-01, interface: GigabitEthernet0/0/0}
   b: {device: dal-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: DAL-C0010
 - a: {device: dal-dist-02, interface: GigabitEthernet0/0/0}
   b: {device: dal-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: DAL-C0011
 - a: {device: dal-dist-01, interface: GigabitEthernet0/0/1}
   b: {device: dal-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: DAL-C0012
 - a: {device: dal-dist-02, interface: GigabitEthernet0/0/1}
   b: {device: dal-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: DAL-C0013
 - a: {device: dal-dist-01, interface: GigabitEthernet0/0/2}
   b: {device: dal-acc-03, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: DAL-C0014
 - a: {device: dal-dist-02, interface: GigabitEthernet0/0/2}
   b: {device: dal-acc-03, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: DAL-C0015
 - a: {device: dal-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Northwind Fiber, circuit_id: NO-367459}
+  medium: fiber
+  enterprise_cid: DAL-INET-01
+  edges: [transit, egress, ingress]
+  neighbors: provider
 - a: {device: dal-wan-01, interface: GigabitEthernet0/0/1}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Harbor Transit, circuit_id: HA-897926}
+  medium: fiber
+  enterprise_cid: DAL-INET-02
+  edges: [transit, egress, ingress]
+  neighbors: provider
 - a: {device: dal-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 200
   kind: wan
   circuit: {provider: Mesa Carrier, circuit_id: ME-595185}
+  medium: fiber
+  enterprise_cid: DAL-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: dal-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: dal-blu-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: DAL-C0016
 - a: {device: dal-blu-01, interface: GigabitEthernet0/0/1}
   b: {device: dal-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: blue}
+  medium: copper
+  enterprise_cid: DAL-C0017
 - a: {device: dal-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: dal-gry-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: DAL-C0018
 - a: {device: dal-gry-01, interface: GigabitEthernet0/0/2}
   b: {device: dal-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: DAL-C0019
 - a: {device: dal-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: dal-bl2-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: DAL-C0020
 - a: {device: dal-bl2-01, interface: GigabitEthernet0/0/1}
   b: {device: dal-gry-01, interface: GigabitEthernet0/0/3}
   speed_mbps: 1000
   carries:
   - {network: blue2}
+  medium: copper
+  enterprise_cid: DAL-C0021
 - a: {device: iad-wan-01, interface: TenGigabitEthernet0/1/0}
   b: {device: iad-core-01, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: IAD-C0001
 - a: {device: iad-wan-01, interface: TenGigabitEthernet0/1/1}
   b: {device: iad-core-02, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: IAD-C0002
 - a: {device: iad-wan-02, interface: TenGigabitEthernet0/1/0}
   b: {device: iad-core-01, interface: TenGigabitEthernet0/1/1}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: IAD-C0003
 - a: {device: iad-wan-02, interface: TenGigabitEthernet0/1/1}
   b: {device: iad-core-02, interface: TenGigabitEthernet0/1/1}
   speed_mbps: 10000
+  medium: fiber
+  enterprise_cid: IAD-C0004
 - a: {device: iad-core-01, interface: HundredGigE1/0/0}
   b: {device: iad-core-02, interface: HundredGigE1/0/0}
   speed_mbps: 100000
+  medium: fiber
+  enterprise_cid: IAD-C0005
 - a: {device: iad-core-01, interface: TenGigabitEthernet0/1/2}
   b: {device: iad-dist-01, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
+  circuit: {provider: Granite Colo, circuit_id: XC-40017, type: cross-connect}
+  medium: fiber
+  enterprise_cid: IAD-C0006
 - a: {device: iad-core-02, interface: TenGigabitEthernet0/1/2}
   b: {device: iad-dist-01, interface: TenGigabitEthernet0/1/1}
   speed_mbps: 10000
+  circuit: {provider: Granite Colo, circuit_id: XC-40034, type: cross-connect}
+  medium: fiber
+  enterprise_cid: IAD-C0007
 - a: {device: iad-core-01, interface: TenGigabitEthernet0/1/3}
   b: {device: iad-dist-02, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
+  circuit: {provider: Granite Colo, circuit_id: XC-40051, type: cross-connect}
+  medium: fiber
+  enterprise_cid: IAD-C0008
 - a: {device: iad-core-02, interface: TenGigabitEthernet0/1/3}
   b: {device: iad-dist-02, interface: TenGigabitEthernet0/1/1}
   speed_mbps: 10000
+  circuit: {provider: Granite Colo, circuit_id: XC-40068, type: cross-connect}
+  medium: fiber
+  enterprise_cid: IAD-C0009
 - a: {device: iad-dist-01, interface: GigabitEthernet0/0/0}
   b: {device: iad-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: IAD-C0010
 - a: {device: iad-dist-02, interface: GigabitEthernet0/0/0}
   b: {device: iad-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: IAD-C0011
 - a: {device: iad-dist-01, interface: GigabitEthernet0/0/1}
   b: {device: iad-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: IAD-C0012
 - a: {device: iad-dist-02, interface: GigabitEthernet0/0/1}
   b: {device: iad-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: IAD-C0013
 - a: {device: iad-dist-01, interface: GigabitEthernet0/0/2}
   b: {device: iad-acc-03, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: IAD-C0014
 - a: {device: iad-dist-02, interface: GigabitEthernet0/0/2}
   b: {device: iad-acc-03, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: IAD-C0015
 - a: {device: iad-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 1000
   kind: wan
   circuit: {provider: Bluebonnet Telecom, circuit_id: BL-198418}
+  medium: fiber
+  enterprise_cid: IAD-INET-01
+  edges: [transit, egress, ingress]
+  neighbors: nothing
 - a: {device: iad-wan-01, interface: GigabitEthernet0/0/1}
   b: {transport: INET}
   speed_mbps: 1000
   kind: wan
   circuit: {provider: Northwind Fiber, circuit_id: NO-976363}
+  medium: fiber
+  enterprise_cid: IAD-INET-02
+  edges: [transit, egress, ingress]
+  neighbors: provider
 - a: {device: iad-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 200
   kind: wan
   circuit: {provider: Mesa Carrier, circuit_id: ME-553789}
+  medium: fiber
+  enterprise_cid: IAD-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: iad-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: iad-blu-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: IAD-C0016
 - a: {device: iad-blu-01, interface: GigabitEthernet0/0/1}
   b: {device: iad-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  circuit: {provider: Granite Colo, circuit_id: XC-40085, type: cross-connect}
   carries:
   - {network: blue}
+  medium: fiber
+  enterprise_cid: IAD-C0017
 - a: {device: iad-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: iad-gry-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  circuit: {provider: Granite Colo, circuit_id: XC-40102, type: cross-connect}
   carries:
   - {network: black}
+  medium: fiber
+  enterprise_cid: IAD-C0018
 - a: {device: iad-gry-01, interface: GigabitEthernet0/0/2}
   b: {device: iad-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: IAD-C0019
 - a: {device: dal-wan-02, interface: HundredGigE1/0/0}
   b: {device: iad-wan-02, interface: HundredGigE1/0/0}
   speed_mbps: 100000
   kind: wan
   circuit: {provider: Mesa Carrier, circuit_id: ME-736944}
+  medium: fiber
+  enterprise_cid: DAL-IAD-01
 - a: {device: dal-wan-02, interface: HundredGigE1/0/1}
   b: {device: iad-wan-02, interface: HundredGigE1/0/1}
   speed_mbps: 100000
   kind: wan
   circuit: {provider: Mesa Carrier, circuit_id: ME-899308}
+  medium: fiber
+  enterprise_cid: DAL-IAD-02
 - a: {device: aus-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Harbor Transit, circuit_id: HA-379267}
+  medium: fiber
+  enterprise_cid: AUS-INET-01
+  edges: [transit, egress]
+  neighbors: provider
 - a: {device: aus-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 500
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-940775}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-940775 / Pecos Bell 12/KXFU/965547}
+  medium: fiber
+  enterprise_cid: AUS-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: aus-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: aus-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: AUS-C0001
 - a: {device: aus-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: aus-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: AUS-C0002
 - a: {device: sat-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Crestline Networks, circuit_id: CR-132075}
+  medium: fiber
+  enterprise_cid: SAT-INET-01
+  edges: [transit, egress]
+  neighbors: nothing
 - a: {device: sat-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 100
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-126681}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-126681 / Pecos Bell 12/KXFU/864091}
+  medium: fiber
+  enterprise_cid: SAT-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: sat-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: sat-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: SAT-C0001
 - a: {device: sat-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: sat-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: SAT-C0002
 - a: {device: sat-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: sat-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: SAT-C0003
 - a: {device: sat-wan-02, interface: GigabitEthernet0/0/2}
   b: {device: sat-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: SAT-C0004
 - a: {device: sat-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: sat-acc-03, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: SAT-C0005
 - a: {device: sat-wan-02, interface: GigabitEthernet0/0/3}
   b: {device: sat-acc-03, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: SAT-C0006
 - a: {device: elp-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Harbor Transit, circuit_id: HA-819830}
+  medium: fiber
+  enterprise_cid: ELP-INET-01
+  edges: [transit, egress]
+  neighbors: provider
 - a: {device: elp-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 100
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-542621}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-542621 / Pecos Bell 12/KXFU/147248}
+  medium: fiber
+  enterprise_cid: ELP-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: elp-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: elp-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ELP-C0001
 - a: {device: elp-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: elp-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ELP-C0002
 - a: {device: elp-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: elp-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ELP-C0003
 - a: {device: elp-wan-02, interface: GigabitEthernet0/0/2}
   b: {device: elp-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ELP-C0004
 - a: {device: elp-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: elp-acc-03, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ELP-C0005
 - a: {device: elp-wan-02, interface: GigabitEthernet0/0/3}
   b: {device: elp-acc-03, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ELP-C0006
 - a: {device: lit-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Bluebonnet Telecom, circuit_id: BL-900798}
+  medium: fiber
+  enterprise_cid: LIT-INET-01
+  edges: [transit, egress]
+  neighbors: nothing
 - a: {device: lit-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 200
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-619896}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-619896 / Pecos Bell 12/KXFU/799693}
+  medium: fiber
+  enterprise_cid: LIT-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: lit-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: lit-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: LIT-C0001
 - a: {device: lit-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: lit-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: LIT-C0002
 - a: {device: lit-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: lit-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: LIT-C0003
 - a: {device: lit-wan-02, interface: GigabitEthernet0/0/2}
   b: {device: lit-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: LIT-C0004
 - a: {device: lit-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: lit-acc-03, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: LIT-C0005
 - a: {device: lit-wan-02, interface: GigabitEthernet0/0/3}
   b: {device: lit-acc-03, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: LIT-C0006
 - a: {device: msy-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Crestline Networks, circuit_id: CR-342081}
+  medium: fiber
+  enterprise_cid: MSY-INET-01
+  edges: [transit, egress]
+  neighbors: nothing
 - a: {device: msy-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 500
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-329408}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-329408 / Pecos Bell 12/KXFU/572580}
+  medium: fiber
+  enterprise_cid: MSY-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: msy-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: msy-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MSY-C0001
 - a: {device: msy-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: msy-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MSY-C0002
 - a: {device: msy-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: msy-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MSY-C0003
 - a: {device: msy-wan-02, interface: GigabitEthernet0/0/2}
   b: {device: msy-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MSY-C0004
 - a: {device: bhm-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 1000
   kind: wan
   circuit: {provider: Northwind Fiber, circuit_id: NO-536396}
+  medium: fiber
+  enterprise_cid: BHM-INET-01
+  edges: [transit, egress]
+  neighbors: provider
 - a: {device: bhm-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 500
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-773494}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-773494 / Pecos Bell 12/KXFU/278052}
+  medium: fiber
+  enterprise_cid: BHM-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: bhm-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: bhm-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: BHM-C0001
 - a: {device: bhm-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: bhm-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: BHM-C0002
 - a: {device: mco-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Crestline Networks, circuit_id: CR-226762}
+  medium: fiber
+  enterprise_cid: MCO-INET-01
+  edges: [transit, egress]
+  neighbors: nothing
 - a: {device: mco-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 500
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-448856}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-448856 / Pecos Bell 12/KXFU/259231}
+  medium: fiber
+  enterprise_cid: MCO-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: mco-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: mco-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MCO-C0001
 - a: {device: mco-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: mco-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MCO-C0002
 - a: {device: mco-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: mco-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MCO-C0003
 - a: {device: mco-wan-02, interface: GigabitEthernet0/0/2}
   b: {device: mco-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MCO-C0004
 - a: {device: mco-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: mco-acc-03, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MCO-C0005
 - a: {device: mco-wan-02, interface: GigabitEthernet0/0/3}
   b: {device: mco-acc-03, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MCO-C0006
 - a: {device: mia-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 1000
   kind: wan
   circuit: {provider: Bluebonnet Telecom, circuit_id: BL-418104}
+  medium: fiber
+  enterprise_cid: MIA-INET-01
+  edges: [transit, egress]
+  neighbors: nothing
 - a: {device: mia-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 200
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-716122}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-716122 / Pecos Bell 12/KXFU/332739}
+  medium: fiber
+  enterprise_cid: MIA-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: mia-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: mia-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MIA-C0001
 - a: {device: mia-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: mia-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MIA-C0002
 - a: {device: mia-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: mia-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MIA-C0003
 - a: {device: mia-wan-02, interface: GigabitEthernet0/0/2}
   b: {device: mia-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MIA-C0004
 - a: {device: atl-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 1000
   kind: wan
   circuit: {provider: Northwind Fiber, circuit_id: NO-603554}
+  medium: fiber
+  enterprise_cid: ATL-INET-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: atl-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 100
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-879858}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-879858 / Pecos Bell 12/KXFU/110742}
+  medium: fiber
+  enterprise_cid: ATL-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: atl-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: atl-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ATL-C0001
 - a: {device: atl-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: atl-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ATL-C0002
 - a: {device: atl-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: atl-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ATL-C0003
 - a: {device: atl-wan-02, interface: GigabitEthernet0/0/2}
   b: {device: atl-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: ATL-C0004
 - a: {device: okc-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 1000
   kind: wan
   circuit: {provider: Bluebonnet Telecom, circuit_id: BL-484957}
+  medium: fiber
+  enterprise_cid: OKC-INET-01
+  edges: [transit]
+  neighbors: nothing
 - a: {device: okc-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 500
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-837191}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-837191 / Pecos Bell 12/KXFU/305026}
+  medium: fiber
+  enterprise_cid: OKC-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: okc-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: okc-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: OKC-C0001
 - a: {device: okc-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: okc-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: OKC-C0002
 - a: {device: okc-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: okc-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: OKC-C0003
 - a: {device: okc-wan-02, interface: GigabitEthernet0/0/2}
   b: {device: okc-acc-02, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: OKC-C0004
 - a: {device: okc-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: okc-acc-03, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: OKC-C0005
 - a: {device: okc-wan-02, interface: GigabitEthernet0/0/3}
   b: {device: okc-acc-03, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: OKC-C0006
 - a: {device: clt-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 1000
   kind: wan
   circuit: {provider: Northwind Fiber, circuit_id: NO-560284}
+  medium: fiber
+  enterprise_cid: CLT-INET-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: clt-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 500
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-633123}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-633123 / Pecos Bell 12/KXFU/161794}
+  medium: fiber
+  enterprise_cid: CLT-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: clt-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: clt-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: CLT-C0001
 - a: {device: clt-wan-02, interface: GigabitEthernet0/0/1}
   b: {device: clt-acc-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: CLT-C0002
 - a: {device: tul-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Harbor Transit, circuit_id: HA-488521}
+  medium: fiber
+  enterprise_cid: TUL-INET-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: tul-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: tul-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: TUL-C0001
 - a: {device: tul-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: tul-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: TUL-C0002
 - a: {device: btr-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Harbor Transit, circuit_id: HA-145599}
+  medium: fiber
+  enterprise_cid: BTR-INET-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: btr-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: btr-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: BTR-C0001
 - a: {device: btr-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: btr-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: BTR-C0002
 - a: {device: jax-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 1000
   kind: wan
   circuit: {provider: Bluebonnet Telecom, circuit_id: BL-276783}
+  medium: fiber
+  enterprise_cid: JAX-INET-01
+  edges: [transit]
+  neighbors: nothing
 - a: {device: jax-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: jax-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: JAX-C0001
 - a: {device: jax-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: jax-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: JAX-C0002
 - a: {device: jax-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: jax-acc-03, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: JAX-C0003
 - a: {device: rdu-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
   kind: wan
   circuit: {provider: Northwind Fiber, circuit_id: NO-907952}
+  medium: fiber
+  enterprise_cid: RDU-INET-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: rdu-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: rdu-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: RDU-C0001
 - a: {device: ftw-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 500
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-674974}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-674974 / Pecos Bell 12/KXFU/576997}
+  medium: fiber
+  enterprise_cid: FTW-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: ftw-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: ftw-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: FTW-C0001
 - a: {device: mem-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 200
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-638728}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-638728 / Pecos Bell 12/KXFU/874297}
+  medium: fiber
+  enterprise_cid: MEM-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: mem-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: mem-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MEM-C0001
 - a: {device: mem-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: mem-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: MEM-C0002
 - a: {device: bna-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 500
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-470434}
+  circuit: {provider: Mesa Carrier, circuit_id: ME-470434 / Pecos Bell 12/KXFU/752558}
+  medium: fiber
+  enterprise_cid: BNA-MPLS-01
+  edges: [transit]
+  neighbors: provider
 - a: {device: bna-wan-01, interface: GigabitEthernet0/0/1}
   b: {device: bna-acc-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: BNA-C0001
 - a: {device: bna-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: bna-acc-02, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
+  medium: copper
+  enterprise_cid: BNA-C0002
 - a: {device: hou-wsw-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 1000
@@ -656,6 +1008,10 @@ links:
   circuit: {provider: Northwind Fiber, circuit_id: NO-382359}
   carries:
   - {network: black, vlan: 30}
+  medium: fiber
+  enterprise_cid: HOU-INET-01
+  edges: [transit, egress]
+  neighbors: provider
 - a: {device: hou-wsw-01, interface: GigabitEthernet0/0/1}
   b: {transport: INET}
   speed_mbps: 1000
@@ -663,6 +1019,10 @@ links:
   circuit: {provider: Crestline Networks, circuit_id: CR-791236}
   carries:
   - {network: black, vlan: 30}
+  medium: fiber
+  enterprise_cid: HOU-INET-02
+  edges: [transit, egress]
+  neighbors: nothing
 - a: {device: hou-wsw-02, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 1000
@@ -670,6 +1030,10 @@ links:
   circuit: {provider: Northwind Fiber, circuit_id: NO-674615}
   carries:
   - {network: black, vlan: 30}
+  medium: fiber
+  enterprise_cid: HOU-INET-03
+  edges: [transit, egress]
+  neighbors: provider
 - a: {device: hou-wsw-02, interface: GigabitEthernet0/0/1}
   b: {transport: INET}
   speed_mbps: 1000
@@ -677,21 +1041,31 @@ links:
   circuit: {provider: Harbor Transit, circuit_id: HA-738524}
   carries:
   - {network: black, vlan: 30}
+  medium: fiber
+  enterprise_cid: HOU-INET-04
+  edges: [transit, egress]
+  neighbors: provider
 - a: {device: hou-wsw-01, interface: GigabitEthernet0/0/2}
   b: {device: hou-blu-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black, vlan: 30}
+  medium: copper
+  enterprise_cid: HOU-C0001
 - a: {device: hou-wsw-02, interface: GigabitEthernet0/0/2}
   b: {device: hou-blu-01, interface: GigabitEthernet0/0/1}
   speed_mbps: 1000
   carries:
   - {network: black, vlan: 30}
+  medium: copper
+  enterprise_cid: HOU-C0002
 - a: {device: hou-blu-01, interface: GigabitEthernet0/0/2}
   b: {device: hou-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: blue}
+  medium: copper
+  enterprise_cid: HOU-C0003
 - a: {device: hou-gry-01, interface: GigabitEthernet0/0/1}
   b: {device: hou-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
@@ -699,11 +1073,15 @@ links:
   - network: grey
     vlan: 200
     b: {vlan: 400}
+  medium: copper
+  enterprise_cid: HOU-C0004
 - a: {device: tpa-wsw-01, interface: GigabitEthernet0/0/0}
   b: {device: tpa-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: TPA-C0001
 - a: {device: tpa-wsw-01, interface: GigabitEthernet0/0/1}
   b: {transport: INET}
   speed_mbps: 1000
@@ -711,107 +1089,151 @@ links:
   circuit: {provider: Bluebonnet Telecom, circuit_id: BL-864831}
   carries:
   - {network: black, vlan: 30}
+  medium: fiber
+  enterprise_cid: TPA-INET-01
 - a: {device: tpa-wsw-01, interface: GigabitEthernet0/0/2}
   b: {device: tpa-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
   - {network: black, vlan: 30}
+  medium: copper
+  enterprise_cid: TPA-C0002
 - a: {device: atl-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: atl-blu-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: ATL-C0005
 - a: {device: atl-blu-01, interface: GigabitEthernet0/0/1}
   b: {device: atl-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: blue}
+  medium: copper
+  enterprise_cid: ATL-C0006
 - a: {device: atl-gry-01, interface: GigabitEthernet0/0/1}
   b: {device: atl-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: ATL-C0007
 - a: {device: okc-wan-01, interface: GigabitEthernet0/0/4}
   b: {device: okc-blu-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: OKC-C0007
 - a: {device: okc-blu-01, interface: GigabitEthernet0/0/1}
   b: {device: okc-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: blue}
+  medium: copper
+  enterprise_cid: OKC-C0008
 - a: {device: okc-gry-01, interface: GigabitEthernet0/0/1}
   b: {device: okc-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: OKC-C0009
 - a: {device: clt-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: clt-blu-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: CLT-C0003
 - a: {device: clt-blu-01, interface: GigabitEthernet0/0/1}
   b: {device: clt-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: blue}
+  medium: copper
+  enterprise_cid: CLT-C0004
 - a: {device: clt-gry-01, interface: GigabitEthernet0/0/1}
   b: {device: clt-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: CLT-C0005
 - a: {device: mem-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: mem-bl2-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: MEM-C0003
 - a: {device: mem-bl2-01, interface: GigabitEthernet0/0/1}
   b: {device: mem-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: blue2}
+  medium: copper
+  enterprise_cid: MEM-C0004
 - a: {device: mem-gry-01, interface: GigabitEthernet0/0/1}
   b: {device: mem-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: MEM-C0005
 - a: {device: bna-wan-01, interface: GigabitEthernet0/0/3}
   b: {device: bna-bl2-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: BNA-C0003
 - a: {device: bna-bl2-01, interface: GigabitEthernet0/0/1}
   b: {device: bna-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: blue2}
+  medium: copper
+  enterprise_cid: BNA-C0004
 - a: {device: bna-gry-01, interface: GigabitEthernet0/0/1}
   b: {device: bna-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: BNA-C0005
 - a: {device: rdu-wan-01, interface: GigabitEthernet0/0/2}
   b: {device: rdu-gry-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: black}
+  medium: copper
+  enterprise_cid: RDU-C0002
 - a: {device: rdu-gry-01, interface: GigabitEthernet0/0/1}
   b: {device: rdu-gsw-01, interface: GigabitEthernet0/0/0}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: RDU-C0003
 - a: {device: dal-wan-02, interface: TenGigabitEthernet0/1/2}
   b: {device: ftw-wan-01, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
   kind: wan
   circuit: {provider: Mesa Carrier, circuit_id: ME-105986}
+  medium: microwave
+  enterprise_cid: DAL-FTW-01
 - a: {device: aus-wan-01, interface: TenGigabitEthernet0/1/0}
   b: {device: sat-wan-02, interface: TenGigabitEthernet0/1/0}
   speed_mbps: 10000
   kind: wan
-  circuit: {provider: Mesa Carrier, circuit_id: ME-502327}
+  circuit:
+    provider: Mesa Carrier
+    circuit_id: {a: ME-502327 / Pecos Bell 12/KXFU/204411, z: ME-502327 / Gulf Coast Bell 31/KQGS/558120}
+  medium: fiber
+  enterprise_cid: {a: AUS-SAT-01, z: SAT-AUS-01}
 - a: {device: iad-wan-02, interface: TenGigabitEthernet0/1/2}
   b: {external: Nimbus Cloud}
   speed_mbps: 10000
@@ -819,56 +1241,108 @@ links:
   circuit: {provider: Nimbus Cloud, circuit_id: NI-921722}
   carries:
   - {network: corp}
+  medium: fiber
+  enterprise_cid: IAD-NIMBUS-01
+  edges: [interconnect]
+  neighbors: far-end
 - a: {device: dal-gsw-01, interface: GigabitEthernet0/0/1}
   b: {external: alpha-dal-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: DAL-C0022
+  neighbors: nothing
 - a: {device: hou-gsw-01, interface: GigabitEthernet0/0/1}
   b: {external: alpha-hou-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: HOU-C0005
+  neighbors: nothing
 - a: {device: atl-gsw-01, interface: GigabitEthernet0/0/1}
   b: {external: alpha-atl-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: ATL-C0008
+  neighbors: nothing
 - a: {device: okc-gsw-01, interface: GigabitEthernet0/0/1}
   b: {external: alpha-okc-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: OKC-C0010
+  neighbors: nothing
 - a: {device: tpa-gsw-01, interface: GigabitEthernet0/0/1}
   b: {external: alpha-tpa-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: TPA-C0003
+  neighbors: nothing
 - a: {device: iad-gsw-01, interface: GigabitEthernet0/0/1}
   b: {external: bravo-iad-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: IAD-C0020
+  neighbors: nothing
 - a: {device: atl-gsw-01, interface: GigabitEthernet0/0/2}
   b: {external: bravo-atl-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: ATL-C0009
+  neighbors: nothing
 - a: {device: clt-gsw-01, interface: GigabitEthernet0/0/1}
   b: {external: bravo-clt-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: CLT-C0006
+  neighbors: nothing
 - a: {device: mem-gsw-01, interface: GigabitEthernet0/0/1}
   b: {external: bravo-mem-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: MEM-C0006
+  neighbors: nothing
 - a: {device: tpa-gsw-01, interface: GigabitEthernet0/0/2}
   b: {external: bravo-tpa-1, interface: ciphertext}
   speed_mbps: 1000
   carries:
   - {network: grey, vlan: 200}
+  medium: copper
+  enterprise_cid: TPA-C0004
+  neighbors: nothing
+- a: {device: iad-wan-01, interface: TenGigabitEthernet0/1/2}
+  b: {transport: Prairie REN}
+  speed_mbps: 10000
+  kind: wan
+  circuit: {provider: Prairie Research Network, circuit_id: PR-998576}
+  medium: fiber
+  enterprise_cid: IAD-REN-01
+  edges: [peering]
+  neighbors: provider
+- a: {device: dal-wan-01, interface: TenGigabitEthernet0/1/2}
+  b: {transport: Prairie REN}
+  speed_mbps: 10000
+  kind: wan
+  circuit: {provider: Prairie Research Network, circuit_id: PR-960341}
+  medium: fiber
+  enterprise_cid: DAL-REN-01
+  edges: [open]
+  neighbors: provider
 regions:
 - {name: Central}
 - {name: Eastern}
@@ -912,13 +1386,15 @@ networks:
 transports:
 - {name: INET, kind: internet, network: black, description: The Internet}
 - {name: Mesa MPLS, kind: private-wan, network: black, provider: Mesa Carrier, description: Carrier MPLS VPN}
+- {name: Prairie REN, kind: research, network: black, provider: Prairie Research Network, description: Research and education
+    network}
 externals:
 - name: Nimbus Cloud
-  kind: service
+  kind: application
   reached_over: [INET]
   description: Cloud provider
 - name: Stratus Mail
-  kind: service
+  kind: application
   reached_over: [INET]
   description: Email and calendars
 - {name: Acme Logistics, kind: partner, description: Freight partner; runs its own VPN gateway}
@@ -942,156 +1418,182 @@ tunnels:
   technology: GRE+IPsec+MPLS
   a: {device: dal-wan-01, interface: Tunnel301, source: Loopback0}
   b: {device: iad-wan-01, interface: Tunnel301, source: Loopback0}
+  enterprise_cid: TUN-0001
 - name: BLUE-DAL-IAD
   network: blue
   rides: black
   technology: IPsec+GRE, IPv4 and IPv6
   a: {device: dal-blu-01, interface: Tunnel101, source: Loopback0}
   b: {device: iad-blu-01, interface: Tunnel101, source: Loopback0}
+  enterprise_cid: TUN-0002
 - name: BLUE-HOU-DAL
   network: blue
   rides: black
   technology: IPsec+GRE, IPv4 and IPv6
   a: {device: hou-blu-01, interface: Tunnel101, source: Loopback0}
   b: {device: dal-blu-01, interface: Tunnel102, source: Loopback0}
+  enterprise_cid: TUN-0003
 - name: BLUE-HOU-IAD
   network: blue
   rides: black
   technology: IPsec+GRE, IPv4 and IPv6
   a: {device: hou-blu-01, interface: Tunnel102, source: Loopback0}
   b: {device: iad-blu-01, interface: Tunnel102, source: Loopback0}
+  enterprise_cid: TUN-0004
 - name: BLUE-ATL-DAL
   network: blue
   rides: black
   technology: IPsec+GRE, IPv4 and IPv6
   a: {device: atl-blu-01, interface: Tunnel101, source: Loopback0}
   b: {device: dal-blu-01, interface: Tunnel103, source: Loopback0}
+  enterprise_cid: TUN-0005
 - name: BLUE-ATL-IAD
   network: blue
   rides: black
   technology: IPsec+GRE, IPv4 and IPv6
   a: {device: atl-blu-01, interface: Tunnel102, source: Loopback0}
   b: {device: iad-blu-01, interface: Tunnel103, source: Loopback0}
+  enterprise_cid: TUN-0006
 - name: BLUE-OKC-DAL
   network: blue
   rides: black
   technology: IPsec+GRE, IPv4 and IPv6
   a: {device: okc-blu-01, interface: Tunnel101, source: Loopback0}
   b: {device: dal-blu-01, interface: Tunnel104, source: Loopback0}
+  enterprise_cid: TUN-0007
 - name: BLUE-OKC-IAD
   network: blue
   rides: black
   technology: IPsec+GRE, IPv4 and IPv6
   a: {device: okc-blu-01, interface: Tunnel102, source: Loopback0}
   b: {device: iad-blu-01, interface: Tunnel104, source: Loopback0}
+  enterprise_cid: TUN-0008
 - name: BLUE-CLT-DAL
   network: blue
   rides: black
   technology: IPsec+GRE, IPv4 and IPv6
   a: {device: clt-blu-01, interface: Tunnel101, source: Loopback0}
   b: {device: dal-blu-01, interface: Tunnel105, source: Loopback0}
+  enterprise_cid: TUN-0009
 - name: BLUE-CLT-IAD
   network: blue
   rides: black
   technology: IPsec+GRE, IPv4 and IPv6
   a: {device: clt-blu-01, interface: Tunnel102, source: Loopback0}
   b: {device: iad-blu-01, interface: Tunnel105, source: Loopback0}
+  enterprise_cid: TUN-0010
 - name: GREY-DAL-IAD
   network: grey
   rides: blue
   technology: GRE+IPsec
   a: {device: dal-gry-01, interface: Tunnel201, source: Loopback0}
   b: {device: iad-gry-01, interface: Tunnel201, source: Loopback0}
+  enterprise_cid: TUN-0011
 - name: GREY-HOU-DAL
   network: grey
   rides: blue
   technology: GRE+IPsec
   a: {device: hou-gry-01, interface: Tunnel201, source: Loopback0}
   b: {device: dal-gry-01, interface: Tunnel202, source: Loopback0}
+  enterprise_cid: TUN-0012
 - name: GREY-HOU-IAD
   network: grey
   rides: blue
   technology: GRE+IPsec
   a: {device: hou-gry-01, interface: Tunnel202, source: Loopback0}
   b: {device: iad-gry-01, interface: Tunnel202, source: Loopback0}
+  enterprise_cid: TUN-0013
 - name: GREY-ATL-DAL
   network: grey
   rides: blue
   technology: GRE+IPsec
   a: {device: atl-gry-01, interface: Tunnel201, source: Loopback0}
   b: {device: dal-gry-01, interface: Tunnel203, source: Loopback0}
+  enterprise_cid: TUN-0014
 - name: GREY-ATL-IAD
   network: grey
   rides: blue
   technology: GRE+IPsec
   a: {device: atl-gry-01, interface: Tunnel202, source: Loopback0}
   b: {device: iad-gry-01, interface: Tunnel203, source: Loopback0}
+  enterprise_cid: TUN-0015
 - name: GREY-OKC-DAL
   network: grey
   rides: blue
   technology: GRE+IPsec
   a: {device: okc-gry-01, interface: Tunnel201, source: Loopback0}
   b: {device: dal-gry-01, interface: Tunnel204, source: Loopback0}
+  enterprise_cid: TUN-0016
 - name: GREY-OKC-IAD
   network: grey
   rides: blue
   technology: GRE+IPsec
   a: {device: okc-gry-01, interface: Tunnel202, source: Loopback0}
   b: {device: iad-gry-01, interface: Tunnel204, source: Loopback0}
+  enterprise_cid: TUN-0017
 - name: GREY-CLT-DAL
   network: grey
   rides: blue
   technology: GRE+IPsec
   a: {device: clt-gry-01, interface: Tunnel201, source: Loopback0}
   b: {device: dal-gry-01, interface: Tunnel205, source: Loopback0}
+  enterprise_cid: TUN-0018
 - name: GREY-CLT-IAD
   network: grey
   rides: blue
   technology: GRE+IPsec
   a: {device: clt-gry-01, interface: Tunnel202, source: Loopback0}
   b: {device: iad-gry-01, interface: Tunnel205, source: Loopback0}
+  enterprise_cid: TUN-0019
 - name: GREY-MEM-DAL
   network: grey
   rides: blue2
   technology: GRE+IPsec
   a: {device: mem-gry-01, interface: Tunnel201, source: Loopback0}
   b: {device: dal-gry-01, interface: Tunnel206, source: Loopback0}
+  enterprise_cid: TUN-0020
 - name: GREY-BNA-DAL
   network: grey
   rides: blue2
   technology: GRE+IPsec
   a: {device: bna-gry-01, interface: Tunnel201, source: Loopback0}
   b: {device: dal-gry-01, interface: Tunnel207, source: Loopback0}
+  enterprise_cid: TUN-0021
 - name: GREY-TPA-DAL
   network: grey
   rides: black
   technology: GRE+IPsec
   a: {device: tpa-gry-01, interface: Tunnel201, source: Loopback0}
   b: {device: dal-gry-01, interface: Tunnel208, source: Loopback0}
+  enterprise_cid: TUN-0022
 - name: GREY-TPA-IAD
   network: grey
   rides: black
   technology: GRE+IPsec
   a: {device: tpa-gry-01, interface: Tunnel202, source: Loopback0}
   b: {device: iad-gry-01, interface: Tunnel206, source: Loopback0}
+  enterprise_cid: TUN-0023
 - name: GREY-RDU-DAL
   network: grey
   rides: black
   technology: GRE+IPsec
   a: {device: rdu-gry-01, interface: Tunnel201, source: Loopback0}
   b: {device: dal-gry-01, interface: Tunnel209, source: Loopback0}
+  enterprise_cid: TUN-0024
 - name: GREY-RDU-IAD
   network: grey
   rides: black
   technology: GRE+IPsec
   a: {device: rdu-gry-01, interface: Tunnel202, source: Loopback0}
   b: {device: iad-gry-01, interface: Tunnel207, source: Loopback0}
+  enterprise_cid: TUN-0025
 - name: Acme VPN
   network: partners
   rides: black
   technology: IPsec
   a: {device: dal-wan-01, interface: Tunnel50, source: Loopback0}
   b: {external: Acme Logistics, peer: 198.51.100.7}
+  enterprise_cid: TUN-0026
 fabrics:
 - name: DMVPN-INET
   network: corp
@@ -1116,6 +1618,7 @@ fabrics:
   - {device: btr-wan-01, interface: Tunnel100, role: spoke, source: Loopback0}
   - {device: jax-wan-01, interface: Tunnel100, role: spoke, source: Loopback0}
   - {device: rdu-wan-01, interface: Tunnel100, role: spoke, source: Loopback0}
+  enterprise_cid: FAB-01
 - name: DMVPN-MPLS
   network: corp
   rides: black
@@ -1138,6 +1641,7 @@ fabrics:
   - {device: ftw-wan-01, interface: Tunnel200, role: spoke, source: Loopback0}
   - {device: mem-wan-01, interface: Tunnel200, role: spoke, source: Loopback0}
   - {device: bna-wan-01, interface: Tunnel200, role: spoke, source: Loopback0}
+  enterprise_cid: FAB-02
 - name: BLUE2
   network: blue2
   rides: black
@@ -1147,3 +1651,4 @@ fabrics:
   - {device: dal-bl2-01, interface: Tunnel300, role: hub, source: Loopback0}
   - {device: mem-bl2-01, interface: Tunnel300, role: spoke, source: Loopback0}
   - {device: bna-bl2-01, interface: Tunnel300, role: spoke, source: Loopback0}
+  enterprise_cid: FAB-03

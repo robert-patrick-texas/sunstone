@@ -881,13 +881,19 @@ export interface components {
         };
         /**
          * Circuit
-         * @description A carrier circuit carrying a WAN link.
+         * @description What a provider supplies for a connection: a carrier's circuit, or a
+         *     provider's cable such as a co-location cross-connect.
          */
         Circuit: {
             /** Provider */
             provider: string;
-            /** Circuit Id */
-            circuit_id: string;
+            circuit_id: components["schemas"]["Sides"];
+            /**
+             * Type
+             * @default carrier
+             * @enum {string}
+             */
+            type: "carrier" | "cross-connect";
         };
         /**
          * CloseIn
@@ -930,7 +936,7 @@ export interface components {
             polled: string[];
             /** Links */
             links: {
-                [key: string]: "confirmed" | "mismatch" | "not-seen" | "expected" | "down" | "unchecked";
+                [key: string]: "confirmed" | "provider" | "nothing" | "mismatch" | "not-seen" | "expected" | "down" | "unchecked" | "unstated" | "differs";
             };
             /** Confirmed */
             confirmed: number;
@@ -938,6 +944,13 @@ export interface components {
             findings: components["schemas"]["Finding"][];
             /** Seen */
             seen: components["schemas"]["SeenLink"][];
+            /**
+             * Endpoints
+             * @default {}
+             */
+            endpoints: {
+                [key: string]: number;
+            };
             /**
              * Gone
              * @default []
@@ -1157,8 +1170,8 @@ export interface components {
         };
         /**
          * External
-         * @description A node beyond what Sunstone manages: a service, a partner's device,
-         *     or a tenant's.
+         * @description A node beyond what Sunstone manages: an application someone else
+         *     provides (a cloud, a SaaS), a partner's device, or a tenant's.
          */
         External: {
             /** Name */
@@ -1167,7 +1180,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "service" | "partner" | "tenant";
+            kind: "application" | "partner" | "tenant";
             /** Tenant */
             tenant?: string | null;
             /** Network */
@@ -1223,6 +1236,13 @@ export interface components {
              * @default []
              */
             tags: string[];
+            enterprise_cid?: components["schemas"]["Sides"] | null;
+            circuit?: components["schemas"]["Circuit"] | null;
+            /**
+             * Edges
+             * @default []
+             */
+            edges: ("access" | "transit" | "interconnect" | "ingress" | "egress" | "peering" | "open")[];
         };
         /**
          * FabricMember
@@ -1262,7 +1282,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "wrong-neighbor" | "wrong-port" | "not-seen" | "undocumented" | "unknown-device" | "no-neighbors";
+            kind: "boundary" | "wrong-neighbor" | "wrong-port" | "not-seen" | "undocumented" | "shows" | "unknown-device" | "no-neighbors";
             /** Title */
             title: string;
             /** Detail */
@@ -1299,7 +1319,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "move" | "add" | "retire" | "expect";
+            kind: "move" | "add" | "retire" | "document" | "expect";
             /** Summary */
             summary: string;
             before?: components["schemas"]["Link"] | null;
@@ -1746,6 +1766,16 @@ export interface components {
              * @default []
              */
             carries: components["schemas"]["Carried"][];
+            /** Medium */
+            medium?: ("fiber" | "copper" | "twinax" | "radio" | "microwave" | "cellular" | "satellite") | null;
+            enterprise_cid?: components["schemas"]["Sides"] | null;
+            /**
+             * Edges
+             * @default []
+             */
+            edges: ("access" | "transit" | "interconnect" | "ingress" | "egress" | "peering" | "open")[];
+            /** Neighbors */
+            neighbors?: ("far-end" | "provider" | "nothing") | null;
             /**
              * Id
              * @description Stable identifier that does not depend on which end is listed first.
@@ -2347,8 +2377,9 @@ export interface components {
         /**
          * SeenLink
          * @description A cable discovery sees that the documentation does not have as it is:
-         *     one no one documented, one to a device not in the topology, or the real
-         *     cable of a documented link seen on another port or device.
+         *     one no one documented, one to a device not in the topology, the real
+         *     cable of a documented link seen on another port or device, or what a
+         *     circuit shows other than as documented.
          */
         SeenLink: {
             /** Id */
@@ -2426,6 +2457,22 @@ export interface components {
             text: string;
             /** By */
             by: string;
+        };
+        /**
+         * Sides
+         * @description An ID as each side of a connection knows it: the same at both sides
+         *     unless the Z side has its own, or none.
+         *
+         *     Written as a plain value for both sides, or as ``{a: ..., z: ...}``;
+         *     ``z`` left out is the same as ``a``, and ``z: ''`` (or null) leaves the
+         *     Z side blank. Into a shared transport, a plain value is the A side's
+         *     only, since the Z side is the provider's network.
+         */
+        Sides: {
+            /** A */
+            a: string;
+            /** Z */
+            z?: string | null;
         };
         /**
          * SignOff
@@ -2649,7 +2696,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "internet" | "private-wan";
+            kind: "internet" | "private-wan" | "research";
             /** Network */
             network?: string | null;
             /** Provider */
@@ -2691,6 +2738,13 @@ export interface components {
              * @default []
              */
             tags: string[];
+            enterprise_cid?: components["schemas"]["Sides"] | null;
+            circuit?: components["schemas"]["Circuit"] | null;
+            /**
+             * Edges
+             * @default []
+             */
+            edges: ("access" | "transit" | "interconnect" | "ingress" | "egress" | "peering" | "open")[];
         };
         /**
          * TunnelEnd

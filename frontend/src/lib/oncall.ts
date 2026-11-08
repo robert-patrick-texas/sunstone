@@ -4,6 +4,7 @@
  * which circuits. The server works out shifts and escalation; this only
  * looks things up in what it sends.
  */
+import { sidesText } from './connections.ts';
 import type { Carrier, Duty, OnCall, Ownership, Person, TeamNow } from './api/oncall.ts';
 import type { Selection } from './state.svelte.ts';
 import type { TopologyIndex } from './topology.ts';
@@ -65,6 +66,17 @@ export function wouldPage(oncall: OnCall, team: TeamNow): Step[] {
 	});
 }
 
+/** A circuit to call its carrier about. */
+export interface CarrierCall {
+	link: string;
+	/** The carrier's CID, each side's where they differ, to quote on the call. */
+	circuit: string;
+	/** The enterprise's own CID, if it has one. */
+	ours: string | null;
+	provider: string;
+	carrier: Carrier | null;
+}
+
 /**
  * The carriers to call about some links: one entry per circuit.
  *
@@ -73,16 +85,21 @@ export function wouldPage(oncall: OnCall, team: TeamNow): Step[] {
  * @param ids - Link ids.
  * @returns Each circuit among them, with its carrier's contact when there is one.
  */
-export function carriersFor(
-	oncall: OnCall,
-	index: TopologyIndex,
-	ids: string[]
-): { circuit: string; provider: string; carrier: Carrier | null }[] {
+export function carriersFor(oncall: OnCall, index: TopologyIndex, ids: string[]): CarrierCall[] {
 	return ids.flatMap((id) => {
-		const circuit = index.links.get(id)?.circuit;
-		if (!circuit) return [];
+		const link = index.links.get(id);
+		const circuit = link?.circuit;
+		if (!link || !circuit) return [];
 		const carrier = oncall.carriers.find((c) => c.provider === circuit.provider) ?? null;
-		return [{ circuit: circuit.circuit_id, provider: circuit.provider, carrier }];
+		return [
+			{
+				link: id,
+				circuit: sidesText(circuit.circuit_id),
+				ours: link.enterprise_cid ? sidesText(link.enterprise_cid) : null,
+				provider: circuit.provider,
+				carrier
+			}
+		];
 	});
 }
 

@@ -1,6 +1,7 @@
 /**
  * One search over everything Sunstone knows by name: sites, devices, links
- * (by circuit, carrier, or the device and interface at either end), named
+ * (by either CID, carrier, or the device and interface at either end, and
+ * by role at the edge, "TBD" included, or medium), named
  * networks, transports, external nodes, tunnels, fabrics, and tenants (by
  * name, tag, or technology, and by the organization's own word for what
  * they are), problems, maintenance windows, on-call teams and people, and
@@ -19,6 +20,17 @@ import type { Problem } from './api/analysis.ts';
 import type { OnCall } from './api/oncall.ts';
 import type { Window } from './api/operations.ts';
 import type { Command, CommandId } from './commands.ts';
+import {
+	edgeLabel,
+	fabricRoles,
+	idWords,
+	linkRoles,
+	MEDIUM_LABEL,
+	rolesText,
+	TRANSPORT_KIND,
+	tunnelRoles,
+	type Roles
+} from './connections.ts';
 import { span, targetName } from './maintenance.ts';
 import { KINDS } from './problem-kinds.ts';
 import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
@@ -35,6 +47,7 @@ import {
 	endName,
 	formatSpeed,
 	isDeviceEnd,
+	linkName,
 	portName,
 	ROLE_LABEL,
 	shortInterface,
@@ -129,6 +142,17 @@ const GROUPS: { kind: EntryKind; label: string; limit: number }[] = [
 
 const field = (text: string | null | undefined, weight: number, mode: Mode = 'anywhere') =>
 	text ? [{ text: text.toLowerCase(), weight, mode }] : [];
+
+/** A connection's roles as words to find it by: each role, "TBD", or "internal". */
+function roleFields(roles: Roles): Field[] {
+	const said = roles.source === 'tbd' ? ['TBD'] : roles.edges.map(edgeLabel);
+	return (said.length ? said : ['internal']).flatMap((w) => field(w, CONTEXT, 'words'));
+}
+
+/** Every value of the IDs a connection goes by, to find it by. */
+function idFields(...ids: Parameters<typeof idWords>[0][]): Field[] {
+	return ids.flatMap((sides) => idWords(sides).flatMap((w) => field(w, NAME)));
+}
 
 /** An interface by its full name and its short form. */
 const interfaceFields = (name: string | null | undefined, weight: number): Field[] =>
@@ -233,7 +257,7 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 			...field(t.name, NAME),
 			...field(t.provider, ALIAS),
 			...field(t.description, CONTEXT, 'words'),
-			...field(t.kind === 'internet' ? 'Internet' : 'private WAN', CONTEXT, 'words'),
+			...field(TRANSPORT_KIND[t.kind], CONTEXT, 'words'),
 			...words('transport'),
 			...tags(t.tags)
 		]);
@@ -257,14 +281,25 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 		const t = index.tunnels.get(item.id);
 		if (!t) return null;
 		const far = 'device' in t.b ? t.b.device : t.b.external;
-		const detail = [t.network, t.technology, `${t.a.device} – ${far}`, `over ${t.rides}`];
+		const roles = tunnelRoles(index.topology, t);
+		const detail = [
+			t.network,
+			t.technology,
+			`${t.a.device} – ${far}`,
+			`over ${t.rides}`,
+			t.enterprise_cid?.a,
+			rolesText(roles)
+		];
 		return entry(head(t.name, detail.filter(Boolean).join(' · ')), target, [
 			...field(t.name, NAME),
+			...idFields(t.enterprise_cid, t.circuit?.circuit_id),
+			...field(t.circuit?.provider, ALIAS),
 			...field(t.network, ALIAS),
 			...field(t.technology, PART),
 			...field(t.a.device, CONTEXT),
 			...field(far, CONTEXT),
 			...interfaceFields(t.a.interface, CONTEXT),
+			...roleFields(roles),
 			...words('tunnel'),
 			...tags(t.tags)
 		]);
@@ -276,8 +311,11 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 		const detail = [f.network, f.technology, `${f.members.length} members`, `${tunnels} tunnels`];
 		return entry(head(f.name, detail.filter(Boolean).join(' · ')), target, [
 			...field(f.name, NAME),
+			...idFields(f.enterprise_cid, f.circuit?.circuit_id),
+			...field(f.circuit?.provider, ALIAS),
 			...field(f.network, ALIAS),
 			...field(f.technology, PART),
+			...roleFields(fabricRoles(f)),
 			...words('fabric'),
 			...tags(f.tags)
 		]);
@@ -364,19 +402,26 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 	const speed = formatSpeed(link.speed_mbps);
 	const far = isDeviceEnd(link.b) ? link.b : null;
 	const lag = link.a.lag ?? far?.lag;
+	const roles = linkRoles(index.topology, link);
+	const edges = roles.edges.length || roles.source === 'tbd' ? rolesText(roles) : null;
 	return entry(
 		{
 			kind: 'link',
 			key,
-			label: link.circuit ? `Circuit ${link.circuit.circuit_id}` : ends,
+			label: link.circuit ? linkName(link) : ends,
 			detail: link.circuit
-				? `${link.circuit.provider} · ${link.a.device} – ${endName(link.b)} · ${speed}`
-				: [speed, lag].filter(Boolean).join(' · ')
+				? [link.circuit.provider, `${link.a.device} – ${endName(link.b)}`, speed, edges]
+						.filter(Boolean)
+						.join(' · ')
+				: [speed, lag, link.enterprise_cid?.a, edges].filter(Boolean).join(' · ')
 		},
 		target,
 		[
-			...field(link.circuit?.circuit_id, NAME),
+			...idFields(link.enterprise_cid, link.circuit?.circuit_id),
 			...field(link.circuit?.provider, ALIAS),
+			...field(link.circuit?.type === 'cross-connect' ? 'cross-connect' : null, CONTEXT, 'words'),
+			...field(link.medium ? MEDIUM_LABEL[link.medium] : null, CONTEXT, 'words'),
+			...roleFields(roles),
 			...field(link.a.device, PART),
 			...field(endName(link.b), PART),
 			...interfaceFields(link.a.interface, PART),
@@ -416,7 +461,14 @@ function namesOf(index: TopologyIndex, item: Selection): string[] {
 	if (item.kind === 'site') return [item.id, index.sites.get(item.id)?.name ?? ''];
 	return item.ids.flatMap((id) => {
 		const link = index.links.get(id);
-		return link ? [link.circuit?.circuit_id ?? '', link.a.device, endName(link.b)] : [];
+		return link
+			? [
+					link.enterprise_cid?.a ?? '',
+					link.circuit?.circuit_id.a ?? '',
+					link.a.device,
+					endName(link.b)
+				]
+			: [];
 	});
 }
 

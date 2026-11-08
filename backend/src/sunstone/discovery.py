@@ -19,6 +19,16 @@ be marked expected: a link across a media converter that hides LLDP, a
 lab port, a switch with LLDP off on purpose. ``expecting`` sets those
 findings aside, so they are no longer listed, drawn, or offered a fix.
 
+Circuits, and links to someone else's device, are compared by what each
+says LLDP and CDP show on our port (``model.shows``): the far end, the
+provider's equipment, or nothing. Where they show otherwise, or a circuit
+into a transport does not say, the finding offers to document what is seen.
+One of our own devices seen across a link whose roles at the edge are not
+transit means the boundary is not where it is documented, the most
+misleading finding of all. A phone or a host on a port no link documents is
+an endpoint on an access port, counted but not a finding; a switch or
+router there is one.
+
 Only what discovery can check counts. A device that does not answer (not
 polled, down, or unreachable) reports nothing, though its neighbors still
 see it; and a link that is down is not seen, whatever is documented, so
@@ -35,33 +45,72 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
-from sunstone.cabling import Cabling
+from sunstone.cabling import Beyond, Cabling, Shown
 from sunstone.live import NetworkState, StateSource
-from sunstone.model import Device, Endpoint, Link, Topology, device_b
-from sunstone.problems import ABBREVIATIONS, natural, short_interface
+from sunstone.model import (
+    Device,
+    Endpoint,
+    ExternalEnd,
+    Link,
+    Neighbors,
+    Roles,
+    Topology,
+    device_b,
+    device_ends,
+    end_name,
+    link_roles,
+    shows,
+)
+from sunstone.problems import ABBREVIATIONS, link_name, natural, short_interface
 
 LinkCheck = Literal[
-    "confirmed", "mismatch", "not-seen", "expected", "down", "unchecked"
+    "confirmed",
+    "provider",
+    "nothing",
+    "mismatch",
+    "not-seen",
+    "expected",
+    "down",
+    "unchecked",
+    "unstated",
+    "differs",
 ]
+"""``provider``: the provider's equipment seen, and ``nothing`` nothing, as
+documented; ``unstated``: a link beyond our devices that does not say what
+it shows, with nothing seen on it; ``differs``: one showing something other
+than it says, or saying nothing."""
 FindingKind = Literal[
+    "boundary",
     "wrong-neighbor",
     "wrong-port",
     "not-seen",
     "undocumented",
+    "shows",
     "unknown-device",
     "no-neighbors",
 ]
-FixKind = Literal["move", "add", "retire", "expect"]
+FixKind = Literal["move", "add", "retire", "document", "expect"]
+Capability = Literal["router", "switch", "access-point", "phone", "host"]
+# What an endpoint says it is: anything else is network equipment.
+ENDPOINT: frozenset[Capability] = frozenset({"phone", "host"})
 # A device that reports no neighbors: its finding's id, before its name.
 SILENT = "no-neighbors:"
 KINDS: list[FindingKind] = [
+    "boundary",
     "wrong-neighbor",
     "wrong-port",
     "not-seen",
     "undocumented",
+    "shows",
     "unknown-device",
     "no-neighbors",
 ]
+# What a circuit or link beyond our devices shows, in a sentence.
+SHOWING: dict[Neighbors, str] = {
+    "far-end": "the far end",
+    "provider": "the provider's equipment",
+    "nothing": "nothing",
+}
 # Kinds that may be what discovery cannot see, or what is not meant to be
 # documented; a link on another port or device is fixed instead.
 EXPECTABLE: frozenset[FindingKind] = frozenset(
@@ -83,6 +132,8 @@ class Neighbor(_Record):
     remote_port: str
     protocol: Literal["lldp", "cdp"]
     platform: str | None = None
+    capabilities: list[Capability] = []
+    """What the neighbor says it is, as LLDP and CDP report it."""
 
 
 class NeighborTable(_Record):
@@ -205,9 +256,10 @@ class Fix(_Record):
     kind: FixKind
     summary: str
     before: Link | None = None
-    """The documented link it moves or retires."""
+    """The documented link it moves, retires, or documents."""
     after: Link | None = None
-    """The link as it would then be documented: moved, or added."""
+    """The link as it would then be documented: moved, added, or saying
+    what it shows (``document``)."""
 
 
 class Finding(_Record):
@@ -239,8 +291,9 @@ class Finding(_Record):
 
 class SeenLink(_Record):
     """A cable discovery sees that the documentation does not have as it is:
-    one no one documented, one to a device not in the topology, or the real
-    cable of a documented link seen on another port or device."""
+    one no one documented, one to a device not in the topology, the real
+    cable of a documented link seen on another port or device, or what a
+    circuit shows other than as documented."""
 
     id: str
     a: Port
@@ -264,10 +317,14 @@ class Comparison(_Record):
     """Every documented link not confirmed, by id; the rest are confirmed."""
     confirmed: int
     findings: list[Finding]
-    """Most misleading first: wrong neighbors and ports, then links not
-    seen, undocumented links, unknown neighbors, and silent devices."""
+    """Most misleading first: our own devices across the boundary, wrong
+    neighbors and ports, then links not seen, undocumented links, circuits
+    showing other than documented, unknown neighbors, and silent devices."""
     seen: list[SeenLink]
     """Every cable seen that is not documented as it is, for drawing."""
+    endpoints: dict[str, int] = {}
+    """Devices with endpoints (phones, hosts) seen on ports no link
+    documents, and how many: access, not findings."""
     gone: list[Finding] = []
     """Findings of earlier runs not in this one, most recently seen first."""
     expected: list[Finding] = []
@@ -280,13 +337,6 @@ class Comparison(_Record):
 def _key(interface: str) -> str:
     """A port name in one form, however a device spells it."""
     return short_interface(interface.replace(" ", "")).lower()
-
-
-def _ports(link: Link) -> tuple[tuple[str, str], tuple[str, str]]:
-    return (link.a.device, _key(link.a.interface)), (
-        device_b(link).device,
-        _key(device_b(link).interface),
-    )
 
 
 def _name(device: str, interface: str) -> str:
@@ -322,12 +372,22 @@ class _Seen:
     """One adjacency discovery saw, from either or both ends."""
 
     def __init__(
-        self, ends: tuple[Port, Port], known: bool, platform: str | None
+        self,
+        ends: tuple[Port, Port],
+        known: bool,
+        platform: str | None,
+        capabilities: list[Capability],
     ) -> None:
         self.ends = ends
         self.known = known
         """Both ends are devices in the topology."""
         self.platform = platform
+        self.capabilities = capabilities
+
+    @property
+    def endpoint(self) -> bool:
+        """The far end says it is a phone or a host, and nothing else."""
+        return bool(self.capabilities) and set(self.capabilities) <= ENDPOINT
 
 
 def _adjacencies(topology: Topology, discovery: Discovery) -> list[_Seen]:
@@ -350,7 +410,9 @@ def _adjacencies(topology: Topology, discovery: Discovery) -> list[_Seen]:
             if key not in found:
                 local = Port(device=table.device, interface=n.interface)
                 other = Port(device=far, interface=n.remote_port)
-                found[key] = _Seen((local, other), remote is not None, n.platform)
+                found[key] = _Seen(
+                    (local, other), remote is not None, n.platform, n.capabilities
+                )
     # In a fixed order, so the same tables always give the same findings.
     return sorted(found.values(), key=lambda s: (s.ends[0].device, s.ends[0].interface))
 
@@ -374,17 +436,20 @@ def compare(
     """
     documented: dict[tuple[str, str], Link] = {}
     for link in topology.links:
-        for port in _ports(link):
-            documented[port] = link
+        for end in device_ends(link):
+            documented[(end.device, _key(end.interface))] = link
+    externals = {e.name: e for e in topology.externals}
     polled = {t.device for t in discovery.tables}
     down = _down_links(topology, state) if state else set()
-    # Answering, with links that are up, yet seeing nothing at all.
+    # Answering, with links up that should show something, yet seeing nothing.
     silent = {
         t.device
         for t in discovery.tables
         if not t.neighbors
         and any(
-            t.device in (ln.a.device, device_b(ln).device) and ln.id not in down
+            t.device in _devices(ln)
+            and ln.id not in down
+            and shows(ln) in ("far-end", "provider")
             for ln in topology.links
         )
     }
@@ -403,6 +468,7 @@ def compare(
     checks: dict[str, LinkCheck] = {}
     findings: dict[str, Finding] = {}
     seen_links: list[SeenLink] = []
+    endpoints: dict[str, int] = {}
 
     def drawn(seen: _Seen, finding: str) -> None:
         u, v = seen.ends
@@ -425,7 +491,8 @@ def compare(
     def contradicted(
         link: Link, here: Port, there: Port, seen_platform: str | None
     ) -> None:
-        """A documented link whose port here is seen connected elsewhere."""
+        """A documented link between two devices whose port here is seen
+        connected elsewhere."""
         if link.id in findings:
             return
         checks[link.id] = "mismatch"
@@ -494,6 +561,113 @@ def compare(
             after=_with_end(link, a, new),
         )
 
+    def ours_beyond(link: Link, here: Port, there: Port) -> None:
+        """One of our devices seen on our end of a link beyond our devices:
+        across the boundary, unless the link is for transit or its roles
+        are still to be documented, when it is only on the wrong port."""
+        if link.id in findings:
+            return
+        checks[link.id] = "mismatch"
+        roles = link_roles(link, externals)
+        across = end_name(link.b)
+        if roles.source != "tbd" and "transit" not in roles.edges:
+            kind: FindingKind = "boundary"
+            title = f"{here.device} sees {there.device} across {across}"
+            detail = (
+                f"{link_name(link)} is {_roles(roles)}, yet "
+                f"{_name(here.device, here.interface)} sees our own "
+                f"{_name(there.device, there.interface)} on the far side: the "
+                "boundary is not where it is documented"
+            )
+        else:
+            kind = "wrong-neighbor"
+            title = f"Another device on {_name(here.device, here.interface)}"
+            detail = (
+                f"Documented: {link_name(link)} into {across}; seen: "
+                f"{_name(there.device, there.interface)}"
+            )
+        findings[link.id] = Finding(
+            id=f"{kind}:{link.id}",
+            kind=kind,
+            title=title,
+            detail=detail,
+            link=link.id,
+            documented=[Port(device=here.device, interface=here.interface)],
+            seen=[here, there],
+            devices=[here.device, there.device],
+        )
+
+    def showing(
+        link: Link, now: Neighbors, here: Port, there: Port | None, seen: _Seen | None
+    ) -> None:
+        """A circuit, or a link beyond our devices, showing other than it says."""
+        if link.id in findings:
+            return
+        said = shows(link)
+        name = link_name(link)
+        what = SHOWING[now]
+        if there is not None:
+            platform = f" ({seen.platform})" if seen and seen.platform else ""
+            saw = (
+                f"{_name(here.device, here.interface)} sees "
+                f"{_name(there.device, there.interface)}{platform}"
+            )
+        else:
+            saw = f"{_name(here.device, here.interface)} sees nothing"
+        detail = saw + (
+            f"; documented as showing {SHOWING[said]}"
+            if said
+            else "; it does not say what it shows"
+        )
+        found = f"shows:{link.id}"
+        findings[link.id] = Finding(
+            id=found,
+            kind="shows",
+            title=f"{name} shows {what}",
+            detail=detail,
+            link=link.id,
+            documented=[
+                Port(device=e.device, interface=e.interface) for e in device_ends(link)
+            ],
+            seen=[here, there] if there else [],
+            devices=_devices(link),
+            fix=Fix(
+                kind="document",
+                summary=f"Document that {name} shows {what}",
+                before=link,
+                after=link.model_copy(update={"neighbors": now}),
+            ),
+        )
+
+    def someone_else(link: Link, here: Port, there: Port, seen: _Seen) -> None:
+        """Someone else's device on our end of a link: the far end's, or the
+        provider's equipment, by what the link is."""
+        b = link.b
+        said = shows(link)
+        if isinstance(b, Endpoint) and not _carrier(link):
+            # Our own cable, or a cross-connect: another device on the port.
+            contradicted(link, here, there, seen.platform)
+            return
+        # Beyond a carrier's circuit, or at someone else's device.
+        theirs: Neighbors = "far-end" if isinstance(b, ExternalEnd) else "provider"
+        if said == theirs or (isinstance(b, ExternalEnd) and said == "provider"):
+            checks.setdefault(link.id, "confirmed" if said == "far-end" else "provider")
+            return
+        checks[link.id] = "differs"
+        showing(link, theirs, here, there, seen)
+
+    def at_port(link: Link, here: Port, there: Port, seen: _Seen) -> str | None:
+        """What is seen on our end of a documented link, other than its far
+        end; the id of the finding it makes, or that the link has already."""
+        if not seen.known:
+            someone_else(link, here, there, seen)
+        elif isinstance(link.b, Endpoint):
+            contradicted(link, here, there, seen.platform)
+        else:
+            ours_beyond(link, here, there)
+        found = findings.get(link.id)
+        return found.id if found else None
+
     for seen in _adjacencies(topology, discovery):
         u, v = seen.ends
         on_u = documented.get((u.device, _key(u.interface)))
@@ -501,13 +675,15 @@ def compare(
         if on_u is not None and on_u is on_v:
             checks.setdefault(on_u.id, "confirmed")
             continue
-        if on_u is not None:
-            contradicted(on_u, u, v, seen.platform)
-            drawn(seen, findings[on_u.id].id)
-        if on_v is not None:
-            contradicted(on_v, v, u, seen.platform)
-            if on_u is None:
-                drawn(seen, findings[on_v.id].id)
+        raised = [
+            at_port(on, here, there, seen)
+            for on, here, there in ((on_u, u, v), (on_v, v, u))
+            if on is not None
+        ]
+        # Drawn once, with the first finding it belongs to.
+        first = next((r for r in raised if r), None)
+        if first:
+            drawn(seen, first)
         if on_u is None and on_v is None:
             between = f"{_name(u.device, u.interface)} – {_name(v.device, v.interface)}"
             if seen.known:
@@ -531,6 +707,9 @@ def compare(
                     devices=[u.device, v.device],
                     fix=Fix(kind="add", summary=f"Add the link {between}", after=added),
                 )
+            elif seen.endpoint:
+                # A phone or a host on a port no link documents: access.
+                endpoints[u.device] = endpoints.get(u.device, 0) + 1
             else:
                 found = f"unknown-device:{u.device}:{u.interface}"
                 drawn(seen, found)
@@ -548,20 +727,35 @@ def compare(
     for link in topology.links:
         if link.id in checks:
             continue
-        ends = [link.a.device, device_b(link).device]
+        ends = _devices(link)
+        said = shows(link)
         if not any(d in polled for d in ends):
             checks[link.id] = "unchecked"
         elif link.id in down:
             checks[link.id] = "down"
+        elif said is None:
+            checks[link.id] = "unstated"
+        elif said == "nothing":
+            checks[link.id] = "nothing"
         else:
             checks[link.id] = "not-seen"
             # A silent device explains its own links: one finding for it, not one each.
-            if not any(d in silent for d in ends):
+            if any(d in silent for d in ends):
+                continue
+            if isinstance(link.b, Endpoint) and not _carrier(link):
                 findings[link.id] = _not_seen(link, polled)
+            else:
+                # A carrier's circuit up yet showing nothing passes nothing.
+                here = next(e for e in device_ends(link) if e.device in polled)
+                showing(
+                    link,
+                    "nothing",
+                    Port(device=here.device, interface=here.interface),
+                    None,
+                    None,
+                )
     for device in sorted(silent, key=natural):
-        count = sum(
-            device in (ln.a.device, device_b(ln).device) for ln in topology.links
-        )
+        count = sum(device in _devices(ln) for ln in topology.links)
         findings[f"silent:{device}"] = Finding(
             id=SILENT + device,
             kind="no-neighbors",
@@ -581,7 +775,26 @@ def compare(
         confirmed=sum(v == "confirmed" for v in checks.values()),
         findings=ordered,
         seen=seen_links,
+        endpoints=dict(sorted(endpoints.items(), key=lambda kv: natural(kv[0]))),
     )
+
+
+def _devices(link: Link) -> list[str]:
+    """The devices of ours at a link's ends."""
+    return [e.device for e in device_ends(link)]
+
+
+def _carrier(link: Link) -> bool:
+    """Whether a carrier's service, not a cable, joins a link's ends."""
+    return link.circuit is not None and link.circuit.type == "carrier"
+
+
+def _roles(roles: Roles) -> str:
+    """A link's roles at the edge, in words: "a peering edge", "an egress and
+    ingress edge"."""
+    names = list(roles.edges)
+    said = " and ".join([", ".join(names[:-1]), names[-1]] if len(names) > 1 else names)
+    return f"{'an' if said[:1] in 'aeiou' else 'a'} {said} edge"
 
 
 def expecting(
@@ -620,9 +833,7 @@ def expecting(
         if cover(f)
     ]
     explained = {f.link for f in kept if f.link}
-    explained |= {
-        ln.id for ln in topology.links if {ln.a.device, device_b(ln).device} & silent
-    }
+    explained |= {ln.id for ln in topology.links if set(_devices(ln)) & silent}
     links: dict[str, LinkCheck] = {
         k: "expected" if k in explained and v == "not-seen" else v
         for k, v in comparison.links.items()
@@ -681,12 +892,8 @@ def _down_links(topology: Topology, state: Visibility) -> set[str]:
     return {
         ln.id
         for ln in topology.links
-        if {
-            (ln.a.device, ln.a.interface),
-            (device_b(ln).device, device_b(ln).interface),
-        }
-        & state.down_ports
-        or {ln.a.device, device_b(ln).device} & state.down_devices
+        if {(e.device, e.interface) for e in device_ends(ln)} & state.down_ports
+        or set(_devices(ln)) & state.down_devices
     }
 
 
@@ -699,16 +906,24 @@ class SimulatedDiscovery:
     Each device the state source watches and finds up answers, every 15
     minutes, reporting each real cable whose ports are up, except where a
     media converter hides the far end, and except for switches with LLDP
-    and CDP off, which neither report nor are seen. Some devices report
-    over CDP with their platform and full port names, others over LLDP with
-    a domain and short port names. A cable unplugged at the time is not seen.
+    and CDP off, which neither report nor are seen. Across circuits and on
+    links to someone else's device, it reports what ``Beyond`` says is
+    really there: the provider's NTU, someone else's device, our router
+    across a layer-2 path, or nothing; and the phones and printers on access
+    ports. Some devices report over CDP with their platform and full port
+    names, others over LLDP with a domain and short port names. A cable
+    unplugged at the time is not seen.
     """
 
     interval = timedelta(minutes=15)
     source = "simulated"
 
     def __init__(
-        self, topology: Topology, cabling: Cabling, state: StateSource
+        self,
+        topology: Topology,
+        cabling: Cabling,
+        state: StateSource,
+        beyond: Beyond | None = None,
     ) -> None:
         """Discover a network.
 
@@ -716,6 +931,8 @@ class SimulatedDiscovery:
             topology: The documented network.
             cabling: How it is really cabled.
             state: Live state, for who answers and which ports are up.
+            beyond: What circuits and links beyond our devices really show,
+                and the endpoints; None for exactly as documented.
 
         Raises:
             None
@@ -723,6 +940,7 @@ class SimulatedDiscovery:
         self.topology = topology
         self.cabling = cabling
         self.state = state
+        self.beyond = beyond or Beyond(topology)
 
     def discover(self, at: datetime, seen: Visibility | None = None) -> Discovery:
         """Neighbor tables as of a run.
@@ -742,10 +960,22 @@ class SimulatedDiscovery:
         devices = {d.name: d for d in self.topology.devices}
         rows: dict[str, list[Neighbor]] = {d: [] for d in up}
         deaf = self.cabling.silent
+        beyond = self.beyond
+
+        def hears(device: str, interface: str) -> bool:
+            return (
+                device in rows
+                and device not in deaf
+                and (device, interface) not in down_ports
+            )
+
         for cable in self.cabling.cables:
             if cable.hidden:
                 continue
             if not self.cabling.in_place(cable.link.id, at):
+                continue
+            if beyond.real.get(cable.link.id, "far-end") != "far-end":
+                # A carrier's circuit that does not pass LLDP and CDP.
                 continue
             for here, there in ((cable.a, cable.b), (cable.b, cable.a)):
                 if here.device not in rows or {here.device, there.device} & deaf:
@@ -764,6 +994,16 @@ class SimulatedDiscovery:
                         here.interface, there, devices.get(there.device), cable.platform
                     )
                 )
+        shown = [r for link in self.topology.links for r in beyond.rows(link)]
+        for r in [*shown, *beyond.endpoints]:
+            if not hears(r.device, r.interface) or r.remote in down | deaf:
+                continue
+            remote = devices.get(r.remote)
+            if remote is not None:
+                there = Endpoint(device=r.remote, interface=r.remote_port)
+                rows[r.device].append(_row(r.interface, there, remote, None))
+            else:
+                rows[r.device].append(_beyond_row(r))
         return Discovery(
             source=self.source,
             at=at,
@@ -772,6 +1012,41 @@ class SimulatedDiscovery:
                 for d, n in sorted(rows.items(), key=lambda kv: natural(kv[0]))
             ],
         )
+
+
+# What each role says it is, over LLDP and CDP.
+CAPABILITIES: dict[str, list[Capability]] = {
+    "wan-edge": ["router"],
+    "core": ["router", "switch"],
+    "distribution": ["switch"],
+    "access": ["switch"],
+}
+
+
+def _beyond_row(shown: Shown) -> Neighbor:
+    """A row for something not in the topology: an endpoint over LLDP-MED,
+    anything else over CDP."""
+    capabilities: list[Capability] = [
+        c for c in CAPABILITIES_ALL if c in shown.capabilities
+    ]
+    endpoint = set(capabilities) <= ENDPOINT
+    return Neighbor(
+        interface=shown.interface,
+        remote=shown.remote,
+        remote_port=shown.remote_port,
+        protocol="lldp" if endpoint else "cdp",
+        platform=shown.platform,
+        capabilities=capabilities,
+    )
+
+
+CAPABILITIES_ALL: tuple[Capability, ...] = (
+    "router",
+    "switch",
+    "access-point",
+    "phone",
+    "host",
+)
 
 
 def _row(
@@ -786,6 +1061,7 @@ def _row(
             remote_port=there.interface,
             protocol="cdp",
             platform=platform,
+            capabilities=["switch"],
         )
     if _hash(remote.name) % 3 == 0:
         return Neighbor(
@@ -793,6 +1069,7 @@ def _row(
             remote=remote.name + DOMAIN,
             remote_port=short_interface(there.interface),
             protocol="lldp",
+            capabilities=CAPABILITIES[remote.role],
         )
     return Neighbor(
         interface=port,
@@ -800,6 +1077,7 @@ def _row(
         remote_port=there.interface,
         protocol="cdp",
         platform=remote.platform,
+        capabilities=CAPABILITIES[remote.role],
     )
 
 

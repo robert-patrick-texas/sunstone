@@ -25,6 +25,7 @@ from sunstone.mockgen import (
 )
 from sunstone.model import Topology, device_b
 from sunstone.oncall import HandoverTimes
+from sunstone.problems import link_name
 
 T0 = datetime(2026, 10, 27, 8, 0, tzinfo=UTC)
 STEP = timedelta(minutes=5)
@@ -73,7 +74,7 @@ def test_devices_down_together_at_a_site_are_one_outage(topology: Topology) -> N
     ]
     found = outages(events, topology, at(5))
     assert [o.title for o in found] == [
-        f"Circuit {other.circuit.circuit_id} down" if other.circuit else "",
+        f"{link_name(other)} down",
         "HOU: 2 devices and 1 link down",
         "dal-core-02 down",
     ]

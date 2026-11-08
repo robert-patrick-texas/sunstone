@@ -60,9 +60,14 @@ it in the on-call list.
 			{/if}
 		</dl>
 	{/if}
-	{#each carriers.slice(0, MAX_CIRCUITS) as c (c.circuit)}
+	{#each carriers.slice(0, MAX_CIRCUITS) as c (c.link)}
 		<p>
-			{c.provider} <span class="muted">· circuit {c.circuit}</span>
+			{c.provider}
+			<span class="muted"
+				>· circuit <span class="mono">{c.circuit}</span>{c.ours ? ' · ours ' : ''}<span class="mono"
+					>{c.ours ?? ''}</span
+				></span
+			>
 			{#if c.carrier}
 				<br /><span class="muted">NOC</span>
 				<a class="mono" href="tel:{c.carrier.phone.replaceAll(' ', '')}">{c.carrier.phone}</a>

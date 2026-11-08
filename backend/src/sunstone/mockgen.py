@@ -32,6 +32,7 @@ from sunstone.model import (
     Circuit,
     Device,
     Endpoint,
+    ExternalEnd,
     Fabric,
     FabricMember,
     Link,
@@ -39,6 +40,7 @@ from sunstone.model import (
     NamedNetwork,
     Region,
     Role,
+    Sides,
     Site,
     Topology,
     Transport,
@@ -303,7 +305,9 @@ class _Builder:
         """
         provider = self.rng.choice(PROVIDERS)
         number = self.rng.randrange(100_000, 1_000_000)
-        return Circuit(provider=provider, circuit_id=f"{provider[:2].upper()}-{number}")
+        return Circuit(
+            provider=provider, circuit_id=Sides(a=f"{provider[:2].upper()}-{number}")
+        )
 
     def _next_port(self, device: str, speed_mbps: int) -> str:
         self._ports[(device, speed_mbps)] += 1
@@ -390,9 +394,11 @@ def generate(preset: Preset, seed: int) -> Topology:
             b.link(wans[i], hub_wans[i][i], speed, circuit=b.circuit())
         spokes.append(wans[0])
     if not preset.internet:
-        return with_groups(Topology(sites=sites, devices=b.devices, links=b.links))
-    return with_groups(
-        _with_internet(b, sites, ([w[0] for w in hub_wans], spokes), seed)
+        return labeled(
+            with_groups(Topology(sites=sites, devices=b.devices, links=b.links))
+        )
+    return labeled(
+        with_groups(_with_internet(b, sites, ([w[0] for w in hub_wans], spokes), seed))
     )
 
 
@@ -434,6 +440,77 @@ def with_groups(topology: Topology) -> Topology:
     )
 
 
+# What a circuit into each kind of transport is called in its CID.
+CID_TAGS = {"internet": "INET", "private-wan": "MPLS", "research": "REN"}
+
+
+def labeled(topology: Topology) -> Topology:
+    """Give every connection the enterprise's own ID, and say what carries
+    the bits at each port where the generator has not.
+
+    Circuits are numbered by where they go: ``DAL-INET-01`` into the
+    Internet, ``DAL-IAD-01`` between two sites, ``IAD-NIMBUS-01`` to an
+    external node over a circuit; cables, cross-connects and cables to
+    someone else's device among them, by site (``DAL-C0001``, a cable ID);
+    tunnels and fabrics in turn (``TUN-0001``, ``FAB-01``).
+    Links of 10 Gbps and more, and circuits, are fiber; the rest copper.
+
+    Args:
+        topology: A generated topology.
+
+    Returns:
+        The same topology, with those set where they were not.
+
+    Raises:
+        None
+    """
+    site = {d.name: d.site for d in topology.devices}
+    kinds = {t.name: t.kind for t in topology.transports}
+    counts: Counter[str] = Counter()
+
+    def numbered(prefix: str, width: int = 2, sep: str = "-") -> str:
+        counts[prefix] += 1
+        return f"{prefix}{sep}{counts[prefix]:0{width}d}"
+
+    links = []
+    for ln in topology.links:
+        here, b = site[ln.a.device], ln.b
+        update: dict[str, object] = {}
+        if ln.enterprise_cid is None:
+            if isinstance(b, TransportEnd):
+                name = numbered(f"{here}-{CID_TAGS[kinds[b.transport]]}")
+                update["enterprise_cid"] = Sides(a=name, z=None)
+            elif isinstance(b, ExternalEnd) and ln.circuit:
+                tag = b.external.split()[0].upper()
+                update["enterprise_cid"] = Sides(a=numbered(f"{here}-{tag}"))
+            elif (
+                isinstance(b, Endpoint) and ln.circuit and ln.circuit.type == "carrier"
+            ):
+                pair = f"{here}-{site[b.device]}"
+                update["enterprise_cid"] = Sides(a=numbered(pair))
+            else:
+                update["enterprise_cid"] = Sides(a=numbered(f"{here}-C", 4, ""))
+        if ln.medium is None:
+            fast = ln.speed_mbps >= 10_000 or ln.circuit is not None
+            update["medium"] = "fiber" if fast else "copper"
+        links.append(ln.model_copy(update=update))
+    tunnels = [
+        t
+        if t.enterprise_cid
+        else t.model_copy(update={"enterprise_cid": Sides(a=numbered("TUN", 4))})
+        for t in topology.tunnels
+    ]
+    fabrics = [
+        f
+        if f.enterprise_cid
+        else f.model_copy(update={"enterprise_cid": Sides(a=numbered("FAB"))})
+        for f in topology.fabrics
+    ]
+    return Topology.model_validate(
+        {**dict(topology), "links": links, "tunnels": tunnels, "fabrics": fabrics}
+    )
+
+
 def _with_internet(
     b: _Builder, sites: list[Site], routers: tuple[list[str], list[str]], seed: int
 ) -> Topology:
@@ -466,8 +543,12 @@ def _with_internet(
                 speed_mbps=rng.choice([500, 1_000]),
                 kind="wan",
                 circuit=Circuit(
-                    provider=provider, circuit_id=f"{provider[:2].upper()}-{number}"
+                    provider=provider,
+                    circuit_id=Sides(a=f"{provider[:2].upper()}-{number}", z=None),
                 ),
+                # Tunnels to the other sites ride it, and it is the site's way out.
+                edges=["transit", "egress"],
+                neighbors="provider",
             )
         )
     members = [
@@ -621,8 +702,42 @@ def to_yaml(topology: Topology, header: str) -> str:
         exclude_defaults=True,
         exclude={"links": {"__all__": {"id"}}},
     )
+    for link in data["links"]:
+        shared = "transport" in link["b"]
+        if "enterprise_cid" in link:
+            link["enterprise_cid"] = _written(link["enterprise_cid"], shared)
+        if "circuit" in link:
+            link["circuit"]["circuit_id"] = _written(
+                link["circuit"]["circuit_id"], shared
+            )
+    for kind in ("tunnels", "fabrics"):
+        for item in data.get(kind, []):
+            for at, ids in (
+                (item, "enterprise_cid"),
+                (item.get("circuit", {}), "circuit_id"),
+            ):
+                if ids in at:
+                    at[ids] = _written(at[ids], False)
     body = yaml.safe_dump(data, sort_keys=False, default_flow_style=None, width=120)
     return f"# {header}\n{body}"
+
+
+def _written(sides: dict[str, str], shared: bool) -> str | dict[str, str]:
+    """An ID's sides as a hand-written file would have them.
+
+    Args:
+        sides: ``a``, and ``z`` unless it is blank.
+        shared: It is a circuit into a shared transport, where a plain value
+            is the A side's only.
+
+    Returns:
+        A plain value where that reads back the same; else both sides, with
+        ``z: ''`` for a blank Z side.
+    """
+    z = sides.get("z")
+    if z == sides["a"] or (z is None and shared):
+        return sides["a"]
+    return {"a": sides["a"], "z": z or ""}
 
 
 def main() -> None:

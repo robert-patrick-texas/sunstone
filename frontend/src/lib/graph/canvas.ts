@@ -152,7 +152,7 @@ const STYLE: StylesheetJson = [
 		}
 	},
 	{ selector: 'node[kind = "external"][w]', style: { width: 'data(w)', height: 'data(h)' } },
-	{ selector: 'node[externalKind = "service"]', style: { shape: 'round-hexagon' } },
+	{ selector: 'node[externalKind = "application"]', style: { shape: 'round-hexagon' } },
 	{ selector: 'node[externalKind = "tenant"]', style: { shape: 'round-diamond' } },
 	{
 		selector: 'node[kind = "ring"]',

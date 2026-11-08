@@ -106,10 +106,12 @@ routes:
 carriers:
 - {provider: Bluebonnet Telecom, phone: +1 800 555 0100, portal: 'https://noc.bluebonnet.example'}
 - {provider: Crestline Networks, phone: +1 800 555 0101, portal: 'https://noc.crestline.example'}
-- {provider: Harbor Transit, phone: +1 800 555 0102, portal: 'https://noc.harbor.example'}
-- {provider: Mesa Carrier, phone: +1 800 555 0103, portal: 'https://noc.mesa.example'}
-- {provider: Nimbus Cloud, phone: +1 800 555 0104, portal: 'https://noc.nimbus.example'}
-- {provider: Northwind Fiber, phone: +1 800 555 0105, portal: 'https://noc.northwind.example'}
+- {provider: Granite Colo, phone: +1 800 555 0102, portal: 'https://noc.granite.example'}
+- {provider: Harbor Transit, phone: +1 800 555 0103, portal: 'https://noc.harbor.example'}
+- {provider: Mesa Carrier, phone: +1 800 555 0104, portal: 'https://noc.mesa.example'}
+- {provider: Nimbus Cloud, phone: +1 800 555 0105, portal: 'https://noc.nimbus.example'}
+- {provider: Northwind Fiber, phone: +1 800 555 0106, portal: 'https://noc.northwind.example'}
+- {provider: Prairie Research Network, phone: +1 800 555 0107, portal: 'https://noc.prairie.example'}
 urgency: {outage: high, link-down: high, congested: high, loss: low, busy: low, nodata: low}
 handovers:
   at: ['07:00', '19:00']

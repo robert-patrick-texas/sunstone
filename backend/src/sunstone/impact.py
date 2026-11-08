@@ -19,7 +19,14 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel, ConfigDict
 
 from sunstone.layouts import Center
-from sunstone.model import Endpoint, Link, Topology, TransportEnd, device_ends
+from sunstone.model import (
+    Endpoint,
+    Link,
+    Topology,
+    TransportEnd,
+    device_ends,
+    joins,
+)
 
 ROOT = -1
 
@@ -101,9 +108,10 @@ class Network:
         for link in topology.links:
             for end in device_ends(link):
                 self.links_of.setdefault(end.device, []).append(link)
-        # Transports join the devices whose circuits go into them, as more
-        # nodes after the devices; external nodes lead nowhere, so links to
-        # them are left out.
+        # Transports join the devices whose circuits for transit go into
+        # them, as more nodes after the devices; external nodes lead nowhere,
+        # and nor does a circuit for peering, open, ingress, or egress alone,
+        # so those links are left out.
         transports = {
             t.name: len(self.names) + i for i, t in enumerate(topology.transports)
         }
@@ -113,7 +121,7 @@ class Network:
             b = link.b
             if isinstance(b, Endpoint):
                 far = self.number[b.device]
-            elif isinstance(b, TransportEnd):
+            elif isinstance(b, TransportEnd) and joins(link):
                 far = transports[b.transport]
             else:
                 continue

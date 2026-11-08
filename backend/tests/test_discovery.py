@@ -23,7 +23,7 @@ from sunstone.discovery import (
 from sunstone.discovery_log import DiscoveryLog
 from sunstone.live import DeviceHistory, DeviceState, InterfaceState, NetworkState
 from sunstone.mockgen import PRESETS, generate, to_yaml
-from sunstone.model import Link, Topology, device_b
+from sunstone.model import Link, Topology, device_b, device_ends
 from sunstone.problems import short_interface
 
 AT = datetime(2026, 10, 27, 15, 0, tzinfo=UTC)
@@ -69,7 +69,7 @@ class AllUp:
                     stale=False,
                 )
                 for ln in self.topology.links
-                for end in (ln.a, device_b(ln))
+                for end in device_ends(ln)
             ],
         )
 

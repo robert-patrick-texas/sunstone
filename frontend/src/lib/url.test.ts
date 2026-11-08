@@ -126,8 +126,9 @@ describe('writeItem and readItem', () => {
 			b: { transport: 'Mesa MPLS' },
 			speed_mbps: 100,
 			kind: 'wan',
-			circuit: { provider: 'Mesa Carrier', circuit_id: 'ME-1' },
+			circuit: { provider: 'Mesa Carrier', circuit_id: { a: 'ME-1', z: null }, type: 'carrier' },
 			carries: [],
+			edges: [],
 			id: mpls
 		});
 		const index = indexTopology(topology);

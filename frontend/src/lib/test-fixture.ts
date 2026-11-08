@@ -15,12 +15,20 @@ export function link(a: string, b: string, speed = 10_000, extra: Partial<Link> 
 		speed_mbps: speed,
 		kind: 'lan',
 		carries: [],
+		edges: [],
 		id: ends.join('--'),
 		...extra
 	};
 }
 
-const wan = { kind: 'wan' as const, circuit: { provider: 'Mesa Carrier', circuit_id: 'ME-1' } };
+const wan = {
+	kind: 'wan' as const,
+	circuit: {
+		provider: 'Mesa Carrier',
+		circuit_id: { a: 'ME-1', z: 'ME-1' },
+		type: 'carrier' as const
+	}
+};
 
 export const fixture: Topology = {
 	sites: [
@@ -77,8 +85,9 @@ const inet = (device: string, id: string): Link => ({
 	b: { transport: 'INET' },
 	speed_mbps: 500,
 	kind: 'wan',
-	circuit: { provider: 'Northwind Fiber', circuit_id: id },
+	circuit: { provider: 'Northwind Fiber', circuit_id: { a: id, z: null }, type: 'carrier' },
 	carries: [],
+	edges: [],
 	id: `${device}:GigabitEthernet0/0/0--transport:INET`
 });
 
@@ -86,7 +95,7 @@ const inet = (device: string, id: string): Link => ({
  * The tiny topology with layers over it: hub A and branch C on the Internet;
  * blue over black between them, grey over blue, and tenant T1's red network
  * over grey through its encryptor at C; a DMVPN fabric with hubs A and B;
- * and a service reached over the Internet.
+ * and an application reached over the Internet.
  */
 export const layeredFixture: Topology = {
 	...fixture,
@@ -100,6 +109,7 @@ export const layeredFixture: Topology = {
 			speed_mbps: 1_000,
 			kind: 'lan',
 			carries: [{ network: 'grey', vlan: 200 }],
+			edges: [],
 			id: 'c-acc-02:Gi1/0/9--external:r1-c:black'
 		}
 	],
@@ -121,7 +131,7 @@ export const layeredFixture: Topology = {
 	transports: [{ name: 'INET', kind: 'internet', network: 'black', tags: [] }],
 	externals: [
 		{ name: 'r1-c', kind: 'tenant', tenant: 'T1', network: 'red', reached_over: [], tags: [] },
-		{ name: 'Nimbus Cloud', kind: 'service', reached_over: ['INET'], tags: [] }
+		{ name: 'Nimbus Cloud', kind: 'application', reached_over: ['INET'], tags: [] }
 	],
 	tenants: [{ name: 'T1' }],
 	tunnels: [
@@ -131,7 +141,8 @@ export const layeredFixture: Topology = {
 			rides: 'black',
 			a: { device: 'a-wan-01', interface: 'Tunnel10', source: 'Loopback0' },
 			b: { device: 'c-wan-01', interface: 'Tunnel10', source: 'Loopback0' },
-			tags: []
+			tags: [],
+			edges: []
 		},
 		{
 			name: 'GREY-A-C',
@@ -139,7 +150,8 @@ export const layeredFixture: Topology = {
 			rides: 'blue',
 			a: { device: 'a-acc-01', interface: 'Tunnel20' },
 			b: { device: 'c-acc-02', interface: 'Tunnel20' },
-			tags: ['secure']
+			tags: ['secure'],
+			edges: []
 		}
 	],
 	fabrics: [
@@ -153,7 +165,8 @@ export const layeredFixture: Topology = {
 				{ device: 'b-wan-01', interface: 'Tunnel100', role: 'hub' },
 				{ device: 'c-wan-01', interface: 'Tunnel100', role: 'spoke' }
 			],
-			tags: []
+			tags: [],
+			edges: []
 		}
 	],
 	terms: {}
