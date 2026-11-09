@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { beneath, carried, fabricTunnels, footprint, layersOf, onDemand } from './layers.ts';
 import { term, termWords } from './terms.ts';
-import { layeredIndex } from './test-fixture.ts';
+import { layeredFixture, layeredIndex } from './test-fixture.ts';
 import { deviceEnds, endName, farDevice, indexTopology, portName } from './topology.ts';
 import type { Fabric } from './api/topology.ts';
 
@@ -100,8 +100,25 @@ describe('footprint', () => {
 		expect([...footprint(index, { kind: 'tenant', id: 'T1' }).nodes]).toEqual(['external:r1-c']);
 	});
 
+	it('is the members of a resource, inner resources included', () => {
+		const t = structuredClone(layeredFixture);
+		t.links = t.links.map((l) =>
+			l.circuit?.circuit_id.a === 'NO-1' ? { ...l, enterprise_cid: { a: 'A-INET-01', z: null } } : l
+		);
+		const res = { tags: [], circuits: [], tunnels: [], fabrics: [], resources: [] };
+		t.resources = [
+			{ ...res, name: 'Access', circuits: ['A-INET-01'] },
+			{ ...res, name: 'Cloud', tunnels: ['GREY-A-C'], resources: ['Access'] }
+		];
+		const f = footprint(indexTopology(t), { kind: 'resource', id: 'Cloud' });
+		expect([...f.devices].sort()).toEqual(['a-acc-01', 'a-wan-01', 'c-acc-02']);
+		expect([...f.links]).toEqual(['a-wan-01:GigabitEthernet0/0/0--transport:INET']);
+		expect([...f.sites].sort()).toEqual(['A', 'C']);
+	});
+
 	it('is empty for a name not in the topology', () => {
 		expect(footprint(index, { kind: 'network', id: 'gray' }).devices.size).toBe(0);
+		expect(footprint(index, { kind: 'resource', id: 'gray' }).devices.size).toBe(0);
 	});
 });
 

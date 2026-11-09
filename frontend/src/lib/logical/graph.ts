@@ -13,6 +13,8 @@
  * a tenant's network brings forward the places of the network it rides.
  * With no network chosen, every network is shown.
  * Edges of different networks between the same nodes stay apart.
+ * A resource with any member drawn is a node of its own too, with a dotted
+ * edge to each member drawn.
  */
 import {
 	beyondNode,
@@ -23,8 +25,11 @@ import {
 	type GraphEdge,
 	type GraphNode
 } from '../graph/model.ts';
+import type { ResourceStatus } from '../api/status.ts';
 import { beneath, fabricTunnels, layersOf, type Slice } from '../layers.ts';
-import { depthColor } from '../theme.ts';
+import { membersOf } from '../resources.ts';
+import { STATUS_COLOR, STATUS_GLYPH } from '../status.ts';
+import { COLOR, depthColor } from '../theme.ts';
 import { deviceEnds, isDeviceEnd, nodeKey, siteOf, type TopologyIndex } from '../topology.ts';
 
 export interface LogicalGraph {
@@ -38,12 +43,17 @@ export interface LogicalGraph {
 
 const FABRIC_W = 120;
 const FABRIC_H = 56;
+const RESOURCE_W = 30;
+const RESOURCE_H = 26;
 
 /** A tunnel spokes of a fabric built to each other on demand, `FABRIC:a~b`, and its network. */
 export interface BuiltTunnel {
 	tunnel: string;
 	network: string;
 }
+
+/** A resource's status, while live state is shown. */
+export type ResourceState = Pick<ResourceStatus, 'name' | 'status'>;
 
 /**
  * Build the logical view's graph.
@@ -53,6 +63,7 @@ export interface BuiltTunnel {
  * @param expanded - Sites to show device by device.
  * @param withUnder - Also draw, faintly, what the networks shown ride.
  * @param built - Spoke-to-spoke tunnels up now, drawn for the networks shown.
+ * @param states - Resources' status, to color them by; none for neutral.
  * @returns Nodes and edges, and which networks are shown and under them.
  */
 export function logicalGraph(
@@ -60,7 +71,8 @@ export function logicalGraph(
 	chosen: string[],
 	expanded: ReadonlySet<string>,
 	withUnder = true,
-	built: BuiltTunnel[] = []
+	built: BuiltTunnel[] = [],
+	states: ResourceState[] = []
 ): LogicalGraph {
 	const layers = layersOf(index);
 	const shown = chosen.length
@@ -231,10 +243,80 @@ export function logicalGraph(
 		if (beyond) nodes.push(beyond);
 	}
 	const drawn = new Set(nodes.map((n) => n.id));
+	const kept = [...edges.values()].filter((e) => drawn.has(e.source) && drawn.has(e.target));
+	const resources = resourceParts(index, kept, drawn, nodeOf, states);
 	return {
-		nodes,
-		edges: [...edges.values()].filter((e) => drawn.has(e.source) && drawn.has(e.target)),
+		nodes: [...nodes, ...resources.nodes],
+		edges: [...kept, ...resources.edges],
 		shown,
 		under
 	};
+}
+
+/**
+ * The resources with any member drawn, inner resources' included: a node
+ * each, and a dotted edge from it to each member drawn: a circuit's devices
+ * and a tunnel's own ends (or their collapsed sites), a fabric's node, and
+ * an inner resource's node.
+ */
+function resourceParts(
+	index: TopologyIndex,
+	edges: GraphEdge[],
+	drawn: Set<string>,
+	nodeOf: (device: string) => string,
+	states: ResourceState[]
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
+	const links = new Set(edges.flatMap((e) => e.linkIds));
+	const tunnels = new Set(edges.flatMap((e) => e.tunnels ?? []));
+	// The drawn nodes each resource's own members are at.
+	const at = new Map<string, Set<string>>();
+	for (const r of index.topology.resources) {
+		const found = new Set<string>();
+		for (const m of membersOf(index, r)) {
+			if (m.kind === 'circuit' && m.link && links.has(m.link.id)) {
+				for (const e of deviceEnds(m.link)) found.add(nodeOf(e.device));
+			} else if (m.kind === 'tunnel' && tunnels.has(m.name)) {
+				const t = index.tunnels.get(m.name);
+				if (t) found.add(nodeOf(t.a.device));
+				if (t && 'device' in t.b) found.add(nodeOf(t.b.device));
+			} else if (m.kind === 'fabric') {
+				found.add(`fabric:${m.name}`);
+			}
+		}
+		at.set(r.name, new Set([...found].filter((n) => drawn.has(n))));
+	}
+	// Shown when anything inside is drawn; the topology has no resource inside itself.
+	const shows = (name: string): boolean =>
+		(at.get(name)?.size ?? 0) > 0 || (index.resources.get(name)?.resources ?? []).some(shows);
+	const nodes: GraphNode[] = [];
+	const members: GraphEdge[] = [];
+	for (const r of index.topology.resources) {
+		if (!shows(r.name)) continue;
+		const id = `resource:${r.name}`;
+		const status = states.find((s) => s.name === r.name)?.status;
+		const glyph = status ? STATUS_GLYPH[status] : '';
+		nodes.push({
+			id,
+			kind: 'resource',
+			label: glyph ? `${glyph} ${r.name}` : r.name,
+			site: '',
+			w: RESOURCE_W,
+			h: RESOURCE_H,
+			tint: status ? STATUS_COLOR[status] : COLOR.muted
+		});
+		const inner = r.resources.filter(shows).map((n) => `resource:${n}`);
+		for (const target of [...(at.get(r.name) ?? []), ...inner]) {
+			members.push({
+				id: `member|${id}~${target}`,
+				source: id,
+				target,
+				linkIds: [],
+				kind: 'member',
+				capacityMbps: 0,
+				sourceLabel: '',
+				targetLabel: ''
+			});
+		}
+	}
+	return { nodes, edges: members };
 }

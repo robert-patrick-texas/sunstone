@@ -3,11 +3,13 @@
  * whole network and each named network a failure reaches, its status after
  * and what it loses: tunnels, circuits at each site, other links, and sites
  * cut off from it ("black loses 2 of 4 circuits at HOU; blue, grey stay
- * up"). Shared risks name what fails several of a network's tunnels at
- * once. The server works both out (`backend/src/sunstone/across.py`).
+ * up"), and each resource whose status changes, and why. Shared risks
+ * name what fails several of a network's tunnels at once. The server works
+ * both out (`backend/src/sunstone/across.py`).
  */
 import type { NetworkImpact } from './api/analysis.ts';
 import type { Risk, RiskItem } from './api/risks.ts';
+import type { components } from './api/schema.d.ts';
 import type { Status } from './api/status.ts';
 import { layersOf } from './layers.ts';
 import type { Failure } from './state.svelte.ts';
@@ -176,6 +178,38 @@ export function lineDetail(line: NetworkLine): string {
 	if (lost.length) return lost.join(' · ');
 	const up = line.network !== null && line.after === 'operational';
 	return [up ? 'Stays up' : '', line.note ?? ''].filter(Boolean).join(', ');
+}
+
+/** What some failures do to one resource. */
+export type ResourceImpact = components['schemas']['ResourceImpact'];
+
+/** What failures do to one resource, ready to show. */
+export interface ResourceLine {
+	name: string;
+	/** Its status, with what it was if that changes: `Operational → Degraded`. */
+	status: string;
+	after: Status;
+	/** Why, from its members: `DAL-INET-01 down, IAD-INET-01: iad-wan-01 down`. */
+	detail: string;
+}
+
+/**
+ * One resource's line in a "what if" answer.
+ *
+ * @param impact - What the failures do to it.
+ * @returns Its name, its status, and why it reads as it does.
+ */
+export function resourceLine(impact: ResourceImpact): ResourceLine {
+	const { name, before, after } = impact;
+	return {
+		name,
+		status:
+			before === after.status
+				? STATUS_LABEL[after.status]
+				: `${STATUS_LABEL[before]} → ${STATUS_LABEL[after.status]}`,
+		after: after.status,
+		detail: after.reasons.join(', ')
+	};
 }
 
 /** Most networks named in a problem's line before "and N more". */

@@ -7,6 +7,8 @@ medium, the port channel it is a member of, the MACsec on its ports, what
 LLDP and CDP should show on our port, and its roles at the edge, each with
 what it does to the security boundary. Roles not documented say whether they
 are implied by the far end, or TBD. MACsec says what it is carried on.
+A link's priority says where it comes from and what it does, with who
+answers for it first; and each connection names the resources that hold it.
 -->
 <script lang="ts">
 	import type { Fabric, Link, Tunnel } from './api/topology.ts';
@@ -28,6 +30,8 @@ are implied by the far end, or TBD. MACsec says what it is carried on.
 		tunnelRoles,
 		type Roles
 	} from './connections.ts';
+	import { linkRating, PRIORITY_EFFECT, ratingText, responsibleText } from './priorities.ts';
+	import { resourcesHolding } from './resources.ts';
 	import { select } from './state.svelte.ts';
 	import { linkName, shortInterface, type TopologyIndex } from './topology.ts';
 
@@ -48,6 +52,7 @@ are implied by the far end, or TBD. MACsec says what it is carried on.
 			const { link } = item;
 			const macsec = macsecOn(topology, link);
 			const lag = lagOf(topology, link);
+			const rating = linkRating(topology, link);
 			return {
 				cidLabel: link.circuit ? 'CID' : 'Cable ID',
 				cid: link.enterprise_cid,
@@ -63,7 +68,10 @@ are implied by the far end, or TBD. MACsec says what it is carried on.
 				members: lag ? lagMembers(topology, lag) : [],
 				macsec,
 				carriedOn: [] as Link[],
-				roles: linkRoles(topology, link)
+				roles: linkRoles(topology, link),
+				rating,
+				responsible: responsibleText(topology, link, rating),
+				resources: resourcesHolding(index, { kind: 'links', ids: [link.id] })
 			};
 		}
 		const it = item.kind === 'tunnel' ? item.tunnel : item.fabric;
@@ -84,7 +92,15 @@ are implied by the far end, or TBD. MACsec says what it is carried on.
 			members: [] as Link[],
 			macsec: [] as Tunnel[],
 			carriedOn: item.kind === 'tunnel' && macsec ? macsecLinks(topology, item.tunnel) : [],
-			roles: item.kind === 'tunnel' ? tunnelRoles(topology, item.tunnel) : fabricRoles(item.fabric)
+			roles: item.kind === 'tunnel' ? tunnelRoles(topology, item.tunnel) : fabricRoles(item.fabric),
+			rating: null,
+			responsible: null,
+			resources: resourcesHolding(
+				index,
+				item.kind === 'tunnel'
+					? { kind: 'tunnel', id: item.tunnel.name }
+					: { kind: 'fabric', id: item.fabric.name }
+			)
 		} satisfies Record<string, unknown> & { roles: Roles };
 	});
 
@@ -204,6 +220,28 @@ are implied by the far end, or TBD. MACsec says what it is carried on.
 			<li><b>{edgeLabel(edge)}</b> <span class="muted">· {edgeBoundary(edge)}</span></li>
 		{/each}
 	</ul>
+{/if}
+{#if facts.rating || facts.resources.length}
+	<dl>
+		{#if facts.rating}
+			<dt>Priority</dt>
+			<dd>
+				{ratingText(facts.rating)}
+				<span class="muted">· {PRIORITY_EFFECT[facts.rating.priority]}</span>
+			</dd>
+			<dt title="Who answers for it first when it is down">Responsible</dt>
+			<dd>{facts.responsible}</dd>
+		{/if}
+		{#if facts.resources.length}
+			<dt title="The resources that list it as a member">Resources</dt>
+			<dd>
+				{#each facts.resources as r, i (r.name)}{#if i}{', '}{/if}<button
+						class="link"
+						onclick={() => select({ kind: 'resource', id: r.name }, true)}>{r.name}</button
+					>{/each}
+			</dd>
+		{/if}
+	</dl>
 {/if}
 
 <style>

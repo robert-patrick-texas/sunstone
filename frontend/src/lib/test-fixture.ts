@@ -75,7 +75,9 @@ export const fixture: Topology = {
 	tunnels: [],
 	fabrics: [],
 	lags: [],
-	terms: {}
+	terms: {},
+	priorities: {},
+	resources: []
 };
 
 export function fixtureIndex(): TopologyIndex {
@@ -175,7 +177,9 @@ export const layeredFixture: Topology = {
 			edges: []
 		}
 	],
-	terms: {}
+	terms: {},
+	priorities: {},
+	resources: []
 };
 
 export function layeredIndex(): TopologyIndex {

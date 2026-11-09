@@ -16,6 +16,7 @@ function problem(id: string, kind: Problem['kind'], extra: Partial<Problem> = {}
 		ack: null,
 		team: null,
 		urgency: 'high',
+		priority: 'medium',
 		paging: null,
 		networks: [],
 		...extra
@@ -49,14 +50,15 @@ describe('slidesFor', () => {
 });
 
 describe('tally', () => {
-	it('counts problems no one is on by kind, and the handled ones apart', () => {
+	it('counts problems no one is on, high priority and by kind, and the handled ones apart', () => {
 		const counts = tally([
 			problem('a', 'outage'),
-			problem('b', 'outage'),
-			problem('c', 'busy', { ack: ACK }),
+			problem('b', 'outage', { priority: 'high' }),
+			problem('c', 'busy', { ack: ACK, priority: 'high' }),
 			problem('d', 'nodata')
 		]);
 		expect(counts).toEqual({
+			high: 1,
 			kinds: [
 				{ kind: 'outage', short: 'unreachable', count: 2 },
 				{ kind: 'nodata', short: 'no data', count: 1 }

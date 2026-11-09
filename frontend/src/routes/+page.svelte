@@ -20,6 +20,7 @@ open, and leaves it as it was when it closes.
 		fetchProblems,
 		fetchWhatIf,
 		type NetworkImpact,
+		type ResourceImpact,
 		type Problem
 	} from '#lib/api/analysis.ts';
 	import { fetchRisks, type RiskReport } from '#lib/api/risks.ts';
@@ -146,6 +147,8 @@ open, and leaves it as it was when it closes.
 	let whatIf = $state.raw<Impact | null>(null);
 	/** What the "what if" failures do to the whole network and each named network. */
 	let whatIfNetworks = $state.raw<NetworkImpact[]>([]);
+	/** The resources the "what if" failures change. */
+	let whatIfResources = $state.raw<ResourceImpact[]>([]);
 	let whatIfProblem = $state<string | null>(null);
 	/** Each named network's shared risks, for the network as documented or,
 	 * while live state is shown, on top of what is down in it. */
@@ -372,6 +375,7 @@ open, and leaves it as it was when it closes.
 		if (failures.length === 0) {
 			whatIf = null;
 			whatIfNetworks = [];
+			whatIfResources = [];
 			whatIfProblem = null;
 			return;
 		}
@@ -381,6 +385,7 @@ open, and leaves it as it was when it closes.
 				if (stopped) return;
 				whatIf = answer.impact;
 				whatIfNetworks = answer.networks;
+				whatIfResources = answer.resources;
 				whatIfProblem = null;
 			},
 			(e: unknown) => {
@@ -804,7 +809,7 @@ open, and leaves it as it was when it closes.
 		</header>
 	{/if}
 	{#if ui.live && events && !ui.wall.on}
-		<Timeline log={events} />
+		<Timeline log={events} {index} />
 	{/if}
 	<main>
 		{#if problem}
@@ -872,11 +877,11 @@ open, and leaves it as it was when it closes.
 				{#key index}
 					{#key ui.view}
 						{#if ui.view === 'geo'}
-							<GeoView {index} {path} {impact} {live} discovery={drift} />
+							<GeoView {index} {path} {impact} {live} {status} discovery={drift} />
 						{:else if ui.view === 'hierarchy'}
 							<HierarchyView {index} {path} {impact} {live} discovery={drift} />
 						{:else if ui.view === 'logical'}
-							<LogicalView {index} {path} {impact} {live} />
+							<LogicalView {index} {path} {impact} {live} {status} />
 						{:else}
 							<TopologyView {index} {path} {impact} {live} discovery={drift} />
 						{/if}
@@ -888,6 +893,9 @@ open, and leaves it as it was when it closes.
 					discovery={drift !== null}
 					layers={index.topology.networks.length > 0 &&
 						(ui.view === 'logical' || ui.networks.length > 0)}
+					resources={index.topology.resources.length > 0 &&
+						(ui.view === 'geo' || ui.view === 'logical')}
+					map={ui.view === 'geo'}
 				/>
 				{#if ui.pathFrom}
 					<p class="picking" aria-live="polite">
@@ -903,6 +911,7 @@ open, and leaves it as it was when it closes.
 					{impact}
 					problem={focused}
 					{whatIfNetworks}
+					{whatIfResources}
 					{whatIfProblem}
 					{risks}
 					{windows}

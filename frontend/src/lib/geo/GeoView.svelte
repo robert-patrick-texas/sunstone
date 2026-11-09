@@ -7,8 +7,10 @@ its own color with everything else faded. With live state, sites and
 devices take their health colors and glyphs, and links their load colors;
 links that are down or partly down are dashed, and links with no data dotted.
 An impact is drawn like a path: affected sites, devices, and links in impact
-styles, everything else faded. Where the map is goes into `ui.camera`, for
-links; a link's camera, if any, is where the map opens.
+styles, everything else faded. Resources are hexagons amid their members'
+sites, with dotted leaders to them; with live state, in their status colors.
+Where the map is goes into `ui.camera`, for links; a link's camera, if any,
+is where the map opens.
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
@@ -28,12 +30,14 @@ links; a link's camera, if any, is where the map opens.
 	// hand it the worker's emitted URL instead.
 	import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 	import type { Comparison } from '../api/discovery.ts';
+	import type { StatusReport } from '../api/status.ts';
 	import type { Impact } from '../impact.ts';
 	import { timed } from '../perf.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
 	import { fromLink, isPhysical, select, ui, type AnySelection } from '../state.svelte.ts';
 	import { footprint } from '../layers.ts';
+	import { STATUS_COLOR } from '../status.ts';
 	import {
 		COLOR,
 		DRIFT_COLOR,
@@ -52,6 +56,8 @@ links; a link's camera, if any, is where the map opens.
 		linkFeatures,
 		networkArcs,
 		pairKey,
+		resourceFeatures,
+		resourcePositions,
 		seenFeatures,
 		siteFeatures,
 		sitePairFeatures,
@@ -64,12 +70,15 @@ links; a link's camera, if any, is where the map opens.
 		path,
 		impact,
 		live,
+		status,
 		discovery
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
 		impact: Impact | null;
 		live: LiveIndex | null;
+		/** Every network's and resource's status, while live state is shown. */
+		status: StatusReport | null;
 		/** Discovery against the documentation, to draw when there is no path or impact. */
 		discovery: Comparison | null;
 	} = $props();
@@ -82,9 +91,19 @@ links; a link's camera, if any, is where the map opens.
 	const FIT_PADDING = { top: 60, right: 60, bottom: 100, left: 60 };
 	const DEVICE_FOCUS_ZOOM = 16.5;
 	// Topmost first: the order clicks are resolved in when features overlap.
-	const SOURCES = ['devices', 'sites', 'seen', 'device-links', 'site-links', 'network-arcs'];
+	const SOURCES = [
+		'resources',
+		'devices',
+		'sites',
+		'seen',
+		'device-links',
+		'site-links',
+		'network-arcs'
+	];
 	const LINE_STYLES = ['', '-dashed', '-dotted'];
 	const CLICKABLE = [
+		'resources',
+		'resource-labels',
 		'devices',
 		'sites',
 		'seen-points',
@@ -93,6 +112,8 @@ links; a link's camera, if any, is where the map opens.
 		...['device-links', 'site-links'].flatMap((s) => LINE_STYLES.map((style) => s + style))
 	];
 	const FONT = ['Noto Sans Regular'];
+	/** A resource's hexagon, center to corner, in pixels. */
+	const HEX_RADIUS = 8;
 
 	let container: HTMLDivElement;
 	let map = $state.raw<MapLibre | null>(null);
@@ -105,6 +126,7 @@ links; a link's camera, if any, is where the map opens.
 	const positions = untrack(() => devicePositions(index));
 	const pairs = untrack(() => sitePairs(index));
 	const pairOfLink = new Map(pairs.flatMap((p) => p.linkIds.map((id) => [id, p.key] as const)));
+	const resourceAt = untrack(() => resourcePositions(index));
 
 	const roleColor: ExpressionSpecification = [
 		'match',
@@ -299,6 +321,30 @@ links; a link's camera, if any, is where the map opens.
 				}
 			});
 		}
+		// Resources: dotted leaders from each to its members' sites, under the sites.
+		m.addSource('resources', {
+			type: 'geojson',
+			data: resourceFeatures(
+				index,
+				resourceAt,
+				untrack(() => status)
+			),
+			promoteId: 'id'
+		});
+		m.addLayer({
+			id: 'resource-leaders',
+			type: 'line',
+			source: 'resources',
+			maxzoom: DEVICE_ZOOM,
+			filter: ['==', ['geometry-type'], 'LineString'],
+			layout: { 'line-cap': 'round' },
+			paint: {
+				'line-color': ['case', isSelected, COLOR.selected, COLOR.muted],
+				'line-width': ['case', isSelected, 2, 1.2],
+				'line-opacity': ['case', isSelected, 1, 0.5],
+				'line-dasharray': [0.2, 3]
+			}
+		});
 		// Tunnels of the networks shown, as arcs between their sites.
 		m.addSource('network-arcs', {
 			type: 'geojson',
@@ -521,6 +567,70 @@ links; a link's camera, if any, is where the map opens.
 				'text-halo-width': 1.5
 			}
 		});
+		// Resources' hexagons over everything at their zoom: a ring under one selected,
+		// the status color and glyph with live state, and the name beside it.
+		m.addImage('resource-none', hexagon(COLOR.muted, COLOR.background, HEX_RADIUS), {
+			pixelRatio: 2
+		});
+		for (const [s, color] of Object.entries(STATUS_COLOR)) {
+			m.addImage(`resource-${s}`, hexagon(color, COLOR.background, HEX_RADIUS), {
+				pixelRatio: 2
+			});
+		}
+		m.addImage('resource-ring', hexagon(COLOR.selected, COLOR.selected, HEX_RADIUS + 3), {
+			pixelRatio: 2
+		});
+		const resourcePoint: FilterSpecification = ['==', ['geometry-type'], 'Point'];
+		m.addLayer({
+			id: 'resource-rings',
+			type: 'symbol',
+			source: 'resources',
+			maxzoom: DEVICE_ZOOM,
+			filter: resourcePoint,
+			layout: {
+				'icon-image': 'resource-ring',
+				'icon-allow-overlap': true,
+				'icon-ignore-placement': true
+			},
+			paint: { 'icon-opacity': ['case', isSelected, 1, 0] }
+		});
+		m.addLayer({
+			id: 'resources',
+			type: 'symbol',
+			source: 'resources',
+			maxzoom: DEVICE_ZOOM,
+			filter: resourcePoint,
+			layout: {
+				'icon-image': ['concat', 'resource-', ['coalesce', ['get', 'status'], 'none']],
+				'icon-allow-overlap': true,
+				'icon-ignore-placement': true,
+				'text-field': ['coalesce', ['get', 'glyph'], ''],
+				'text-font': FONT,
+				'text-size': 11,
+				'text-allow-overlap': true,
+				'text-ignore-placement': true
+			},
+			paint: { 'text-color': COLOR.background }
+		});
+		m.addLayer({
+			id: 'resource-labels',
+			type: 'symbol',
+			source: 'resources',
+			maxzoom: DEVICE_ZOOM,
+			filter: resourcePoint,
+			layout: {
+				'text-field': ['get', 'name'],
+				'text-font': FONT,
+				'text-size': 11,
+				'text-offset': [1.1, 0],
+				'text-anchor': 'left'
+			},
+			paint: {
+				'text-color': COLOR.text,
+				'text-halo-color': COLOR.background,
+				'text-halo-width': 1.5
+			}
+		});
 		m.addLayer({
 			id: 'device-labels',
 			type: 'symbol',
@@ -557,6 +667,8 @@ links; a link's camera, if any, is where the map opens.
 	function onClick(feature: MapGeoJSONFeature | undefined): void {
 		const p = feature?.properties ?? {};
 		switch (feature?.source) {
+			case 'resources':
+				return select({ kind: 'resource', id: String(p['name']) });
 			case 'devices':
 				return select({ kind: 'device', id: String(p['name']) });
 			case 'sites':
@@ -612,9 +724,9 @@ links; a link's camera, if any, is where the map opens.
 		);
 	});
 
-	// New snapshots, or a new impact or discovery to show, replace the features' properties.
+	// New snapshots and status, or a new impact or discovery, replace the features' properties.
 	$effect(() => {
-		const [m, l, i, d] = [map, live, impact, drift];
+		const [m, l, i, d, s] = [map, live, impact, drift, status];
 		if (!m) return;
 		untrack(() =>
 			timed('map update', () => {
@@ -624,6 +736,7 @@ links; a link's camera, if any, is where the map opens.
 				update('site-links', sitePairFeatures(index, pairs, l, i, d));
 				update('devices', deviceFeatures(index, positions, l, i));
 				update('device-links', linkFeatures(index.topology.links, positions, l, i, d));
+				update('resources', resourceFeatures(index, resourceAt, s));
 			})
 		);
 	});
@@ -682,7 +795,7 @@ links; a link's camera, if any, is where the map opens.
 						: inNetworks
 							? inNetwork
 							: null;
-		fade(m, shown, live !== null);
+		fade(m, shown, live !== null, shown !== null && !inNetworks);
 		const mark = (source: string, id: string) =>
 			m.setFeatureState({ source, id }, { selected: true });
 		if (selection?.kind === 'device') {
@@ -699,6 +812,11 @@ links; a link's camera, if any, is where the map opens.
 		} else if (selection) {
 			// A network, transport, tunnel, and so on: everywhere it is.
 			const where = footprint(index, selection);
+			if (selection.kind === 'resource') {
+				// A resource's own hexagon too, and its leaders to those sites.
+				mark('resources', selection.id);
+				for (const site of where.sites) mark('resources', `${selection.id}|${site}`);
+			}
 			for (const site of where.sites) mark('sites', site);
 			for (const device of where.devices) mark('devices', device);
 			for (const id of where.links) {
@@ -746,9 +864,15 @@ links; a link's camera, if any, is where the map opens.
 
 	/**
 	 * While a path or an impact is shown, everything else fades. Live load
-	 * colors need more opacity.
+	 * colors need more opacity. Resources, set aside, fade for a path, an
+	 * impact, or discovery; being in no network, not for networks shown.
 	 */
-	function fade(m: MapLibre, shown: ExpressionSpecification | null, liveShown: boolean): void {
+	function fade(
+		m: MapLibre,
+		shown: ExpressionSpecification | null,
+		liveShown: boolean,
+		aside: boolean
+	): void {
 		const opacity = (normal: number): ExpressionSpecification =>
 			shown ? ['case', isSelected, 1, shown, 1, FADED] : ['case', isSelected, 1, normal];
 		for (const style of LINE_STYLES) {
@@ -761,6 +885,44 @@ links; a link's camera, if any, is where the map opens.
 		m.setPaintProperty('sites', 'circle-stroke-opacity', opacity(1));
 		m.setPaintProperty('devices', 'circle-stroke-opacity', opacity(1));
 		m.setPaintProperty('device-glyphs', 'text-opacity', opacity(1));
+		const back = (normal: number): ExpressionSpecification => [
+			'case',
+			isSelected,
+			1,
+			aside ? FADED : normal
+		];
+		m.setPaintProperty('resource-leaders', 'line-opacity', back(0.5));
+		m.setPaintProperty('resources', 'icon-opacity', back(1));
+		m.setPaintProperty('resources', 'text-opacity', back(1));
+		m.setPaintProperty('resource-labels', 'text-opacity', back(1));
+	}
+
+	/**
+	 * A resource's hexagon, pointed at the sides as in the logical view, drawn
+	 * at twice its size for sharp screens.
+	 *
+	 * @param fill - Its color.
+	 * @param stroke - Its outline's color.
+	 * @param radius - Center to corner, in pixels.
+	 * @returns The image, for `addImage` with a pixel ratio of 2.
+	 */
+	function hexagon(fill: string, stroke: string, radius: number): ImageData {
+		const side = 4 * (radius + 2);
+		const canvas = document.createElement('canvas');
+		canvas.width = canvas.height = side;
+		const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+		ctx.beginPath();
+		for (let i = 0; i < 6; i++) {
+			const angle = (i * Math.PI) / 3;
+			ctx.lineTo(side / 2 + 2 * radius * Math.cos(angle), side / 2 + 2 * radius * Math.sin(angle));
+		}
+		ctx.closePath();
+		ctx.fillStyle = fill;
+		ctx.fill();
+		ctx.lineWidth = 3;
+		ctx.strokeStyle = stroke;
+		ctx.stroke();
+		return ctx.getImageData(0, 0, side, side);
 	}
 
 	/** Fit devices in view: their ring positions within one site, else their sites. */

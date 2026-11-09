@@ -4,8 +4,10 @@
  * by role at the edge, "TBD" included, or medium), named
  * networks, transports, external nodes, tunnels, fabrics, and tenants (by
  * name, tag, or technology, and by the organization's own word for what
- * they are), problems, maintenance windows, on-call teams and people, and
- * commands.
+ * they are), resources (by name, tag, or description), problems,
+ * maintenance windows, on-call teams and people, and commands. Links and
+ * devices are found by their priority too ("high"), defaults included,
+ * except medium by default, which nearly everything is.
  *
  * Every word typed must match something about an entry. A match counts for
  * more when it is a whole name than when it starts one, when it starts a
@@ -19,6 +21,7 @@
 import type { Problem } from './api/analysis.ts';
 import type { OnCall } from './api/oncall.ts';
 import type { Window } from './api/operations.ts';
+import type { Priority } from './api/topology.ts';
 import type { Command, CommandId } from './commands.ts';
 import {
 	edgeLabel,
@@ -37,6 +40,7 @@ import {
 	type Roles
 } from './connections.ts';
 import { span, targetName } from './maintenance.ts';
+import { linkRating, PRIORITY_LABEL } from './priorities.ts';
 import { KINDS } from './problem-kinds.ts';
 import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
 import {
@@ -72,6 +76,7 @@ export type EntryKind =
 	| 'tunnel'
 	| 'fabric'
 	| 'tenant'
+	| 'resource'
 	| 'window'
 	| 'team'
 	| 'person'
@@ -131,6 +136,7 @@ const CONTEXT = 1;
 const GROUPS: { kind: EntryKind; label: string; limit: number }[] = [
 	{ kind: 'problem', label: 'Problems', limit: 5 },
 	{ kind: 'network', label: 'Networks', limit: 5 },
+	{ kind: 'resource', label: 'Resources', limit: 4 },
 	{ kind: 'site', label: 'Sites', limit: 5 },
 	{ kind: 'device', label: 'Devices', limit: 8 },
 	{ kind: 'link', label: 'Links', limit: 6 },
@@ -153,6 +159,10 @@ function roleFields(roles: Roles): Field[] {
 	const said = roles.source === 'tbd' ? ['TBD'] : roles.edges.map(edgeLabel);
 	return (said.length ? said : ['internal']).flatMap((w) => field(w, CONTEXT, 'words'));
 }
+
+/** A priority as words to find by: "High priority", none for none. */
+const priorityFields = (priority: Priority | null | undefined): Field[] =>
+	field(priority ? `${PRIORITY_LABEL[priority]} priority` : null, CONTEXT, 'words');
 
 /** Every value of the IDs a connection goes by, to find it by. */
 function idFields(...ids: Parameters<typeof idWords>[0][]): Field[] {
@@ -219,7 +229,8 @@ export function groupLabels(index: TopologyIndex): Partial<Record<EntryKind, str
 }
 
 /**
- * The entry for a transport, external node, network, tunnel, fabric, or tenant.
+ * The entry for a transport, external node, network, tunnel, fabric,
+ * resource, or tenant.
  *
  * @param index - Topology index.
  * @param item - The selection.
@@ -327,6 +338,18 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 			...tags(f.tags)
 		]);
 	}
+	if (item.kind === 'resource') {
+		const r = index.resources.get(item.id);
+		if (!r) return null;
+		const count = r.circuits.length + r.tunnels.length + r.fabrics.length + r.resources.length;
+		const detail = [r.description, `${count} member${count === 1 ? '' : 's'}`];
+		return entry(head(r.name, detail.filter(Boolean).join(' · ')), target, [
+			...field(r.name, NAME),
+			...field(r.description, CONTEXT, 'words'),
+			...field('Resource', CONTEXT, 'words'),
+			...tags(r.tags)
+		]);
+	}
 	const t = index.tenants.get(item.id);
 	if (!t) return null;
 	const networks = index.topology.networks.filter((n) => n.tenant === t.name).map((n) => n.name);
@@ -344,7 +367,7 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
  *
  * @param index - Topology index.
  * @param item - A device, site, or links, or a transport, external node,
- *   network, tunnel, fabric, or tenant.
+ *   network, tunnel, fabric, resource, or tenant.
  * @returns The entry, or null if it is not in the network.
  */
 export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | null {
@@ -388,7 +411,8 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 				...field(device.platform, PART),
 				...field(ROLE_LABEL[device.role], CONTEXT, 'words'),
 				...field(device.site, CONTEXT),
-				...field(site?.name, CONTEXT)
+				...field(site?.name, CONTEXT),
+				...priorityFields(device.priority)
 			],
 			ipv4(device.mgmt_ip ?? '') ?? undefined
 		);
@@ -444,6 +468,8 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 	const lag = link.a.lag ?? far?.lag;
 	const roles = linkRoles(index.topology, link);
 	const edges = roles.edges.length || roles.source === 'tbd' ? rolesText(roles) : null;
+	const rating = linkRating(index.topology, link);
+	const plain = rating.priority === 'medium' && rating.source === 'default';
 	// The only member of its channel goes by the channel's IDs too.
 	const channel = lagOf(index.topology, link);
 	const alone = channel && lagMembers(index.topology, channel).length === 1 ? channel : null;
@@ -468,6 +494,7 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 			...field(serviceText(index.topology, link), CONTEXT, 'words'),
 			...field(macsecOn(index.topology, link).length ? 'MACsec' : null, CONTEXT, 'words'),
 			...roleFields(roles),
+			...priorityFields(plain ? null : rating.priority),
 			...field(link.a.device, PART),
 			...field(endName(link.b), PART),
 			...interfaceFields(link.a.interface, PART),
@@ -486,7 +513,7 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
  * @returns The entries.
  */
 export function topologyEntries(index: TopologyIndex): Entry[] {
-	const { networks, transports, externals, tunnels, fabrics, tenants } = index.topology;
+	const { networks, transports, externals, tunnels, fabrics, tenants, resources } = index.topology;
 	const items: AnySelection[] = [
 		...index.topology.sites.map((s) => ({ kind: 'site' as const, id: s.code })),
 		...index.topology.devices.map((d) => ({ kind: 'device' as const, id: d.name })),
@@ -501,7 +528,8 @@ export function topologyEntries(index: TopologyIndex): Entry[] {
 		...externals.map((e) => ({ kind: 'external' as const, id: e.name })),
 		...tunnels.map((t) => ({ kind: 'tunnel' as const, id: t.name })),
 		...fabrics.map((f) => ({ kind: 'fabric' as const, id: f.name })),
-		...tenants.map((t) => ({ kind: 'tenant' as const, id: t.name }))
+		...tenants.map((t) => ({ kind: 'tenant' as const, id: t.name })),
+		...resources.map((r) => ({ kind: 'resource' as const, id: r.name }))
 	];
 	return items.flatMap((item) => itemEntry(index, item) ?? []);
 }

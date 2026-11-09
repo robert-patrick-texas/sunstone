@@ -4,6 +4,50 @@ Release notes, newest first. `tools/release` takes each release's notes from
 its section here, and from the sections of any versions since the last
 release that were never released on their own.
 
+## 0.10.0
+
+- Priorities on cables and circuits: `ignored`, `low`, `medium`, or
+  `high`, for how far an outage climbs and how urgent its problems are.
+  An ignored one counts toward no status and raises no problem, as an
+  access port users come and go on; a low one degrades its site at most;
+  a medium one climbs as every link did before; a high one climbs too,
+  and its problems come first, marked High, in Problems (a group of their
+  own, by kind or by region), on the wall display, and in the handover. A
+  link's own `priority` comes first, then one its devices or its far end
+  give (a device's `high` puts its own problems first too), then the
+  default for its roles: low for access and interconnect, which the party
+  downstream answers for first, and medium for the rest. `priorities`
+  changes the defaults. Nothing is high unless the topology says so.
+- Link details give a link's priority, where it comes from, and what it
+  does ("Low · access, by default · degrades its site at most"), and who
+  answers for it first ("Alpha (tenant)", or the enterprise); a problem
+  says it too ("Alpha answers first"). Port channels give each member's.
+  Search finds links and devices by it ("high priority").
+- Resources: what the enterprise depends on beyond its own networks, such
+  as a way out to the world, a cloud, or a partner, each with a status of
+  its own. `resources` lists each one's circuits (by enterprise CID),
+  tunnels, fabrics, and other resources. A resource is operational while
+  every member is up and reached from the core, degraded when any is down
+  or cut off, and offline when none can be used. The map draws each as a
+  hexagon amid its members' sites, and the logical view as a node joined
+  to its members, colored by status with Live on. Its details list its
+  members and how each is now, and what it is part of; a circuit, tunnel,
+  or fabric names the resources it is in. Problems, the wall display, and
+  the handover list those not operational; a "what if" says which it
+  changes and how; search finds them by name, tag, or description.
+- The handover leaves ignored links out of its outages, and Events and the
+  time slider their going down and coming back.
+- The layered sample rates the data center interconnect's E-Lines and the
+  data centers' Internet circuits high, and has five resources: Global
+  Access (the ways out at the TIC gateways), Research Peering, Nimbus
+  Cloud access, Acme Logistics, and Branch VPN.
+- API: `GET /api/status` gives each resource's status, reasons, and
+  members; `POST /api/impact` the resources a "what if" changes; problems
+  carry `priority` and `responsible`; the handover gives its resources.
+- Fixed: the page failed ("500") with a network selected and Live on when
+  a shared risk new at that moment had the same consequence as one on the
+  network as documented.
+
 ## 0.9.0
 
 - What each connection is for at the edge of the enterprise. Links,

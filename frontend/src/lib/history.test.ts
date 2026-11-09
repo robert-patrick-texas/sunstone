@@ -11,6 +11,7 @@ import {
 	stepLater
 } from './history.ts';
 import { fixture, fixtureIndex } from './test-fixture.ts';
+import { indexTopology } from './topology.ts';
 
 const T0 = '2026-10-27T15:00:00Z';
 const T1 = '2026-10-27T15:05:00Z';
@@ -60,6 +61,14 @@ describe('eventRows', () => {
 		]);
 	});
 
+	it('leaves out ignored links going down and up, but not their load', () => {
+		const topology = structuredClone(fixture);
+		topology.links.find((l) => l.id === CIRCUIT)!.priority = 'ignored';
+		const rows = eventRows(indexTopology(topology), events, ALL);
+		expect(rows.map((r) => r.title)).not.toContain('Circuit ME-1 down');
+		expect(rows.map((r) => r.title)).toContain('Circuit ME-1 at 97%');
+	});
+
 	it('leaves out the categories turned off', () => {
 		const rows = eventRows(fixtureIndex(), events, new Set(['links', 'load'] as const));
 		expect(rows.map((r) => r.title)).toEqual(['Circuit ME-1 at 97%', 'Circuit ME-1 down']);
@@ -70,6 +79,13 @@ describe('downsBySteps', () => {
 	it('counts devices and links that went down at each step', () => {
 		const steps = downsBySteps(events, Date.parse(T0) - STEP_MS);
 		expect(Object.fromEntries(steps)).toEqual({ 1: 4 });
+	});
+
+	it('leaves out ignored links', () => {
+		const topology = structuredClone(fixture);
+		topology.links.find((l) => l.id === CIRCUIT)!.priority = 'ignored';
+		const steps = downsBySteps(events, Date.parse(T0) - STEP_MS, indexTopology(topology));
+		expect(Object.fromEntries(steps)).toEqual({ 1: 3 });
 	});
 });
 

@@ -5,6 +5,7 @@ import {
 	circuitsOf,
 	networkLine,
 	problemNetworks,
+	resourceLine,
 	riskFailure,
 	riskItemName,
 	riskSummary,
@@ -125,6 +126,32 @@ describe('networkLine', () => {
 		]);
 		expect(line.worse).toBe(false);
 		expect(lineDetail(line)).toBe('Stays up, over black degraded at C');
+	});
+});
+
+describe('resourceLine', () => {
+	const impact = (before: NetworkStatus['status'], after: NetworkStatus['status']) => ({
+		name: 'Global Access',
+		before,
+		after: {
+			name: 'Global Access',
+			status: after,
+			reasons: ['DAL-INET-01 down', 'IAD-INET-01: iad-wan-01 down'],
+			members: []
+		}
+	});
+
+	it('says what a resource goes from and to, and why', () => {
+		expect(resourceLine(impact('operational', 'degraded'))).toEqual({
+			name: 'Global Access',
+			status: 'Operational → Degraded',
+			after: 'degraded',
+			detail: 'DAL-INET-01 down, IAD-INET-01: iad-wan-01 down'
+		});
+	});
+
+	it('gives its status once when only why changes', () => {
+		expect(resourceLine(impact('degraded', 'degraded')).status).toBe('Degraded');
 	});
 });
 

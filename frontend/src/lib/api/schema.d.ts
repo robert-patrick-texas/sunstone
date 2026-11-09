@@ -1056,6 +1056,8 @@ export interface components {
             mgmt_ip?: string | null;
             /** Location */
             location?: string | null;
+            /** Priority */
+            priority?: ("ignored" | "low" | "medium" | "high") | null;
         };
         /**
          * DeviceCenter
@@ -1210,6 +1212,8 @@ export interface components {
              * @default []
              */
             tags: string[];
+            /** Priority */
+            priority?: ("ignored" | "low" | "medium" | "high") | null;
         };
         /**
          * ExternalEnd
@@ -1399,6 +1403,11 @@ export interface components {
              * @default []
              */
             networks: components["schemas"]["NetworkStatus"][];
+            /**
+             * Resources
+             * @default []
+             */
+            resources: components["schemas"]["ResourceStatus"][];
             /**
              * Incidents
              * @default []
@@ -1733,6 +1742,11 @@ export interface components {
             already: boolean;
             /** Networks */
             networks: components["schemas"]["NetworkImpact"][];
+            /**
+             * Resources
+             * @default []
+             */
+            resources: components["schemas"]["ResourceImpact"][];
         };
         /**
          * LayoutIn
@@ -1823,6 +1837,8 @@ export interface components {
              * @default []
              */
             neighbors: ("far-end" | "provider" | "nothing")[];
+            /** Priority */
+            priority?: ("ignored" | "low" | "medium" | "high") | null;
             /**
              * Id
              * @description Stable identifier that does not depend on which end is listed first.
@@ -1894,6 +1910,28 @@ export interface components {
             joined_by: string;
             /** Cleared At */
             cleared_at?: string | null;
+        };
+        /**
+         * MemberStatus
+         * @description One of a resource's members, and whether it can be used.
+         */
+        MemberStatus: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "circuit" | "tunnel" | "fabric" | "resource";
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "operational" | "degraded" | "offline";
+            /** Reason */
+            reason?: string | null;
+            /** Link */
+            link?: string | null;
         };
         /**
          * Message
@@ -2276,6 +2314,75 @@ export interface components {
             parent?: string | null;
         };
         /**
+         * Resource
+         * @description Something the enterprise depends on, with a status of its own from
+         *     its members': a way out to the world, a cloud, a partner. Its members
+         *     are circuits (any link, by its enterprise CID at either side), tunnels,
+         *     fabrics, and other resources, each listed by name.
+         */
+        Resource: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /**
+             * Circuits
+             * @default []
+             */
+            circuits: string[];
+            /**
+             * Tunnels
+             * @default []
+             */
+            tunnels: string[];
+            /**
+             * Fabrics
+             * @default []
+             */
+            fabrics: string[];
+            /**
+             * Resources
+             * @default []
+             */
+            resources: string[];
+        };
+        /**
+         * ResourceImpact
+         * @description What some failures do to one resource.
+         */
+        ResourceImpact: {
+            /** Name */
+            name: string;
+            /**
+             * Before
+             * @enum {string}
+             */
+            before: "operational" | "degraded" | "offline";
+            after: components["schemas"]["ResourceStatus"];
+        };
+        /**
+         * ResourceStatus
+         * @description A resource's status, from its members'.
+         */
+        ResourceStatus: {
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "operational" | "degraded" | "offline";
+            /** Reasons */
+            reasons: string[];
+            /** Members */
+            members: components["schemas"]["MemberStatus"][];
+        };
+        /**
          * Review
          * @description What accepting a fix would do, worked out against the network now.
          */
@@ -2373,6 +2480,14 @@ export interface components {
              */
             planned: string[];
             ack?: components["schemas"]["Ack"] | null;
+            /**
+             * Priority
+             * @default medium
+             * @enum {string}
+             */
+            priority: "low" | "medium" | "high";
+            /** Responsible */
+            responsible?: string | null;
             /** Team */
             team?: string | null;
             /**
@@ -2625,6 +2740,11 @@ export interface components {
             whole: components["schemas"]["NetworkStatus"];
             /** Networks */
             networks: components["schemas"]["NetworkStatus"][];
+            /**
+             * Resources
+             * @default []
+             */
+            resources: components["schemas"]["ResourceStatus"][];
         };
         /**
          * Step
@@ -2735,6 +2855,18 @@ export interface components {
             terms: {
                 [key: string]: string;
             };
+            /**
+             * Priorities
+             * @default {}
+             */
+            priorities: {
+                [key: string]: "ignored" | "low" | "medium" | "high";
+            };
+            /**
+             * Resources
+             * @default []
+             */
+            resources: components["schemas"]["Resource"][];
         };
         /**
          * Transport

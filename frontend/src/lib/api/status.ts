@@ -10,6 +10,8 @@ export type StatusReport = Schemas['StatusReport'];
 export type NetworkStatus = Schemas['NetworkStatus'];
 export type GroupStatus = Schemas['GroupStatus'];
 export type Status = NetworkStatus['status'];
+export type ResourceStatus = Schemas['ResourceStatus'];
+export type MemberStatus = Schemas['MemberStatus'];
 
 /**
  * Fetch every network's status as of a moment.

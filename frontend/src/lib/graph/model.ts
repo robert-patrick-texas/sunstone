@@ -18,16 +18,16 @@ export const SITE_H = 54;
 export interface GraphNode {
 	/**
 	 * Device name, {@link siteNodeId} for a site box or frame, or
-	 * `transport:NAME` or `external:NAME` for those.
+	 * `transport:NAME`, `external:NAME`, `fabric:NAME`, or `resource:NAME` for those.
 	 */
 	id: string;
-	kind: 'device' | 'site' | 'frame' | 'transport' | 'external' | 'fabric';
+	kind: 'device' | 'site' | 'frame' | 'transport' | 'external' | 'fabric' | 'resource';
 	label: string;
 	/** The site, or '' for a transport or external node. */
 	site: string;
 	/** What an external node is: a service, a partner's, or a tenant's. */
 	externalKind?: External['kind'];
-	/** A fabric's color, from how deep its network sits. */
+	/** A fabric's color, from how deep its network sits; a resource's, from its status. */
 	tint?: string;
 	role?: Role;
 	parent?: string;
@@ -48,9 +48,10 @@ export interface GraphEdge {
 	linkIds: string[];
 	/**
 	 * A cable or circuit, LAN or WAN; or, in the logical view, tunnels, a
-	 * fabric member's way into its fabric, or a service reached across a transport.
+	 * fabric member's way into its fabric, a service reached across a
+	 * transport, or a resource to one of its members, from its source.
 	 */
-	kind: 'lan' | 'wan' | 'tunnel' | 'fabric' | 'reach';
+	kind: 'lan' | 'wan' | 'tunnel' | 'fabric' | 'reach' | 'member';
 	capacityMbps: number;
 	sourceLabel: string;
 	targetLabel: string;

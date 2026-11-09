@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { fixtureIndex, layeredIndex } from '../test-fixture.ts';
+import { fixtureIndex, layeredFixture, layeredIndex } from '../test-fixture.ts';
 import { DEPTH_COLOR, IMPACT_COLOR, TUNNEL_COLOR } from '../theme.ts';
 import type { NetworkState } from '../api/state.ts';
+import type { StatusReport } from '../api/status.ts';
+import type { Resource, Topology } from '../api/topology.ts';
 import type { Impact } from '../impact.ts';
 import { indexState } from '../live.ts';
 import {
@@ -10,9 +12,12 @@ import {
 	linkFeatures,
 	networkArcs,
 	pairKey,
+	resourceFeatures,
+	resourcePositions,
 	siteFeatures,
 	sitePairs
 } from './geojson.ts';
+import { indexTopology } from '../topology.ts';
 
 describe('sitePairs', () => {
 	it('groups inter-site links by unordered site pair and skips intra-site links', () => {
@@ -201,5 +206,69 @@ describe('networks on the map', () => {
 		expect(of('corp|A|C')).toMatchObject({ impact: 'lost' });
 		expect(of('grey|A|C')).not.toHaveProperty('impact');
 		expect(of('grey|A|C')?.['color']).toBe(DEPTH_COLOR[1]);
+	});
+});
+
+describe('resources on the map', () => {
+	// The Internet circuits at A and C get enterprise CIDs for resources to name.
+	function withResources(resources: Pick<Resource, 'name' | 'circuits' | 'resources'>[]) {
+		const t: Topology = structuredClone(layeredFixture);
+		t.links = t.links.map((l) =>
+			l.circuit?.circuit_id.a === 'NO-1'
+				? { ...l, enterprise_cid: { a: 'A-INET-01', z: null } }
+				: l.circuit?.circuit_id.a === 'NO-2'
+					? { ...l, enterprise_cid: { a: 'C-INET-01', z: null } }
+					: l
+		);
+		t.resources = resources.map((r) => ({ tags: [], tunnels: [], fabrics: [], ...r }));
+		return indexTopology(t);
+	}
+	// Sites span 19.3 degrees of longitude, from A to B.
+	const STEP = 0.03 * (96.8 - 77.5);
+
+	it('places each in the middle of its sites, a step north of any spot taken', () => {
+		const index = withResources([
+			{ name: 'Access', circuits: ['A-INET-01', 'C-INET-01'], resources: [] },
+			{ name: 'Same', circuits: ['C-INET-01'], resources: ['Access'] },
+			{ name: 'At A', circuits: ['A-INET-01'], resources: [] },
+			{ name: 'Nowhere', circuits: ['nothing'], resources: [] }
+		]);
+		const at = resourcePositions(index);
+		const near = (name: string, lon: number, lat: number) => {
+			const [x, y] = at.get(name) ?? [NaN, NaN];
+			expect(x).toBeCloseTo(lon, 6);
+			expect(y).toBeCloseTo(lat, 6);
+		};
+		near('Access', (-96.8 - 95.4) / 2, (32.8 + 29.8) / 2);
+		// Its sites are Access's (its inner resource's included): above it.
+		near('Same', (-96.8 - 95.4) / 2, (32.8 + 29.8) / 2 + STEP);
+		// At one site only: just above that site.
+		near('At A', -96.8, 32.8 + STEP);
+		expect(at.has('Nowhere')).toBe(false);
+	});
+
+	it('draws a point for each and a leader to each of its sites, with status when live', () => {
+		const index = withResources([
+			{ name: 'Access', circuits: ['A-INET-01', 'C-INET-01'], resources: [] }
+		]);
+		const at = resourcePositions(index);
+		const plain = resourceFeatures(index, at).features;
+		expect(plain.map((f) => f.properties?.['id']).sort()).toEqual([
+			'Access',
+			'Access|A',
+			'Access|C'
+		]);
+		const leader = plain.find((f) => f.properties?.['id'] === 'Access|C');
+		expect(leader?.geometry.coordinates).toEqual([at.get('Access'), [-95.4, 29.8]]);
+		const point = plain.find((f) => f.geometry.type === 'Point');
+		expect(point?.properties).toEqual({ id: 'Access', name: 'Access' });
+
+		const report = {
+			resources: [{ name: 'Access', status: 'offline', reasons: [], members: [] }]
+		} as unknown as StatusReport;
+		const live = resourceFeatures(index, at, report).features.find(
+			(f) => f.geometry.type === 'Point'
+		);
+		expect(live?.properties).toMatchObject({ status: 'offline', glyph: '×' });
 	});
 });

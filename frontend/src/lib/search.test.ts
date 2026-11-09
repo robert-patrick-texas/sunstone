@@ -58,6 +58,7 @@ function problem(id: string, extra: Partial<Problem> = {}): Problem {
 		ack: null,
 		team: null,
 		urgency: 'high',
+		priority: 'medium',
 		paging: null,
 		networks: [],
 		...extra
@@ -245,5 +246,55 @@ describe('networks and what is layered over the links', () => {
 		const found = look('inet NO-2');
 		expect(labels(found)).toEqual([['Links', ['Circuit NO-2']]]);
 		expect(found[0]?.entries[0]?.detail).toBe('Northwind Fiber · c-wan-01 – INET · 500M · TBD');
+	});
+});
+
+describe('resources and priorities', () => {
+	const t = structuredClone(layeredFixture);
+	t.links = t.links.map((l) =>
+		l.circuit?.circuit_id.a === 'NO-1'
+			? { ...l, enterprise_cid: { a: 'A-INET-01', z: null }, priority: 'high' as const }
+			: l.id === link('c-wan-01:Te1/0/1', 'c-acc-01:Te1/0/49').id
+				? { ...l, priority: 'medium' as const }
+				: l
+	);
+	t.devices = t.devices.map((d) => (d.name === 'b-core-01' ? { ...d, priority: 'high' } : d));
+	t.resources = [
+		{
+			name: 'Global Access',
+			description: 'Ways out to the world',
+			tags: ['tic'],
+			circuits: ['A-INET-01'],
+			tunnels: [],
+			fabrics: [],
+			resources: []
+		}
+	];
+	const layered = indexTopology(t);
+	const look = (query: string) => search(query, [topologyEntries(layered)], groupLabels(layered));
+
+	it('finds a resource by name, tag, or a word of its description, and selects it', () => {
+		for (const query of ['global', 'tic', 'world']) {
+			expect(labels(look(query))).toEqual([['Resources', ['Global Access']]]);
+		}
+		const [found] = look('tic')[0]?.entries ?? [];
+		expect(found?.detail).toBe('Ways out to the world · 1 member');
+		expect(found?.target).toEqual({
+			kind: 'item',
+			item: { kind: 'resource', id: 'Global Access' }
+		});
+	});
+
+	it('finds links and devices by priority, defaults included', () => {
+		expect(labels(look('high priority'))).toEqual([
+			['Devices', ['b-core-01']],
+			['Links', ['b-wan-01 Hu1/0/1 – b-core-01 Hu1/0/1', 'Circuit A-INET-01']]
+		]);
+		// The tenant's encryptor is low for access, by default.
+		expect(labels(look('low'))).toEqual([['Links', ['c-acc-02 Gi1/0/9 – r1-c black']]]);
+	});
+
+	it('finds medium only where it is set, not by default', () => {
+		expect(labels(look('medium'))).toEqual([['Links', ['c-wan-01 Te1/0/1 – c-acc-01 Te1/0/49']]]);
 	});
 });

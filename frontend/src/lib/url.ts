@@ -127,7 +127,7 @@ export function readFailure(text: string, index: TopologyIndex): Failure | null 
 /**
  * Read anything that can be selected, if it is in the network: a device,
  * site, or links, or a transport, external node, network, tunnel, fabric,
- * or tenant by name.
+ * tenant, or resource by name.
  *
  * @param text - As written by {@link writeItem}.
  * @param index - Topology index.
@@ -143,7 +143,8 @@ export function readAnyItem(text: string, index: TopologyIndex): AnySelection | 
 		network: index.networks,
 		tunnel: index.tunnels,
 		fabric: index.fabrics,
-		tenant: index.tenants
+		tenant: index.tenants,
+		resource: index.resources
 	};
 	return known[kind as LayerKind].has(id) ? { kind: kind as LayerKind, id } : null;
 }

@@ -27,7 +27,8 @@ const REPORT: StatusReport = {
 		network('blue', { caveats: ['black degraded at D: Circuit NO-1 down'] }),
 		network('grey'),
 		network('red', { status: 'offline' })
-	]
+	],
+	resources: []
 };
 
 describe('network status', () => {

@@ -10,6 +10,7 @@ import type {
 	FarEnd,
 	Link,
 	NamedNetwork,
+	Resource,
 	Role,
 	Site,
 	Tenant,
@@ -44,6 +45,7 @@ export interface TopologyIndex {
 	tenants: Map<string, Tenant>;
 	tunnels: Map<string, Tunnel>;
 	fabrics: Map<string, Fabric>;
+	resources: Map<string, Resource>;
 }
 
 /** One link seen from one of its devices. */
@@ -157,7 +159,8 @@ export function indexTopology(topology: Topology): TopologyIndex {
 		externals: new Map(topology.externals.map((e) => [e.name, e])),
 		tenants: new Map(topology.tenants.map((t) => [t.name, t])),
 		tunnels: new Map(topology.tunnels.map((t) => [t.name, t])),
-		fabrics: new Map(topology.fabrics.map((f) => [f.name, f]))
+		fabrics: new Map(topology.fabrics.map((f) => [f.name, f])),
+		resources: new Map(topology.resources.map((r) => [r.name, r]))
 	};
 }
 

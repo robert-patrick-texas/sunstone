@@ -2255,6 +2255,23 @@
        }
       ],
       "title": "Location"
+     },
+     "priority": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "ignored",
+         "low",
+         "medium",
+         "high"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Priority"
      }
     },
     "additionalProperties": false,
@@ -2633,6 +2650,23 @@
       "type": "array",
       "title": "Tags",
       "default": []
+     },
+     "priority": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "ignored",
+         "low",
+         "medium",
+         "high"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Priority"
      }
     },
     "additionalProperties": false,
@@ -3127,6 +3161,14 @@
       },
       "type": "array",
       "title": "Networks",
+      "default": []
+     },
+     "resources": {
+      "items": {
+       "$ref": "#/components/schemas/ResourceStatus"
+      },
+      "type": "array",
+      "title": "Resources",
       "default": []
      },
      "incidents": {
@@ -3990,6 +4032,14 @@
       },
       "type": "array",
       "title": "Networks"
+     },
+     "resources": {
+      "items": {
+       "$ref": "#/components/schemas/ResourceImpact"
+      },
+      "type": "array",
+      "title": "Resources",
+      "default": []
      }
     },
     "additionalProperties": false,
@@ -4255,6 +4305,23 @@
       "title": "Neighbors",
       "default": []
      },
+     "priority": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "ignored",
+         "low",
+         "medium",
+         "high"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Priority"
+     },
      "id": {
       "type": "string",
       "title": "Id",
@@ -4445,6 +4512,64 @@
     ],
     "title": "Member",
     "description": "One problem in an incident, as it was when it joined."
+   },
+   "MemberStatus": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "circuit",
+       "tunnel",
+       "fabric",
+       "resource"
+      ],
+      "title": "Kind"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "operational",
+       "degraded",
+       "offline"
+      ],
+      "title": "Status"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "link": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Link"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "kind",
+     "name",
+     "status"
+    ],
+    "title": "MemberStatus",
+    "description": "One of a resource's members, and whether it can be used."
    },
    "Message": {
     "properties": {
@@ -5389,6 +5514,142 @@
     "title": "Region",
     "description": "A region sites are in, inside another region or at the top."
    },
+   "Resource": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tags",
+      "default": []
+     },
+     "circuits": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Circuits",
+      "default": []
+     },
+     "tunnels": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tunnels",
+      "default": []
+     },
+     "fabrics": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Fabrics",
+      "default": []
+     },
+     "resources": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Resources",
+      "default": []
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "Resource",
+    "description": "Something the enterprise depends on, with a status of its own from\nits members': a way out to the world, a cloud, a partner. Its members\nare circuits (any link, by its enterprise CID at either side), tunnels,\nfabrics, and other resources, each listed by name."
+   },
+   "ResourceImpact": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "before": {
+      "type": "string",
+      "enum": [
+       "operational",
+       "degraded",
+       "offline"
+      ],
+      "title": "Before"
+     },
+     "after": {
+      "$ref": "#/components/schemas/ResourceStatus"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "before",
+     "after"
+    ],
+    "title": "ResourceImpact",
+    "description": "What some failures do to one resource."
+   },
+   "ResourceStatus": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "operational",
+       "degraded",
+       "offline"
+      ],
+      "title": "Status"
+     },
+     "reasons": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Reasons"
+     },
+     "members": {
+      "items": {
+       "$ref": "#/components/schemas/MemberStatus"
+      },
+      "type": "array",
+      "title": "Members"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name",
+     "status",
+     "reasons",
+     "members"
+    ],
+    "title": "ResourceStatus",
+    "description": "A resource's status, from its members'."
+   },
    "Review": {
     "properties": {
      "finding": {
@@ -5647,6 +5908,27 @@
         "type": "null"
        }
       ]
+     },
+     "priority": {
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high"
+      ],
+      "title": "Priority",
+      "default": "medium"
+     },
+     "responsible": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Responsible"
      },
      "team": {
       "anyOf": [
@@ -6236,6 +6518,14 @@
       },
       "type": "array",
       "title": "Networks"
+     },
+     "resources": {
+      "items": {
+       "$ref": "#/components/schemas/ResourceStatus"
+      },
+      "type": "array",
+      "title": "Resources",
+      "default": []
      }
     },
     "additionalProperties": false,
@@ -6490,6 +6780,41 @@
       "type": "object",
       "title": "Terms",
       "default": {}
+     },
+     "priorities": {
+      "additionalProperties": {
+       "type": "string",
+       "enum": [
+        "ignored",
+        "low",
+        "medium",
+        "high"
+       ]
+      },
+      "propertyNames": {
+       "enum": [
+        "access",
+        "transit",
+        "interconnect",
+        "ingress",
+        "egress",
+        "peering",
+        "open",
+        "internal",
+        "tbd"
+       ]
+      },
+      "type": "object",
+      "title": "Priorities",
+      "default": {}
+     },
+     "resources": {
+      "items": {
+       "$ref": "#/components/schemas/Resource"
+      },
+      "type": "array",
+      "title": "Resources",
+      "default": []
      }
     },
     "additionalProperties": false,

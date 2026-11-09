@@ -1,12 +1,14 @@
 <!--
 @component
 The NOC wall display, for a screen no one sits at. A bar across the top
-gives the time, how fresh live state is, how many problems of each kind
-no one is on yet, and the networks degraded or offline; below it, the views show in turn an overview of the
-network, with a small label, then each of those problems close up, with a
-large caption saying where it is and who is on call for it, and a bar
-showing how long until the next. Moving the mouse shows controls; Space
-pauses, the arrow keys step, and Escape leaves.
+gives the time, how fresh live state is, how many problems no one is on
+yet, high priority and of each kind, and the networks and resources
+degraded or offline; below it, the views show in turn an overview of the
+network, with a small label, then each of those problems close up, high
+priority first and marked so, with a large caption saying where it is and
+who is on call for it, and a bar showing how long until the next. Moving
+the mouse shows controls; Space pauses, the arrow keys step, and Escape
+leaves.
 -->
 <script lang="ts">
 	import type { StatusReport } from './api/status.ts';
@@ -18,6 +20,7 @@ pauses, the arrow keys step, and Escape leaves.
 	import type { LiveIndex } from './live.ts';
 	import { personOf } from './oncall.ts';
 	import { MARK } from './problem-kinds.ts';
+	import { resourcesNeeding } from './resources.ts';
 	import { select, ui, type Selection } from './state.svelte.ts';
 	import { deviceEnds, siteOf, type TopologyIndex } from './topology.ts';
 	import { slidesFor, tally, type Slide } from './wall.ts';
@@ -42,6 +45,8 @@ pauses, the arrow keys step, and Escape leaves.
 	const troubled = $derived(
 		status ? needing(status).filter((n) => n.status !== 'operational') : []
 	);
+	// Resources not working as they should, offline first.
+	const resources = $derived(status ? resourcesNeeding(status) : []);
 
 	const CONTROLS_MS = 3000;
 
@@ -163,6 +168,8 @@ pauses, the arrow keys step, and Escape leaves.
 	>
 	<span class="counts" aria-live="polite">
 		{#if counts.kinds.length === 0}<span class="clear">No open problems</span>{/if}
+		{#if counts.high}<span class="count"><b class="high-mark">{counts.high} high priority</b></span
+			>{/if}
 		{#each counts.kinds as k (k.kind)}
 			<span class="count"
 				><i style:--c={MARK[k.kind].color} aria-hidden="true">{MARK[k.kind].glyph}</i>{k.count}
@@ -175,6 +182,13 @@ pauses, the arrow keys step, and Escape leaves.
 				><i style:--c={STATUS_COLOR[n.status]} aria-hidden="true">{STATUS_GLYPH[n.status]}</i
 				>{n.name}
 				{STATUS_LABEL[n.status].toLowerCase()}</span
+			>
+		{/each}
+		{#each resources as r (r.name)}
+			<span class="count"
+				><i style:--c={STATUS_COLOR[r.status]} aria-hidden="true">{STATUS_GLYPH[r.status]}</i
+				>{r.name}
+				{STATUS_LABEL[r.status].toLowerCase()}</span
 			>
 		{/each}
 	</span>
@@ -193,7 +207,12 @@ pauses, the arrow keys step, and Escape leaves.
 </div>
 
 {#if slide}
-	<div class="caption" class:overview={slide.kind === 'overview'} aria-live="polite">
+	<div
+		class="caption"
+		class:overview={slide.kind === 'overview'}
+		class:high={slide.kind === 'problem' && slide.problem.priority === 'high'}
+		aria-live="polite"
+	>
 		{#if slide.kind === 'overview'}
 			<p class="what">{slide.label}</p>
 		{:else}
@@ -201,7 +220,8 @@ pauses, the arrow keys step, and Escape leaves.
 			<p class="what">
 				<i style:--c={MARK[slide.problem.kind].color} aria-hidden="true"
 					>{MARK[slide.problem.kind].glyph}</i
-				>{slide.problem.title}
+				>{#if slide.problem.priority === 'high'}<b class="high-mark">High</b>{/if}{slide.problem
+					.title}
 			</p>
 			{#if slide.problem.detail}<p class="detail">{slide.problem.detail}</p>{/if}
 			{@const team = oncall?.teams.find((t) => t.id === slide.problem.team)}
@@ -311,6 +331,11 @@ pauses, the arrow keys step, and Escape leaves.
 	}
 	.caption p {
 		margin: 0 0 6px;
+	}
+	/* High priority: a stripe in the accent, besides the mark in words. */
+	.caption.high {
+		border-color: var(--accent);
+		box-shadow: inset 4px 0 0 var(--accent);
 	}
 	/* An overview needs the whole screen; its label sits small at the top. */
 	.caption.overview {

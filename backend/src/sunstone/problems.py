@@ -10,6 +10,10 @@ router from one behind a dead circuit, so the outage names both. Links down
 between devices the core still reaches come next, then congestion, packet
 loss, busy links, and devices without a recent reading.
 
+Problems with a high-priority cable, circuit, or device come before all
+the rest, in the same order among themselves. An ignored cable or circuit
+raises none of its own.
+
 Device and link health follow the same rules as the web UI's ``live.ts``:
 a stale reading is no data, whatever it said; any loss of 1% or more from a
 position is degraded; a link takes its state from whichever end reports.
@@ -30,6 +34,7 @@ from sunstone.model import (
     Endpoint,
     ExternalEnd,
     Link,
+    Priority,
     TransportEnd,
     cid,
     device_ends,
@@ -45,6 +50,8 @@ NAMED = 3
 Health = Literal["up", "degraded", "down", "nodata", "unmonitored"]
 LinkHealth = Literal["ok", "down", "nodata", "unmonitored"]
 ProblemKind = Literal["outage", "link-down", "congested", "loss", "busy", "nodata"]
+ProblemPriority = Literal["low", "medium", "high"]
+"""A problem's priority: an ignored cable or circuit raises none."""
 KINDS: list[ProblemKind] = [
     "outage",
     "link-down",
@@ -118,6 +125,12 @@ class Problem(_Record):
     """Ids of the open maintenance windows that account for it, if they do."""
     ack: Ack | None = None
     """Who is on it, if anyone."""
+    priority: ProblemPriority = "medium"
+    """``high`` when a high-priority cable, circuit, or device is in it,
+    which puts it first; a link's problem has its link's, never ignored."""
+    responsible: str | None = None
+    """Who answers for it first: the party downstream of an access or
+    interconnect link; None for the enterprise."""
 
 
 class ProblemList(_Record):
@@ -253,7 +266,13 @@ def find_problems(network: Network, view: LiveView) -> list[Problem]:
     ]
     return sorted(
         problems,
-        key=lambda p: (KINDS.index(p.kind), -p.lost, -p.exposed, natural(p.title)),
+        key=lambda p: (
+            p.priority != "high",
+            KINDS.index(p.kind),
+            -p.lost,
+            -p.exposed,
+            natural(p.title),
+        ),
     )
 
 
@@ -301,6 +320,9 @@ def _outages(
             exposed=exposed,
         )
         devices = sorted(group, key=natural)
+        high = bool(group & network.high) or any(
+            network.ratings[link.id].priority == "high" for link in boundary
+        )
         sites = sorted({network.site_of[d] for d in devices}, key=natural)
         whole = all(d in group for s in sites for d in network.devices_of[s])
         circuits = [c for c in (cid(link) for link in boundary if link.circuit) if c]
@@ -335,6 +357,7 @@ def _outages(
                 impact=impact,
                 lost=len(group),
                 exposed=len(exposed),
+                priority="high" if high else "medium",
             )
         )
     return problems
@@ -347,6 +370,10 @@ def _links_down(
     for link_id in failures.links:
         link = network.links.get(link_id)
         if not link or any(e.device not in reached for e in device_ends(link)):
+            continue
+        rating = network.ratings[link_id]
+        priority = _raised(rating.priority)
+        if priority is None:
             continue
         impact = network.impact(Failures(links=frozenset([link_id])))
         problems.append(
@@ -361,6 +388,8 @@ def _links_down(
                 impact=impact,
                 lost=0,
                 exposed=len(impact.exposed),
+                priority=priority,
+                responsible=rating.responsible,
             )
         )
     return problems
@@ -371,6 +400,10 @@ def _loads(network: Network, view: LiveView) -> list[Problem]:
     for link in network.topology.links:
         state = view.link(link)
         if state.health != "ok" or state.util is None or state.util < HIGH_PCT:
+            continue
+        rating = network.ratings[link.id]
+        priority = _raised(rating.priority)
+        if priority is None:
             continue
         forward = (state.a_to_b or 0) >= (state.b_to_a or 0)
         start, end = (link.a, link.b) if forward else (link.b, link.a)
@@ -387,9 +420,16 @@ def _loads(network: Network, view: LiveView) -> list[Problem]:
                 impact=None,
                 lost=0,
                 exposed=0,
+                priority=priority,
+                responsible=rating.responsible,
             )
         )
     return problems
+
+
+def _raised(priority: Priority) -> ProblemPriority | None:
+    """A cable's or circuit's priority for its problems; None if ignored."""
+    return None if priority == "ignored" else priority
 
 
 def _device_problems(
@@ -426,6 +466,7 @@ def _device_problems(
                 impact=None,
                 lost=0,
                 exposed=0,
+                priority="high" if name in network.high else "medium",
             )
         )
     return problems
