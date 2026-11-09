@@ -4,6 +4,51 @@ Release notes, newest first. `tools/release` takes each release's notes from
 its section here, and from the sections of any versions since the last
 release that were never released on their own.
 
+## 0.11.0
+
+- Overrides: Sunstone's own exceptions to what the topology says, for a
+  status dashboard fed by tools that do not always say things the way the
+  operations center needs. Kept apart from fixes and never sent to a
+  source of truth, each is on one object or port, with a note, who made
+  it, when, and an optional expiry. **Override…** in any object's details
+  makes one:
+  - **Rename** a device, external node, or site: every view, list, and
+    search shows the new name, and details give the topology's. A device's
+    or external node's name in the topology stays its key underneath.
+  - **Alias**: another name discovery and search match.
+  - **Tag** and **Label** (key and value), shown in details and found by
+    search.
+  - **Hide from the map**: left out of every view, with "N hidden from the
+    map" and a switch to show them in the legend.
+  - **Hide from status**: counts toward no status and raises no problem,
+    as priority ignored on the link, a port channel's members, the device,
+    every device at a site, or the external node; what it cuts off still
+    counts.
+  - **Lock a field** at a value, whatever the topology says later: details
+    say "Locked here", and "the topology says access" when it differs.
+  - On a port: **One device on this port**, merging every CDP and LLDP row
+    there into one neighbor, or **Ignore a neighbor**.
+- Discovery offers overrides under a neighbor not in the topology on a
+  documented port: an alias for the device documented there (a switch
+  whose LLDP still sends its old hostname is settled at every port), one
+  device on the port, or ignoring the neighbor there.
+- The Overrides tab (`x`) lists every override, flagged, applying, not
+  applied, and expired, to renew or withdraw. One whose target is gone
+  after the topology file is replaced is kept, not applied, and does not
+  stop the server. The handover lists overrides made, withdrawn, or
+  expired in its span.
+- A device rated ignored now keeps its own going down out of status,
+  problems, Events, the time slider, and the handover's outages.
+- The simulator has a switch renamed whose LLDP still sends its old
+  hostname, and a WAN optimizer inline between a WAN edge router and the
+  core that answers LLDP itself while CDP passes through: both are found
+  by discovery as a device not in the topology on a documented port.
+- API: `GET /api/overrides`, `POST /api/overrides`, and
+  `POST /api/overrides/{id}/withdraw` and `/renew`; `--overrides` and
+  `overrides.json` in the state directory; the handover's `overrides`.
+- Fixed: a fix accepted no longer carries into the documentation a value
+  an override set on its link.
+
 ## 0.10.0
 
 - Priorities on cables and circuits: `ignored`, `low`, `medium`, or

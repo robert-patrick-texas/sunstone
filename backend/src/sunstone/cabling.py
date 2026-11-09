@@ -4,7 +4,10 @@ Documentation drifts from the network. A cable gets moved to a spare port,
 or to the other switch of a distribution pair; someone patches two access
 switches together and never writes it down; a lab switch hangs off an
 access port; LLDP and CDP are turned off on a switch; a media converter on
-a link hides each end from the other's LLDP. The simulator's live state and
+a link hides each end from the other's LLDP. Devices describe themselves
+differently too: a switch renamed whose LLDP still sends its old hostname,
+and a WAN optimizer inline between a WAN edge router and the core that
+answers LLDP itself while CDP passes through it. The simulator's live state and
 its discovery both follow the real cables: a documented port with no cable
 is down, the port a cable really reaches carries the traffic, and discovery
 reports what is really there. So a link that live state shows down can be
@@ -57,6 +60,8 @@ from sunstone.model import (
 from sunstone.problems import natural
 
 UNKNOWN_PLATFORM = "WS-C2960X-24TS"
+# A device inline on a cable, answering LLDP itself while CDP passes through.
+INLINE_PLATFORM = "WAN optimizer"
 # Lab switches are plugged in, or not, for blocks this long.
 LAB_BLOCK = timedelta(hours=3)
 
@@ -83,9 +88,9 @@ class Cable:
 class Cabling:
     """Every real cable, and the documented ports left without one.
 
-    The drift (``hidden``, ``moved``, ``rewired``, ``extra``, ``silent``) is
-    from the documentation the network was cabled from, which
-    ``documenting`` keeps.
+    The drift (``hidden``, ``moved``, ``rewired``, ``extra``, ``silent``,
+    ``renamed``, ``inline``) is from the documentation the network was
+    cabled from, which ``documenting`` keeps.
     """
 
     def __init__(
@@ -114,6 +119,12 @@ class Cabling:
         switch of the pair: the switch documented, and the real end."""
         self.extra: list[Cable] = []
         """Cables no one documented, some to devices not in the topology."""
+        self.renamed: dict[str, str] = {}
+        """Devices whose LLDP still sends an old hostname, without a
+        management address, while CDP sends the new one: the old name."""
+        self.inline: dict[frozenset[tuple[str, str]], tuple[str, str]] = {}
+        """Cables, by their two ports, with a device inline that answers
+        LLDP itself while CDP passes through it: its name and platform."""
         self._used: dict[str, set[str]] = {}
         for ln in topology.links:
             for end in (ln.a, device_b(ln)):
@@ -358,6 +369,32 @@ class Cabling:
         spare = [d for d in switches if d.name not in taken]
         if spare:
             self.silent = {spare[rng.randrange(len(spare))].name}
+            taken |= self.silent
+        spare = [d for d in switches if d.name not in taken]
+        if spare:
+            renamed = spare[rng.randrange(len(spare))]
+            taken.add(renamed.name)
+            number = zlib.crc32(renamed.name.encode()) % 90 + 10
+            self.renamed[renamed.name] = f"{renamed.site.lower()}-sw-{number}"
+        # A WAN optimizer between a WAN edge router and the core.
+        edges = [
+            ln
+            for ln in sorted(topology.links, key=lambda ln: ln.id)
+            if ln.kind == "lan"
+            and isinstance(ln.b, Endpoint)
+            and {devices[ln.a.device].role, devices[ln.b.device].role}
+            == {"wan-edge", "core"}
+            and {ln.a.device, ln.b.device} <= watched
+            and not {ln.a.device, ln.b.device} & taken
+        ]
+        if edges:
+            ln = edges[rng.randrange(len(edges))]
+            assert isinstance(ln.b, Endpoint)
+            site = devices[ln.a.device].site.lower()
+            ports = frozenset(
+                {(ln.a.device, ln.a.interface), (ln.b.device, ln.b.interface)}
+            )
+            self.inline[ports] = (f"{site}-wanopt-01", INLINE_PLATFORM)
 
     def _cable(self, a: Endpoint, b: Endpoint, platform: str | None = None) -> None:
         link = Link(a=a, b=b, speed_mbps=1_000)

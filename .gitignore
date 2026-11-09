@@ -16,6 +16,7 @@ frontend/playwright-report/
 *.layouts.json
 *.operations.json
 *.changes.json
+*.overrides.json
 *.handovers.json
 *.incidents.json
 dist/

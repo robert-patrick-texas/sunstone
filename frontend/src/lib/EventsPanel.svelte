@@ -19,6 +19,7 @@ listed.
 		type EventRow,
 		rowSites
 	} from './history.ts';
+	import { named } from './overrides.svelte.ts';
 	import { scopeOf } from './scope.ts';
 	import { select, ui } from './state.svelte.ts';
 	import { HEALTH_COLOR } from './theme.ts';
@@ -121,7 +122,7 @@ listed.
 					<time datetime={row.at}>{clock(row.at)}</time>
 					<i style:--c={MARK[row.kind].color} aria-hidden="true">{MARK[row.kind].glyph}</i>
 					<span
-						>{row.title}{#if row.planned}<b class="planned">planned</b>{/if}</span
+						>{named(row.title)}{#if row.planned}<b class="planned">planned</b>{/if}</span
 					>
 				</button>
 			</li>

@@ -2,7 +2,9 @@
 @component
 One search for everything: devices, sites, and links (by circuit, carrier,
 or interface), management addresses and address ranges, problems,
-maintenance windows, on-call teams and people, and commands. Before
+maintenance windows, on-call teams and people, and commands; and by what
+overrides add: other names, tags, and labels. Results go by the names
+shown here. Before
 anything is typed it offers what was looked at recently. Choosing a result
 selects it and brings it into view in whichever view is open; a problem
 shows its impact, a window opens the maintenance list on what it works on,
@@ -17,6 +19,7 @@ Press `/` or Ctrl+K to get here.
 	import type { Window } from './api/operations.ts';
 	import type { Command, CommandId } from './commands.ts';
 	import { deviceHealth, type LiveIndex } from './live.ts';
+	import { overrides } from './overrides.svelte.ts';
 	import { timed } from './perf.ts';
 	import { MARK } from './problem-kinds.ts';
 	import {
@@ -78,12 +81,17 @@ Press `/` or Ctrl+K to get here.
 	let open = $state(false);
 	let active = $state(0);
 
-	// The topology's entries are built once for each version of it: when the
+	// The topology's entries are built once for each version of it and of the
+	// overrides that apply (new names, aliases, tags, and labels): when the
 	// browser is next idle, or at the first search if sooner.
-	let built: { index: TopologyIndex; entries: Entry[] } | null = null;
+	let built: { index: TopologyIndex; applying: string; entries: Entry[] } | null = null;
 	function items(): Entry[] {
-		if (built?.index !== index) {
-			built = { index, entries: timed('search index', () => topologyEntries(index)) };
+		const applying = overrides.list
+			.filter((o) => o.state === 'active')
+			.map((o) => o.id)
+			.join();
+		if (built?.index !== index || built.applying !== applying) {
+			built = { index, applying, entries: timed('search index', () => topologyEntries(index)) };
 		}
 		return built.entries;
 	}

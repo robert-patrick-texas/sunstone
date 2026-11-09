@@ -87,7 +87,7 @@ describe('live properties', () => {
 	it('are absent without live state', () => {
 		const index = fixtureIndex();
 		const props = deviceFeatures(index, devicePositions(index)).features[0]?.properties;
-		expect(props).toEqual({ name: 'a-wan-01', role: 'wan-edge' });
+		expect(props).toEqual({ name: 'a-wan-01', label: 'a-wan-01', role: 'wan-edge' });
 	});
 
 	it('give devices their health and glyph, and sites their worst health', () => {

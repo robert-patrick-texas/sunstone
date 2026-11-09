@@ -1,9 +1,11 @@
 /**
  * Graphs for the topology view: the whole network, one neighborhood, or the
  * shortest paths between two devices.
- * Unlike the hierarchy, positions come from a Cytoscape layout.
+ * Unlike the hierarchy, positions come from a Cytoscape layout. What is
+ * hidden from the map is left out.
  */
 import type { Link } from '../api/topology.ts';
+import { drawnBeyond, drawnLinks } from '../graph/drawn.ts';
 import {
 	beyondNode,
 	deviceNode,
@@ -15,6 +17,7 @@ import {
 	type GraphNode
 } from '../graph/model.ts';
 import { siteLevels } from '../hierarchy/layout.ts';
+import { hiddenOnMap } from '../overrides.svelte.ts';
 import { isDeviceEnd, nodeKey, ROLES, siteOf, type TopologyIndex } from '../topology.ts';
 import type { PathResult } from '../paths.ts';
 import type { Neighborhood } from './neighborhood.ts';
@@ -37,18 +40,21 @@ export function networkGraph(
 	expanded: ReadonlySet<string>,
 	framed: boolean
 ): TopoGraph {
+	const hidden = hiddenOnMap(index);
+	const links = drawnLinks(index);
 	const nodes: GraphNode[] = [];
 	for (const { code } of index.topology.sites) {
+		if (hidden.sites.has(code)) continue;
 		if (!expanded.has(code)) {
 			nodes.push(siteBoxNode(index, code));
 			continue;
 		}
 		if (framed) nodes.push(frameNode(index, code));
 		for (const device of index.devicesBySite.get(code) ?? []) {
-			nodes.push(deviceNode(device, framed));
+			if (!hidden.devices.has(device.name)) nodes.push(deviceNode(device, framed));
 		}
 	}
-	for (const key of index.linksByNode.keys()) {
+	for (const key of drawnBeyond(links)) {
 		const node = beyondNode(index, key);
 		if (node) nodes.push(node);
 	}
@@ -56,7 +62,7 @@ export function networkGraph(
 		const site = siteOf(index, device);
 		return expanded.has(site) ? device : siteNodeId(site);
 	};
-	return { nodes, edges: mergeLinks(index.topology.links, nodeOf) };
+	return { nodes, edges: mergeLinks(links, nodeOf) };
 }
 
 /**
@@ -96,17 +102,22 @@ function devicesGraph(
 	links: Set<Link>,
 	framed: boolean
 ): TopoGraph {
+	const hidden = hiddenOnMap(index);
+	const all = drawnLinks(index);
+	const beyondDrawn = new Set(drawnBeyond(all));
+	const visible = new Set(all);
+	const kept = [...links].filter((l) => visible.has(l));
 	const nodes: GraphNode[] = [];
 	for (const [name, hop] of hops) {
 		const device = index.devices.get(name);
-		if (device) nodes.push({ ...deviceNode(device, framed), hop });
+		if (device && !hidden.devices.has(name)) nodes.push({ ...deviceNode(device, framed), hop });
 		// A path crosses transports, by their keys.
-		const beyond = device ? null : beyondNode(index, name);
+		const beyond = device || !beyondDrawn.has(name) ? null : beyondNode(index, name);
 		if (beyond) nodes.push({ ...beyond, hop });
 	}
 	// A transport or external node at the edge is drawn, one hop further out.
 	const drawn = new Set(nodes.map((n) => n.id));
-	for (const link of links) {
+	for (const link of kept) {
 		if (isDeviceEnd(link.b) || !hops.has(link.a.device)) continue;
 		const node = beyondNode(index, nodeKey(link.b));
 		if (!node || drawn.has(node.id)) continue;
@@ -118,9 +129,7 @@ function devicesGraph(
 		nodes.unshift(...[...sites].map((code) => frameNode(index, code)));
 	}
 	const nodeOf = (device: string) => (hops.has(device) ? device : null);
-	const edges = mergeLinks([...links], nodeOf).filter(
-		(e) => drawn.has(e.source) && drawn.has(e.target)
-	);
+	const edges = mergeLinks(kept, nodeOf).filter((e) => drawn.has(e.source) && drawn.has(e.target));
 	return { nodes, edges };
 }
 

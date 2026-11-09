@@ -19,6 +19,7 @@ leaves.
 	import type { OnCall } from './api/oncall.ts';
 	import type { LiveIndex } from './live.ts';
 	import { personOf } from './oncall.ts';
+	import { named } from './overrides.svelte.ts';
 	import { MARK } from './problem-kinds.ts';
 	import { resourcesNeeding } from './resources.ts';
 	import { select, ui, type Selection } from './state.svelte.ts';
@@ -220,10 +221,11 @@ leaves.
 			<p class="what">
 				<i style:--c={MARK[slide.problem.kind].color} aria-hidden="true"
 					>{MARK[slide.problem.kind].glyph}</i
-				>{#if slide.problem.priority === 'high'}<b class="high-mark">High</b>{/if}{slide.problem
-					.title}
+				>{#if slide.problem.priority === 'high'}<b class="high-mark">High</b>{/if}{named(
+					slide.problem.title
+				)}
 			</p>
-			{#if slide.problem.detail}<p class="detail">{slide.problem.detail}</p>{/if}
+			{#if slide.problem.detail}<p class="detail">{named(slide.problem.detail)}</p>{/if}
 			{@const team = oncall?.teams.find((t) => t.id === slide.problem.team)}
 			{#if oncall && team}
 				{@const paging = slide.problem.paging}

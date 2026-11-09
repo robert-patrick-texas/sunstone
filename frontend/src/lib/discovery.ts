@@ -1,13 +1,17 @@
 /**
  * Discovery findings as the UI shows them: how each kind is headed, what to
- * select for one, and what discovery says about a device or a link; and the
- * fixes they offer: what a review of one says, and the change set's lines.
+ * select for one, and what discovery says about a device or a link; the
+ * fixes they offer: what a review of one says, and the change set's lines;
+ * and the overrides they offer. Devices are named as shown here, renamed or
+ * not.
  */
 import type { Change, PortNow, Review } from './api/changes.ts';
 import type { Comparison, Finding, FindingKind, LinkCheck, TunnelCheck } from './api/discovery.ts';
+import type { OverrideKind, Target } from './api/overrides.ts';
 import type { Link } from './api/topology.ts';
 import { showsOf } from './connections.ts';
 import { clock } from './history.ts';
+import { named, shown, target, targetName } from './overrides.svelte.ts';
 import type { Selection } from './state.svelte.ts';
 import { deviceEnds, portName, shortInterface, type TopologyIndex } from './topology.ts';
 
@@ -182,7 +186,7 @@ export const EXPECTABLE: ReadonlySet<FindingKind> = new Set([
 /** Why discovery offers no fix, for the kinds it never offers one for. */
 export const NO_FIX: Partial<Record<FindingKind, string>> = {
 	leaf: 'The carrier must keep its leaves apart, or the roles are documented wrong.',
-	'unknown-device': 'Document the device first, or unplug it.',
+	'unknown-device': 'Document the device first, unplug it, or ignore it on this port.',
 	'no-neighbors': 'Turn LLDP or CDP on, and its links can be checked.'
 };
 
@@ -193,7 +197,7 @@ export const NO_FIX: Partial<Record<FindingKind, string>> = {
  * @returns For example "d-dist-02 Te1/0/48 – d-acc-05 Te1/0/1".
  */
 export function linkEnds(link: Link): string {
-	return `${portName(link.a)} – ${portName(link.b)}`;
+	return named(`${portName(link.a)} – ${portName(link.b)}`);
 }
 
 const DONE: Record<Change['fix']['kind'], string> = {
@@ -214,11 +218,11 @@ const DONE: Record<Change['fix']['kind'], string> = {
 export function changeLine(change: Change): string {
 	// Documenting what a circuit shows moves nothing: say what it says.
 	if (change.fix.kind === 'document')
-		return change.fix.summary.replace(/^Document /, 'Documented ');
+		return named(change.fix.summary.replace(/^Document /, 'Documented '));
 	const link = change.fix.after ?? change.fix.before;
 	return link
 		? `${DONE[change.fix.kind]} ${linkEnds(link)}`
-		: `${DONE[change.fix.kind]} ${change.title}`;
+		: `${DONE[change.fix.kind]} ${named(change.title)}`;
 }
 
 /**
@@ -284,7 +288,7 @@ export function changeOf(changes: Change[], link: string): Change | undefined {
  *   "…: not monitored" when nothing reads it.
  */
 export function portNow(port: PortNow): string {
-	const name = `${port.device} ${shortInterface(port.interface)}`;
+	const name = `${shown(port.device)} ${shortInterface(port.interface)}`;
 	const r = port.reading;
 	if (!r) return `${name}: not monitored`;
 	if (r.stale) return `${name}: no recent reading`;
@@ -311,7 +315,7 @@ export function reviewWarning(review: Review): string | null {
 	}
 	const [port] = up;
 	return port
-		? `Live shows ${port.device} ${shortInterface(port.interface)} up: something is still plugged into it.`
+		? `Live shows ${shown(port.device)} ${shortInterface(port.interface)} up: something is still plugged into it.`
 		: null;
 }
 
@@ -324,11 +328,66 @@ export function reviewWarning(review: Review): string | null {
 export function reviewEffects(review: Review): string[] {
 	const lines = Object.entries(review.exposed).map(
 		([device, via]) =>
-			`${device} would depend on ${via.join(' and ')}${via.length === 1 ? ' alone' : ''}`
+			`${shown(device)} would depend on ${via.map(shown).join(' and ')}${via.length === 1 ? ' alone' : ''}`
 	);
-	lines.push(...review.restored.map((d) => `${d} would have a second way to the core again`));
-	lines.push(...review.cut_off.map((d) => `${d} would have no documented way to the core`));
-	lines.push(...review.cleared.map((t) => `Clears “${t}”`));
-	lines.push(...review.raised.map((t) => `Raises “${t}”`));
+	lines.push(
+		...review.restored.map((d) => `${shown(d)} would have a second way to the core again`)
+	);
+	lines.push(...review.cut_off.map((d) => `${shown(d)} would have no documented way to the core`));
+	lines.push(...review.cleared.map((t) => `Clears “${named(t)}”`));
+	lines.push(...review.raised.map((t) => `Raises “${named(t)}”`));
 	return lines;
+}
+
+/** An override a finding offers, for when the topology is right and discovery is misled. */
+export interface OverrideOffer {
+	/** What it says: "bhm-sw-70 is bhm-acc-01…", "Ignore lab-sw-01 on clt-gsw-01 Gi1/0/48…". */
+	label: string;
+	kind: OverrideKind;
+	/** What it is on: the documented device, or our port it is seen on. */
+	of: Target;
+	/** The value to start from: the name the neighbor goes by, or the device it is. */
+	value: string;
+}
+
+/**
+ * The overrides a finding about a neighbor not in the topology offers. Seen
+ * on our port where another device is documented: that the name it sends
+ * is the documented device's (an alias, which matches it on every port),
+ * that every row on the port is the documented device, or that the port
+ * ignores it. An unknown neighbor: that the port ignores it.
+ *
+ * @param finding - The finding.
+ * @param index - The topology, to tell whether the neighbor is in it.
+ * @returns The offers, in that order; none for a neighbor in the topology,
+ *   or a finding of another kind.
+ */
+export function overrideOffers(finding: Finding, index: TopologyIndex): OverrideOffer[] {
+	if (finding.kind !== 'wrong-neighbor' && finding.kind !== 'unknown-device') return [];
+	const [here, there] = finding.seen;
+	if (!here || !there || index.devices.has(there.device)) return [];
+	const port = target('port', here.device, here.interface);
+	const at = targetName(port);
+	const neighbor = there.device;
+	const ignore: OverrideOffer = {
+		label: `Ignore ${neighbor} on ${at}…`,
+		kind: 'ignore-neighbor',
+		of: port,
+		value: neighbor
+	};
+	const far =
+		finding.kind === 'wrong-neighbor'
+			? finding.documented.find((p) => p.device !== here.device)?.device
+			: undefined;
+	if (!far) return [ignore];
+	return [
+		{
+			label: `${neighbor} is ${shown(far)}…`,
+			kind: 'alias',
+			of: target('device', far),
+			value: neighbor
+		},
+		{ label: `One device on ${at}…`, kind: 'one-device', of: port, value: far },
+		ignore
+	];
 }

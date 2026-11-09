@@ -12,6 +12,7 @@ highlighted and brought into view.
 	import { deleteCover, saveCover, type OnCall, type Person, type TeamNow } from './api/oncall.ts';
 	import { clock } from './history.ts';
 	import { personOf } from './oncall.ts';
+	import { named } from './overrides.svelte.ts';
 	import { localTime, rememberName, showProblem, ui } from './state.svelte.ts';
 
 	const {
@@ -114,7 +115,7 @@ highlighted and brought into view.
 				{#each escalating as p (p.id)}
 					{@const last = p.paging?.notified.at(-1)}
 					<li class="paged">
-						<button class="link" onclick={() => showProblem(p)}>{p.title}</button>
+						<button class="link" onclick={() => showProblem(p)}>{named(p.title)}</button>
 						<span class="muted">
 							{#if last}· paged {personOf(oncall, last.person).name}{/if}
 							{#if p.paging?.next}

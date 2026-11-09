@@ -11,7 +11,11 @@ device's priority, and each member's of a port channel, say how urgent its
 cables and circuits are. With live state, charts of the
 last day: round trip to a device, load on each of its links, and load on a
 selected link; clicking a chart replays that moment. Names in the panel are
-links that select and bring that item into view.
+links that select and bring that item into view, by the names they go by
+here. Each device, site, link, and port channel lists its overrides, to make,
+renew, or withdraw them, and says what they do: its name in the topology
+under a new one, its other names, tags, and labels, what is hidden, and the
+fields locked.
 -->
 <script lang="ts">
 	import { lineDetail, networkLine, resourceLine, type ResourceImpact } from './across.ts';
@@ -64,6 +68,14 @@ links that select and bring that item into view.
 	import { cidOf, lagMembers, lagOf, sidesText } from './connections.ts';
 	import { linkRating, PRIORITY_LABEL, ratingText } from './priorities.ts';
 	import OnCallFor from './OnCallFor.svelte';
+	import OverridesFor, {
+		deviceHidden,
+		facts,
+		linkHidden,
+		locked,
+		overridden
+	} from './OverridesFor.svelte';
+	import { lagId, named, shown, target, targetOf } from './overrides.svelte.ts';
 	import Routing from './Routing.svelte';
 	import Spark from './Spark.svelte';
 	import { HEALTH_COLOR, HEALTH_GLYPH, ROLE_COLOR, SERIES_COLOR, utilColor } from './theme.ts';
@@ -145,7 +157,7 @@ links that select and bring that item into view.
 	let ackNote = $state('');
 	let ackProblem = $state<string | null>(null);
 	/** What to call an incident opened from the problem shown: its title, unless changed. */
-	let incidentTitle = $derived(problem?.title ?? '');
+	let incidentTitle = $derived(named(problem?.title ?? ''));
 	let incidentProblem = $state<string | null>(null);
 	const openIncidents = $derived(incidents.filter((i) => i.status !== 'closed'));
 	const RECENT_MS = 24 * 60 * 60_000;
@@ -286,14 +298,14 @@ links that select and bring that item into view.
 	}
 
 	function itemName(item: Failure): string {
-		if (item.kind === 'device') return item.id;
+		if (item.kind === 'device') return shown(item.id);
 		if (item.kind === 'site') return `${item.id} (whole site)`;
 		if (item.kind === 'provider') {
 			const n = index.topology.links.filter((l) => l.circuit?.provider === item.id).length;
 			return `${item.id} (${plural(n, 'circuit')})`;
 		}
 		const links = item.ids.flatMap((id) => index.links.get(id) ?? []);
-		return links.length === 1 && links[0] ? linkName(links[0]) : `${links.length} links`;
+		return links.length === 1 && links[0] ? named(linkName(links[0])) : `${links.length} links`;
 	}
 
 	function sitesOf(devices: Iterable<string>): string[] {
@@ -365,7 +377,9 @@ links that select and bring that item into view.
 {/snippet}
 
 {#snippet deviceLink(name: string)}
-	<button class="link" onclick={(e) => follow(e, { kind: 'device', id: name })}>{name}</button>
+	<button class="link" onclick={(e) => follow(e, { kind: 'device', id: name })}
+		>{shown(name)}</button
+	>
 {/snippet}
 
 {#snippet siteLink(code: string)}
@@ -391,7 +405,7 @@ links that select and bring that item into view.
 					<tr>
 						<td class="nowrap">{status.whole.name}</td>
 						<td class="nowrap" style:color={STATUS_COLOR[here.status]}>{here.word}</td>
-						<td class="muted">{here.reason}</td>
+						<td class="muted">{named(here.reason)}</td>
 					</tr>
 				{/if}
 				{#each names as name (name)}
@@ -404,7 +418,7 @@ links that select and bring that item into view.
 						>
 						{#if here}
 							<td class="nowrap" style:color={STATUS_COLOR[here.status]}>{here.word}</td>
-							<td class="muted">{here.reason}</td>
+							<td class="muted">{named(here.reason)}</td>
 						{/if}
 					</tr>
 				{/each}
@@ -546,7 +560,9 @@ links that select and bring that item into view.
 		'transport' in end
 			? { kind: 'transport', id: end.transport }
 			: { kind: 'external', id: endName(end) }}
-	<button class="link" onclick={(e) => follow(e, target)}>{endName(end)}</button>
+	<button class="link" onclick={(e) => follow(e, target)}
+		>{'transport' in end ? end.transport : shown(endName(end))}</button
+	>
 	<span class="tag outside"
 		>{'transport' in end ? term(index, 'transport') : term(index, 'external')}</span
 	>
@@ -556,7 +572,7 @@ links that select and bring that item into view.
 	<aside class="details" aria-label="Details">
 		{#if ui.pathFrom}
 			<section class="path" aria-label="Path">
-				<h2>Path from {ui.pathFrom}</h2>
+				<h2>Path from {shown(ui.pathFrom)}</h2>
 				<p class="muted">Click a device or search for the destination.</p>
 				<p class="actions"><button onclick={clearPath}>Cancel</button></p>
 			</section>
@@ -579,7 +595,7 @@ links that select and bring that item into view.
 								Path {i + 1}{devices.length > 2
 									? ` via ${devices
 											.slice(1, -1)
-											.map((d) => d.replace(/^transport:/, ''))
+											.map((d) => shown(d.replace(/^transport:/, '')))
 											.join(' › ')}`
 									: ''}
 							</summary>
@@ -651,8 +667,8 @@ links that select and bring that item into view.
 					<button class="close" onclick={() => (ui.problem = null)} aria-label="Stop showing impact"
 						>×</button
 					>
-					<h2>{problem.title}</h2>
-					{#if problem.detail}<p class="muted">{problem.detail}</p>{/if}
+					<h2>{named(problem.title)}</h2>
+					{#if problem.detail}<p class="muted">{named(problem.detail)}</p>{/if}
 					{#each problem.planned as id (id)}
 						{@const w = windows.find((x) => x.id === id)}
 						<p class="handled">
@@ -736,7 +752,7 @@ links that select and bring that item into view.
 						{#each comparison.findings.filter((f) => f.link && ids.includes(f.link)) as f (f.id)}
 							<p class="handled">
 								<span class="phase drift">Discovery</span>
-								{f.title}: {f.detail}
+								{named(f.title)}: {named(f.detail)}
 								<button class="link" onclick={() => showDiscovery(null)}>Show on the map</button>
 							</p>
 						{/each}
@@ -762,13 +778,17 @@ links that select and bring that item into view.
 					{@const device = index.devices.get(selection.id)}
 					{#if device}
 						{@const neighbors = neighborsOf(index, device.name)}
-						<h2>{device.name}</h2>
+						{@const of = target('device', device.name)}
+						<h2>{shown(device.name)}</h2>
+						{@render overridden(of)}
 						<p>
 							<span class="role" style:--role={ROLE_COLOR[device.role]}
 								>{ROLE_LABEL[device.role]}</span
 							>
 							at {@render siteLink(device.site)}
 							{index.sites.get(device.site)?.name}
+							{@render locked(of, 'role', 'Role')}
+							{@render locked(of, 'site', 'Site')}
 						</p>
 						{#if live}
 							{@const record = live.devices.get(device.name)}
@@ -799,7 +819,7 @@ links that select and bring that item into view.
 							{#if history?.device === device.name}
 								<h3>Last 24 hours</h3>
 								<TimeChart
-									label="Round trip to {device.name} over the last 24 hours"
+									label="Round trip to {shown(device.name)} over the last 24 hours"
 									start={Date.parse(history.start)}
 									step={history.step_s * 1000}
 									series={Object.entries(history.rtt_ms).map(([position, values], i) => ({
@@ -818,19 +838,30 @@ links that select and bring that item into view.
 						{/if}
 						<dl>
 							{#if device.platform}<dt>Platform</dt>
-								<dd>{device.platform}</dd>{/if}
+								<dd>{device.platform} {@render locked(of, 'platform')}</dd>{/if}
 							{#if device.mgmt_ip}<dt>Management</dt>
-								<dd class="mono">{device.mgmt_ip}</dd>{/if}
+								<dd>
+									<span class="mono">{device.mgmt_ip}</span>
+									{@render locked(of, 'mgmt_ip')}
+								</dd>{/if}
+							{#if device.location}<dt>Location</dt>
+								<dd>{device.location} {@render locked(of, 'location')}</dd>{/if}
 							{#if device.priority}<dt>Priority</dt>
 								<dd>
-									{PRIORITY_LABEL[device.priority]}
-									<span class="muted"
-										>· for its cables and circuits without their own{device.priority === 'high'
-											? ', and its own problems first'
-											: ''}</span
-									>
+									{#if deviceHidden(index, device.name)}
+										Ignored <span class="muted">· hidden from status here</span>
+									{:else}
+										{PRIORITY_LABEL[device.priority]}
+										<span class="muted"
+											>· for its cables and circuits without their own{device.priority === 'high'
+												? ', and its own problems first'
+												: ''}</span
+										>
+									{/if}
+									{@render locked(of, 'priority')}
 								</dd>{/if}
 						</dl>
+						{@render facts(of)}
 						<p class="actions">
 							<button onclick={() => showNeighborhood({ kind: 'device', id: device.name })}>
 								Show neighborhood
@@ -842,6 +873,7 @@ links that select and bring that item into view.
 						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
 						<DiscoveryFor {index} {comparison} {changes} item={selection} />
+						<OverridesFor {of} {index} />
 						<h3>Neighbors ({neighbors.length})</h3>
 						<table>
 							<thead>
@@ -902,10 +934,16 @@ links that select and bring that item into view.
 					{#if site}
 						{@const devices = index.devicesBySite.get(site.code) ?? []}
 						{@const wan = siteWanLinks(site.code)}
+						{@const of = target('site', site.code)}
 						<h2>{site.code} · {site.name}</h2>
+						{@render overridden(of)}
 						<p class="muted">
 							{site.region ?? 'No region'} · {site.lat.toFixed(4)}, {site.lon.toFixed(4)}
+							{@render locked(of, 'region', 'Region')}
+							{@render locked(of, 'lat', 'Latitude')}
+							{@render locked(of, 'lon', 'Longitude')}
 						</p>
+						{@render facts(of)}
 						<p class="roles">
 							{#each ROLES as role (role)}
 								{@const count = devices.filter((d) => d.role === role).length}
@@ -948,6 +986,7 @@ links that select and bring that item into view.
 						<OnCallFor {index} {oncall} {ownership} item={selection} />
 						{@render maintenanceOf(selection)}
 						<DiscoveryFor {index} {comparison} {changes} item={selection} />
+						<OverridesFor {of} {index} />
 						{@render siteNetworks(site.code)}
 						<h3>Links to other sites ({wan.length})</h3>
 						<table>
@@ -987,8 +1026,17 @@ links that select and bring that item into view.
 					{@const links = selection.ids.flatMap((id) => index.links.get(id) ?? [])}
 					{@const ends = endLetters(links)}
 					{@const total = links.reduce((s, l) => s + l.speed_mbps, 0)}
+					{@const of = targetOf(selection)}
 					<h2>{links.length === 1 ? 'Link' : `${links.length} links`}</h2>
-					<p class="muted">{formatSpeed(total)} total capacity</p>
+					{#if of}{@render overridden(of)}{/if}
+					<p class="muted">
+						{formatSpeed(total)} total capacity
+						{#if of}
+							{@render locked(of, 'speed_mbps', 'Speed')}
+							{@render locked(of, 'kind', 'Kind')}
+						{/if}
+					</p>
+					{#if of}{@render facts(of)}{/if}
 					{@const provider = links.length === 1 ? links[0]?.circuit?.provider : undefined}
 					<p class="actions">
 						{@render whatIf(
@@ -1007,6 +1055,7 @@ links that select and bring that item into view.
 					<OnCallFor {index} {oncall} {ownership} item={selection} />
 					{@render maintenanceOf(selection)}
 					<DiscoveryFor {index} {comparison} {changes} item={selection} />
+					{#if of}<OverridesFor {of} {index} />{/if}
 					<table>
 						<thead>
 							<tr>
@@ -1034,7 +1083,7 @@ links that select and bring that item into view.
 								{#if link.circuit && links.length > 1}
 									<tr class="sub">
 										<td colspan={live ? 4 : 3}>
-											{linkName(link)} · {link.circuit.provider}
+											{named(linkName(link))} · {link.circuit.provider}
 										</td>
 									</tr>
 								{/if}
@@ -1044,16 +1093,21 @@ links that select and bring that item into view.
 					{@const channel = links[0] ? lagOf(index.topology, links[0]) : null}
 					{@const members = channel ? lagMembers(index.topology, channel) : []}
 					{#if channel && links.length > 1 && members.every((m) => selection.ids.includes(m.id))}
+						{@const lag = target('lag', lagId(channel))}
 						<h3>Port channel</h3>
+						{@render overridden(lag)}
 						<dl>
 							<dt>Channel</dt>
 							<dd>
-								{channel.a.device}
-								{shortInterface(channel.a.interface)} – {channel.b.device}
+								{shown(channel.a.device)}
+								{shortInterface(channel.a.interface)} – {shown(channel.b.device)}
 								{shortInterface(channel.b.interface)}
 							</dd>
 							{#if channel.enterprise_cid}<dt>CID</dt>
-								<dd class="mono">{sidesText(channel.enterprise_cid)}</dd>{/if}
+								<dd>
+									<span class="mono">{sidesText(channel.enterprise_cid)}</span>
+									{@render locked(lag, 'enterprise_cid')}
+								</dd>{/if}
 							{#if channel.circuit}<dt>Carrier CID</dt>
 								<dd class="mono">{sidesText(channel.circuit.circuit_id)}</dd>{/if}
 						</dl>
@@ -1068,11 +1122,17 @@ links that select and bring that item into view.
 										<td class="mono">{shortInterface(m.a.interface)}</td>
 										<td class="mono">{m.enterprise_cid ? sidesText(m.enterprise_cid) : ''}</td>
 										<td class="mono">{m.circuit ? sidesText(m.circuit.circuit_id) : ''}</td>
-										<td title={ratingText(rating)}>{PRIORITY_LABEL[rating.priority]}</td>
+										<td
+											title={linkHidden(index, m)
+												? 'Ignored · hidden from status here'
+												: named(ratingText(rating))}>{PRIORITY_LABEL[rating.priority]}</td
+										>
 									</tr>
 								{/each}
 							</tbody>
 						</table>
+						{@render facts(lag)}
+						<OverridesFor of={lag} {index} />
 					{/if}
 					{#if links.length === 1 && links[0]}
 						<ConnectionFacts {index} item={{ kind: 'link', link: links[0] }} />
@@ -1082,7 +1142,9 @@ links that select and bring that item into view.
 						{#if series}
 							<h3>Last 24 hours</h3>
 							<TimeChart
-								label="Load on the link over the last 24 hours, as seen from {history.device}"
+								label="Load on the link over the last 24 hours, as seen from {shown(
+									history.device
+								)}"
 								start={Date.parse(history.start)}
 								step={history.step_s * 1000}
 								series={[

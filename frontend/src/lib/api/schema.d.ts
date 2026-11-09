@@ -705,6 +705,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Overrides
+         * @description Return every override not withdrawn, newest first, with how each
+         *     stands now.
+         */
+        get: operations["get_overrides_api_overrides_get"];
+        put?: never;
+        /**
+         * Make Override
+         * @description Make an override, in place of one of its kind an object has one
+         *     of at a time (a rename, a lock of the field, a label of the key);
+         *     everything follows it.
+         */
+        post: operations["make_override_api_overrides_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/overrides/{override_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw Override
+         * @description Withdraw an override: it stops applying, and is kept for the handover.
+         */
+        post: operations["withdraw_override_api_overrides__override_id__withdraw_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/overrides/{override_id}/renew": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Renew Override
+         * @description Give an override a new expiry, or none: an expired one applies again.
+         */
+        post: operations["renew_override_api_overrides__override_id__renew_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/layouts": {
         parameters: {
             query?: never;
@@ -1423,6 +1490,11 @@ export interface components {
             windows: components["schemas"]["Window"][];
             /** Changes */
             changes: components["schemas"]["Change"][];
+            /**
+             * Overrides
+             * @default []
+             */
+            overrides: components["schemas"]["OverrideLine"][];
             /** Findings */
             findings: components["schemas"]["Finding"][];
             oncall: components["schemas"]["OnCall"] | null;
@@ -2142,6 +2214,133 @@ export interface components {
             planned: boolean;
         };
         /**
+         * Override
+         * @description An override, as made, and withdrawn if it has been.
+         */
+        Override: {
+            /** Id */
+            id: string;
+            target: components["schemas"]["Target"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "rename" | "alias" | "tag" | "label" | "hide-map" | "hide-status" | "lock" | "one-device" | "ignore-neighbor";
+            /** Key */
+            key?: string | null;
+            /** Value */
+            value?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Expires */
+            expires?: string | null;
+            renewed?: components["schemas"]["Stamp"] | null;
+            withdrawn?: components["schemas"]["Stamp"] | null;
+        };
+        /**
+         * OverrideIn
+         * @description An override someone makes.
+         */
+        OverrideIn: {
+            target: components["schemas"]["Target"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "rename" | "alias" | "tag" | "label" | "hide-map" | "hide-status" | "lock" | "one-device" | "ignore-neighbor";
+            /** Key */
+            key?: string | null;
+            /** Value */
+            value?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /** Expires */
+            expires?: string | null;
+        };
+        /**
+         * OverrideLine
+         * @description An override made, withdrawn, or expired in a span, for the handover.
+         */
+        OverrideLine: {
+            /**
+             * Event
+             * @enum {string}
+             */
+            event: "made" | "withdrawn" | "expired";
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            override: components["schemas"]["Override"];
+        };
+        /**
+         * OverrideList
+         * @description The overrides not withdrawn, newest first.
+         */
+        OverrideList: {
+            /** Overrides */
+            overrides: components["schemas"]["OverrideNow"][];
+        };
+        /**
+         * OverrideNow
+         * @description An override, and how it stands against the network now.
+         */
+        OverrideNow: {
+            /** Id */
+            id: string;
+            target: components["schemas"]["Target"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "rename" | "alias" | "tag" | "label" | "hide-map" | "hide-status" | "lock" | "one-device" | "ignore-neighbor";
+            /** Key */
+            key?: string | null;
+            /** Value */
+            value?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Expires */
+            expires?: string | null;
+            renewed?: components["schemas"]["Stamp"] | null;
+            withdrawn?: components["schemas"]["Stamp"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "expired" | "not-applied";
+            /** Reason */
+            reason?: string | null;
+            /** Topology Value */
+            topology_value?: string | null;
+        };
+        /**
          * Ownership
          * @description The team that owns each site, device, and link, by code, name, and
          *     id; anything no route matches is left out.
@@ -2312,6 +2511,16 @@ export interface components {
             name: string;
             /** Parent */
             parent?: string | null;
+        };
+        /**
+         * RenewIn
+         * @description A new expiry for an override, or none.
+         */
+        RenewIn: {
+            /** By */
+            by: string;
+            /** Expires */
+            expires?: string | null;
         };
         /**
          * Resource
@@ -2697,6 +2906,19 @@ export interface components {
             id: string;
         };
         /**
+         * Stamp
+         * @description Who did something to an override, and when.
+         */
+        Stamp: {
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
+        /**
          * StateEvent
          * @description A change a source saw: a device, link, or tunnel going down or coming back,
          *     readings stopping or resuming, packet loss starting or clearing, or a
@@ -2758,6 +2980,21 @@ export interface components {
              * @enum {string}
              */
             to: "primary" | "secondary" | "manager";
+        };
+        /**
+         * Target
+         * @description What an override is on: an object by its key, or one port of a device.
+         */
+        Target: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "site" | "device" | "link" | "lag" | "external" | "transport" | "tunnel" | "fabric" | "resource" | "network" | "port";
+            /** Id */
+            id: string;
+            /** Interface */
+            interface?: string | null;
         };
         /**
          * TeamNow
@@ -3084,6 +3321,14 @@ export interface components {
              * @default
              */
             note: string;
+            /** By */
+            by: string;
+        };
+        /**
+         * WithdrawIn
+         * @description Who withdraws an override.
+         */
+        WithdrawIn: {
             /** By */
             by: string;
         };
@@ -4199,6 +4444,127 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_overrides_api_overrides_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverrideList"];
+                };
+            };
+        };
+    };
+    make_override_api_overrides_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverrideIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Override"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_override_api_overrides__override_id__withdraw_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                override_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WithdrawIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    renew_override_api_overrides__override_id__renew_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                override_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Override"];
+                };
             };
             /** @description Validation Error */
             422: {

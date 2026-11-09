@@ -33,6 +33,9 @@ open, and leaves it as it was when it closes.
 	import { fetchIncidents, type IncidentSummary } from '#lib/api/incidents.ts';
 	import { fetchEvents, fetchState, type EventLog } from '#lib/api/state.ts';
 	import { fetchTopology } from '#lib/api/topology.ts';
+	import { fetchOverrides } from '#lib/api/overrides.ts';
+	import { onReload, overrides, signature } from '#lib/overrides.svelte.ts';
+	import OverridesPanel from '#lib/OverridesPanel.svelte';
 	import { available, COMMANDS, commandFor, type CommandId } from '#lib/commands.ts';
 	import DetailsPanel from '#lib/DetailsPanel.svelte';
 	import DiscoveryPanel from '#lib/DiscoveryPanel.svelte';
@@ -138,6 +141,8 @@ open, and leaves it as it was when it closes.
 	let changes = $state.raw<Change[]>([]);
 	/** Bumped to fetch live state and events again at once, after planned work changes. */
 	let refresh = $state(0);
+	/** Overrides applying now, for the tab. */
+	const applying = $derived(overrides.list.filter((o) => o.state === 'active').length);
 	const coming = $derived(windows.filter((w) => phaseOf(w, Date.now()) !== 'ended').length);
 	const path = $derived(index && ui.path ? shortestPaths(index, ui.path.from, ui.path.to) : null);
 	// Problems come with each snapshot, found once on the server for every viewer.
@@ -186,6 +191,7 @@ open, and leaves it as it was when it closes.
 		try {
 			// Before the topology, so a change accepted in between shows as one to fetch.
 			changes = await fetchChanges();
+			overrides.list = await fetchOverrides();
 			const topology = await fetchTopology();
 			if (topology.devices.length <= EXPAND_ALL_UP_TO) {
 				for (const site of topology.sites) expandedSites.add(site.code);
@@ -507,6 +513,36 @@ open, and leaves it as it was when it closes.
 		return () => clearInterval(timer);
 	});
 
+	/**
+	 * Fetch the overrides again; when one the server applies (a lock, a new
+	 * name, hiding from status, the kinds discovery takes) starts or stops
+	 * applying, the topology too, every view redrawn from it, and everything
+	 * that follows it.
+	 */
+	async function loadOverrides(): Promise<void> {
+		try {
+			const found = await fetchOverrides();
+			const before = signature(overrides.list);
+			// Every drawing follows the list, so it is replaced only when it changes.
+			if (JSON.stringify(found) !== JSON.stringify(overrides.list)) overrides.list = found;
+			if (index && signature(found) !== before) {
+				const built = indexTopology(await fetchTopology());
+				if (ui.view === 'geo') fromLink.camera = ui.camera;
+				index = built;
+				refresh++;
+			}
+		} catch (e) {
+			console.warn('Could not check the overrides', e);
+		}
+	}
+
+	onReload(loadOverrides);
+
+	onMount(() => {
+		const timer = setInterval(() => void loadOverrides(), CHANGES_POLL_MS);
+		return () => clearInterval(timer);
+	});
+
 	// The discovery run in effect now, checked now and then, or at the moment
 	// replayed; and again after planned work changes what is down.
 	$effect(() => {
@@ -667,6 +703,7 @@ open, and leaves it as it was when it closes.
 		maintenance: () => toggleTab('maintenance'),
 		oncall: () => toggleTab('oncall'),
 		discovery: () => toggleTab('discovery'),
+		overrides: () => toggleTab('overrides'),
 		'discovery-map': () => (ui.discovery = !ui.discovery),
 		'next-problem': () => stepThrough(1),
 		'previous-problem': () => stepThrough(-1),
@@ -852,8 +889,17 @@ open, and leaves it as it was when it closes.
 							onclick={() => (ui.sideTab = 'discovery')}
 							>Discovery{comparison ? ` ${comparison.findings.length}` : ''}</button
 						>
+						<button
+							role="tab"
+							aria-selected={ui.sideTab === 'overrides'}
+							title="Sunstone's own exceptions to what the topology says"
+							onclick={() => (ui.sideTab = 'overrides')}
+							>Overrides{applying ? ` ${applying}` : ''}</button
+						>
 					</div>
-					{#if ui.sideTab === 'discovery'}
+					{#if ui.sideTab === 'overrides'}
+						<OverridesPanel {index} />
+					{:else if ui.sideTab === 'discovery'}
 						<DiscoveryPanel
 							{index}
 							{comparison}
@@ -928,7 +974,7 @@ open, and leaves it as it was when it closes.
 		{/if}
 	</main>
 	{#if ui.handover !== null && !ui.wall.on && index}
-		<HandoverReport shown={ui.handover} {copied} oncopy={copyLink} />
+		<HandoverReport shown={ui.handover} {copied} oncopy={copyLink} {index} />
 	{/if}
 	{#if ui.incident !== null && !ui.wall.on && index}
 		<IncidentReport shown={ui.incident} {copied} oncopy={copyLink} />

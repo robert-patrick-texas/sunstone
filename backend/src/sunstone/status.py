@@ -24,8 +24,10 @@ that is degraded at its sites, reads operational with a caveat naming what
 is degraded beneath it.
 
 A cable's or circuit's priority limits rule 1: an ``ignored`` one down
-degrades nothing, and a ``low`` one only its locations and sites. Reach,
-offline, and partitions are the same whatever the priorities.
+degrades nothing, and a ``low`` one only its locations and sites. A device
+rated ``ignored`` counts toward no group: its going down degrades nothing,
+and a group of none but such devices is never offline or partitioned. Reach
+goes through them all the same, so what one cuts off counts.
 
 A resource is operational when all its members are: each circuit up with
 its device reached from the core, each tunnel up with its device reached,
@@ -168,6 +170,9 @@ class Statuses:
         core_sites = {self.site_of[d] for d in self.cores}
         self.links = {link.id: link for link in topology.links}
         self.priority = {i: r.priority for i, r in ratings(topology).items()}
+        # Devices rated ignored count toward no group, though reach still
+        # goes through them.
+        self.quiet = {d.name for d in topology.devices if d.priority == "ignored"}
         self.whole_tree = self._tree(None)
         self.trees = {n.name: self._tree(n.name) for n in topology.networks}
         self.anchors: dict[str, set[str]] = {}
@@ -387,13 +392,14 @@ class Statuses:
             e for e in edges if e.id not in cut and e.a not in down and e.b not in down
         ]
         reached = _reach(live, anchors - down, members - down)
+        counted = members - self.quiet
 
         def group_of(node: str) -> str:
             # A transport or external node is in no group but the whole.
             return tree.leaf.get(node, ROOT)
 
         # Rule 1: what is down degrades its groups.
-        for d in sorted(down & members):
+        for d in sorted(down & counted):
             reasons[group_of(d)].append(f"{d} down")
         for e in edges:
             if e.id not in cut:
@@ -413,7 +419,7 @@ class Statuses:
                         reasons[g].append(what)
         # Rule 2: groups no anchor reaches are offline; those above, degraded.
         holds: dict[str, set[str]] = defaultdict(set)
-        for d in members:
+        for d in counted:
             for g in tree.up(group_of(d)):
                 holds[g].add(d)
         offline = {g for g, ds in holds.items() if g != ROOT and not ds & reached}
@@ -421,13 +427,13 @@ class Statuses:
             for above in tree.up(g)[1:]:
                 if above not in offline:
                     reasons[above].append(f"{tree.names.get(g, g)} offline")
-        sites = {self.site_of[d] for d in members}
+        sites = {self.site_of[d] for d in counted}
         sites_reached = {self.site_of[d] for d in reached}
         # The whole is offline when no two of its sites reach each other,
         # wherever its anchors are: sites cut off from them still work together.
         parts = _components(live)
         together: dict[str, set[str]] = defaultdict(set)
-        for d in members - down:
+        for d in counted - down:
             together[parts.get(d, d)].add(self.site_of[d])
         needed = 2 if len(sites) > 1 else 1
         whole_offline = max(map(len, together.values()), default=0) < needed
@@ -440,8 +446,8 @@ class Statuses:
         if healthy is None:
             # Spoke-to-spoke tunnels come and go: no part of how it is built.
             built = [e for e in edges if not e.dynamic]
-            healthy = self._healthy[network] = _parts(tree, built, members)
-        now = _parts(tree, live, reached)
+            healthy = self._healthy[network] = _parts(tree, built, counted)
+        now = _parts(tree, live, reached & counted)
         for g, parts in now.items():
             if g not in offline and parts > healthy.get(g, 1):
                 reasons[g].append(f"partitioned into {parts} parts")

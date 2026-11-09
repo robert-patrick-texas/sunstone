@@ -167,7 +167,8 @@ class Device(_Record):
     """The location at its site it is in, if the site has locations."""
     priority: Priority | None = None
     """The priority of its cables and circuits that have none of their own;
-    ``high`` puts its own problems first too."""
+    ``high`` puts its own problems first too, and ``ignored`` keeps its own
+    going down out of status and problems (what it cuts off still counts)."""
 
 
 class Endpoint(_Record):

@@ -5,14 +5,16 @@ hours, worked out on the server for every viewer. What is wrong now and who
 is on it, high priority first and marked so, the networks and resources not
 as they should be, who is on call, the outages that began or ended and how
 long they lasted, pages and acknowledgements, maintenance done, open, and
-coming, and fixes and new discovery findings, with the notes the outgoing
-shift writes for the next. The handover of each shift change is saved, and
-can be opened again as it was; someone from the incoming shift signs for it
-once they have read it, and until they do, the report for now says so, with
-the outgoing shift's notes. It fills the window, prints on paper, is written
-as a message to post in chat or send by email, and a link opens it again
-(`?handover=12`, or a saved one's id). Clicking something leaves the report
-and shows it: a problem with its impact, an outage at the moment it began.
+coming, fixes and new discovery findings, and overrides made, withdrawn, or
+expired, with the notes the outgoing shift writes for the next. The
+handover of each shift change is saved, and can be opened again as it was;
+someone from the incoming shift signs for it once they have read it, and
+until they do, the report for now says so, with the outgoing shift's notes.
+It fills the window, prints on paper, is written as a message to post in
+chat or send by email, and a link opens it again (`?handover=12`, or a
+saved one's id). Clicking something leaves the report and shows it: a
+problem with its impact, an outage at the moment it began, what an override
+is on.
 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
@@ -36,6 +38,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		lasted,
 		messageText,
 		outageSections,
+		overrideRow,
 		savedLabel,
 		signedLine,
 		SPANS,
@@ -45,6 +48,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 	import { clock } from './history.ts';
 	import { phaseOf, span } from './maintenance.ts';
 	import { personOf } from './oncall.ts';
+	import { named } from './overrides.svelte.ts';
 	import { MARK } from './problem-kinds.ts';
 	import {
 		rememberName,
@@ -54,21 +58,26 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		showProblem,
 		showTeam,
 		ui,
+		type AnySelection,
 		type Selection
 	} from './state.svelte.ts';
 	import { STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL, statusWord } from './status.ts';
+	import type { TopologyIndex } from './topology.ts';
 	import { DEFAULT_HANDOVER_H } from './url.ts';
 
 	const {
 		shown,
 		copied,
-		oncopy
+		oncopy,
+		index = null
 	}: {
 		/** How many hours it covers, ending now, or a saved one's id. */
 		shown: number | string;
 		/** What Copy link last said, if it said anything lately. */
 		copied: string | null;
 		oncopy: () => void;
+		/** The topology, to name what overrides are on and show it. */
+		index?: TopologyIndex | null;
 	} = $props();
 
 	// Pages, acknowledgements, notes, and maintenance change when someone
@@ -190,7 +199,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 	}
 
 	/** Leave the report and show something: live, now or at a moment. */
-	function go(target: Selection | null, at: string | null = null): void {
+	function go(target: AnySelection | null, at: string | null = null): void {
 		close();
 		if (at) {
 			ui.live = true;
@@ -337,7 +346,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		{#each list as o (o.title + (o.start ?? ''))}
 			<li>
 				<button class="row" class:open={!o.end} onclick={() => goOutage(o)}>
-					<span class="what">{o.title}</span>
+					<span class="what">{named(o.title)}</span>
 					<span class="when">{when(o)}</span>
 					<span class="long">{lasted(o, now)}{o.planned ? ' · planned' : ''}</span>
 				</button>
@@ -520,7 +529,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 										class:open={i.status === 'open'}
 										onclick={() => goIncident(i.number)}
 									>
-										<span class="what">{i.number} · {i.title}</span>
+										<span class="what">{i.number} · {named(i.title)}</span>
 										<span class="when"
 											>{i.status === 'open'
 												? `open since ${clock(i.began ?? i.opened_at)}`
@@ -555,8 +564,8 @@ and shows it: a problem with its impact, an outage at the moment it began.
 									<span class="what">
 										<i style:--c={MARK[p.kind].color} aria-hidden="true">{MARK[p.kind].glyph}</i>
 										{#if p.priority === 'high'}<b class="high-mark">High</b>{/if}
-										{p.title}
-										{#if p.detail}<span class="muted"> · {p.detail}</span>{/if}
+										{named(p.title)}
+										{#if p.detail}<span class="muted"> · {named(p.detail)}</span>{/if}
 									</span>
 									<span class="when">{p.team ? (teams.get(p.team) ?? p.team) : ''}</span>
 									<span class="long">{standing(p)}</span>
@@ -580,7 +589,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 											{n.name}
 											{statusWord(n).toLowerCase()}
 											{#if n.reasons.length || n.caveats.length}<span class="muted">
-													· {[...n.reasons, ...n.caveats].slice(0, 2).join(' · ')}</span
+													· {named([...n.reasons, ...n.caveats].slice(0, 2).join(' · '))}</span
 												>{/if}
 										</span>
 									</button>
@@ -604,7 +613,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 											{r.name}
 											{STATUS_LABEL[r.status].toLowerCase()}
 											{#if r.reasons.length}<span class="muted">
-													· {r.reasons.slice(0, 2).join(' · ')}</span
+													· {named(r.reasons.slice(0, 2).join(' · '))}</span
 												>{/if}
 										</span>
 									</button>
@@ -645,9 +654,9 @@ and shows it: a problem with its impact, an outage at the moment it began.
 							<li>
 								<button class="row" disabled={!open} onclick={() => open && goProblem(open)}>
 									<span class="what"
-										>{pg.by} paged {teams.get(pg.team) ?? pg.team}: {pg.title ?? pg.problem}{pg.note
-											? ` · ${pg.note}`
-											: ''}</span
+										>{pg.by} paged {teams.get(pg.team) ?? pg.team}: {named(
+											pg.title ?? pg.problem
+										)}{pg.note ? ` · ${pg.note}` : ''}</span
 									>
 									<span class="when">{clock(pg.at)}</span>
 									<span class="long"
@@ -661,7 +670,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 							<li>
 								<button class="row" disabled={!open} onclick={() => open && goProblem(open)}>
 									<span class="what"
-										>{a.by} on {a.title ?? a.problem}{a.note ? ` · ${a.note}` : ''}</span
+										>{a.by} on {named(a.title ?? a.problem)}{a.note ? ` · ${a.note}` : ''}</span
 									>
 									<span class="when">{clock(a.at)}</span>
 									<span class="long"
@@ -705,7 +714,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 							{#each handover.changes as c (c.id)}
 								<li>
 									<button class="row" onclick={() => goChange(c)}>
-										<span class="what">{changeLine(c)}{c.note ? ` · ${c.note}` : ''}</span>
+										<span class="what">{named(changeLine(c))}{c.note ? ` · ${c.note}` : ''}</span>
 										<span class="when">{clock(c.at)}</span>
 										<span class="long">{c.by}</span>
 									</button>
@@ -719,7 +728,9 @@ and shows it: a problem with its impact, an outage at the moment it began.
 							{#each handover.findings as f (f.id)}
 								<li>
 									<button class="row" onclick={() => goFinding(f)}>
-										<span class="what">{f.title} <span class="muted">· {f.detail}</span></span>
+										<span class="what"
+											>{named(f.title)} <span class="muted">· {named(f.detail)}</span></span
+										>
 										<span class="when">{seenWhen(f, null)}</span>
 										<span class="long"></span>
 									</button>
@@ -727,6 +738,25 @@ and shows it: a problem with its impact, an outage at the moment it began.
 							{/each}
 						</ul>
 					{/if}
+				</section>
+
+				<section aria-label="Overrides">
+					<h2>Overrides ({handover.overrides.length})</h2>
+					{#if handover.overrides.length === 0}
+						<p class="muted">None made, withdrawn, or expired.</p>
+					{/if}
+					<ul class="rows">
+						{#each handover.overrides as line (line.override.id + line.event)}
+							{@const row = overrideRow(line, index)}
+							<li>
+								<button class="row" disabled={!row.target} onclick={() => go(row.target)}>
+									<span class="what">{row.what}</span>
+									<span class="when">{clock(line.at)}</span>
+									<span class="long">{row.event}</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
 				</section>
 			</div>
 			<div class="column">

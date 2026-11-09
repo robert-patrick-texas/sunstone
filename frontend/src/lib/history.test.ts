@@ -69,6 +69,21 @@ describe('eventRows', () => {
 		expect(rows.map((r) => r.title)).toContain('Circuit ME-1 at 97%');
 	});
 
+	it('leaves out ignored devices going down and up, but not their other events', () => {
+		const topology = structuredClone(fixture);
+		for (const d of topology.devices) {
+			if (d.name === 'c-acc-01' || d.name === 'a-acc-01') d.priority = 'ignored';
+		}
+		const rows = eventRows(indexTopology(topology), events, ALL);
+		expect(rows.map((r) => r.title)).toEqual([
+			'Circuit ME-1 at 97%',
+			'c-acc-02 down',
+			'c-wan-01 down',
+			'Circuit ME-1 down',
+			'a-acc-01 stopped reporting'
+		]);
+	});
+
 	it('leaves out the categories turned off', () => {
 		const rows = eventRows(fixtureIndex(), events, new Set(['links', 'load'] as const));
 		expect(rows.map((r) => r.title)).toEqual(['Circuit ME-1 at 97%', 'Circuit ME-1 down']);
@@ -84,6 +99,13 @@ describe('downsBySteps', () => {
 	it('leaves out ignored links', () => {
 		const topology = structuredClone(fixture);
 		topology.links.find((l) => l.id === CIRCUIT)!.priority = 'ignored';
+		const steps = downsBySteps(events, Date.parse(T0) - STEP_MS, indexTopology(topology));
+		expect(Object.fromEntries(steps)).toEqual({ 1: 3 });
+	});
+
+	it('leaves out ignored devices', () => {
+		const topology = structuredClone(fixture);
+		topology.devices.find((d) => d.name === 'c-acc-01')!.priority = 'ignored';
 		const steps = downsBySteps(events, Date.parse(T0) - STEP_MS, indexTopology(topology));
 		expect(Object.fromEntries(steps)).toEqual({ 1: 3 });
 	});

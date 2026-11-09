@@ -28,6 +28,7 @@ export type CommandId =
 	| 'oncall'
 	| 'discovery'
 	| 'discovery-map'
+	| 'overrides'
 	| 'next-problem'
 	| 'previous-problem'
 	| 'earlier'
@@ -174,6 +175,13 @@ export const COMMANDS: Command[] = [
 		group: 'Lists',
 		keys: ['d'],
 		also: ['lldp', 'cdp', 'neighbors', 'cabling', 'drift', 'audit']
+	},
+	{
+		id: 'overrides',
+		label: 'Overrides list',
+		group: 'Lists',
+		keys: ['x'],
+		also: ['exceptions', 'rename', 'alias', 'tag', 'label', 'lock', 'hide', 'suppress']
 	},
 	{
 		id: 'discovery-map',

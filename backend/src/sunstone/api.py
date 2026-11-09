@@ -2,7 +2,7 @@
 
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import version
 from pathlib import Path
@@ -35,6 +35,7 @@ from sunstone.discovery import (
     Comparison,
     Finding,
     Fix,
+    NeighborRules,
     SimulatedDiscovery,
     expecting,
 )
@@ -116,6 +117,24 @@ from sunstone.operations import (
     accounted_for,
     event_planned,
 )
+from sunstone.overrides import (
+    SHOWN_ONLY,
+    SINGLE,
+    Override,
+    OverrideIn,
+    OverrideList,
+    OverrideNow,
+    OverrideRefused,
+    OverrideStore,
+    RenewIn,
+    Stamp,
+    WithdrawIn,
+    apply,
+    check,
+    lines,
+    new_override,
+    same,
+)
 from sunstone.problems import Ack, AckIn, Problem
 from sunstone.simulate import SimulatedState, monitored
 from sunstone.status import StatusReport, needing, resources_needing
@@ -151,6 +170,8 @@ class Files:
     """Maintenance windows, acknowledgements, pages, covers, and shift notes."""
     changes: Path | None = None
     """Fixes accepted into the documentation."""
+    overrides: Path | None = None
+    """Sunstone's own exceptions to what the topology says."""
     handovers: Path | None = None
     """Handovers saved at shift changes."""
     incidents: Path | None = None
@@ -164,8 +185,8 @@ class Files:
 
         Args:
             topology_path: The topology file.
-            kind: ``layouts``, ``operations``, ``changes``, ``handovers``,
-                ``incidents``, or ``oncall``.
+            kind: ``layouts``, ``operations``, ``changes``, ``overrides``,
+                ``handovers``, ``incidents``, or ``oncall``.
 
         Returns:
             The file given for it, or one beside the topology.
@@ -177,6 +198,7 @@ class Files:
             "layouts": self.layouts,
             "operations": self.operations,
             "changes": self.changes,
+            "overrides": self.overrides,
             "handovers": self.handovers,
             "incidents": self.incidents,
         }.get(kind, self.oncall)
@@ -198,6 +220,31 @@ class _Documented:
     log: DiscoveryLog
     stop: threading.Event
     """Set to stop working ahead for this version of the documentation."""
+    fixed: Topology
+    """The documentation with its fixes, before the overrides."""
+    rules: NeighborRules
+    """What discovery takes from the overrides."""
+    overrides: list[OverrideNow]
+    """Every override not withdrawn, oldest first, as it stood when this
+    was worked out."""
+
+    def expiring(self) -> datetime | None:
+        """When the first override that applies expires.
+
+        Returns:
+            The moment; None if none that applies has an expiry.
+
+        Raises:
+            None
+        """
+        return min(
+            (
+                o.expires
+                for o in self.overrides
+                if o.state == "active" and o.expires is not None
+            ),
+            default=None,
+        )
 
 
 def create_app(
@@ -257,12 +304,16 @@ def create_app(
     incidents = IncidentStore(files.path(topology_path, "incidents"))
     store = LayoutStore(files.path(topology_path, "layouts"))
     changes = ChangeStore(files.path(topology_path, "changes"))
+    overrides = OverrideStore(files.path(topology_path, "overrides"))
     try:
-        topology = applied(base, [c.fix for c in changes.changes()])
+        fixed = applied(base, [c.fix for c in changes.changes()])
     except ChangeConflict as e:
         raise ChangesError(
             f"{changes.path}: a change no longer applies to {topology_path.name}: {e}"
         ) from e
+    # Overrides that no longer apply are kept, and say so.
+    overridden = apply(fixed, overrides.overrides(), datetime.now(UTC))
+    topology = overridden.topology
     operations = OperationsStore(
         files.path(topology_path, "operations"), Network(topology)
     )
@@ -273,8 +324,15 @@ def create_app(
     # And what circuits and links beyond our devices really show.
     beyond = Beyond(base, watched=watched)
 
-    def build(documented: Topology) -> _Documented:
-        """Work out everything that follows the documentation."""
+    def build(
+        documented: Topology,
+        rules: NeighborRules,
+        fixed: Topology | None = None,
+        standing: list[OverrideNow] | None = None,
+    ) -> _Documented:
+        """Work out everything that follows the documentation, with the
+        overrides applied (``fixed`` is it before them), and the rules
+        discovery takes from them."""
         network = Network(documented)
         real = cabling.documenting(cabled(documented))
         state = state_source or SimulatedState(
@@ -292,8 +350,12 @@ def create_app(
                 documented,
                 SimulatedDiscovery(documented, real, state, beyond),
                 state,
+                rules,
             ),
             stop=threading.Event(),
+            fixed=fixed or documented,
+            rules=rules,
+            overrides=standing or [],
         )
 
     def start(d: _Documented) -> None:
@@ -331,17 +393,42 @@ def create_app(
             if stop.wait((next_change(times, now) - now).total_seconds() + 1):
                 return
 
-    docs = build(topology)
+    docs = build(topology, overridden.rules, fixed, overridden.now)
 
-    def document(changed: list[Change]) -> None:
-        """Keep a new change set and follow the documentation it makes."""
+    def document(
+        changed: list[Change] | None = None, made: list[Override] | None = None
+    ) -> None:
+        """Keep a new change set, or new overrides, and follow the
+        documentation they make; with neither, follow the overrides that
+        apply now."""
         nonlocal docs
-        fresh = build(applied(base, [c.fix for c in changed]))
-        changes.save(changed)
+        fixed = (
+            docs.fixed if changed is None else applied(base, [c.fix for c in changed])
+        )
+        over = apply(
+            fixed, overrides.overrides() if made is None else made, datetime.now(UTC)
+        )
+        fresh = build(over.topology, over.rules, fixed, over.now)
+        if changed is not None:
+            changes.save(changed)
+        if made is not None:
+            overrides.save(made)
         operations.network = fresh.network
         old, docs = docs, fresh
         old.stop.set()
         start(fresh)
+
+    def documented() -> _Documented:
+        """The documentation in effect: worked out again first if an
+        override has expired since it was."""
+        d = docs
+        due = d.expiring()
+        if due is None or due > datetime.now(UTC):
+            return d
+        with changes.lock:
+            if docs is d:
+                document()
+            return docs
 
     app = FastAPI(title="Sunstone")
     # Topology and state run to megabytes for large networks and compress well.
@@ -355,7 +442,7 @@ def create_app(
     @app.get("/api/topology")
     def get_topology() -> Topology:
         """Return the whole topology, as documented with the changes accepted."""
-        return docs.topology
+        return documented().topology
 
     def in_history(at: datetime, now: datetime) -> datetime:
         """Check that a requested moment is one the source keeps."""
@@ -363,7 +450,7 @@ def create_app(
             raise HTTPException(
                 422, "Give the time with a zone, as in 2026-10-27T15:00Z"
             )
-        retention = docs.state.retention
+        retention = documented().state.retention
         if not now - retention <= at <= now:
             hours = retention.total_seconds() / 3600
             raise HTTPException(
@@ -382,7 +469,7 @@ def create_app(
         The present is rounded down to the polling interval, and each moment
         is served from one cached, already compressed copy.
         """
-        d = docs
+        d = documented()
         when = moment_at(d, at)
         moment = d.monitor.moment(when)
         if at is None:
@@ -403,7 +490,7 @@ def create_app(
 
         Pass the ``generated_at`` of the state being shown, so the two match.
         """
-        d = docs
+        d = documented()
         return routed(d, moment_at(d, at))
 
     @app.get("/api/status")
@@ -414,7 +501,7 @@ def create_app(
 
         Pass the ``generated_at`` of the state being shown, so the two match.
         """
-        d = docs
+        d = documented()
         return d.monitor.moment(moment_at(d, at)).status
 
     def routed(d: _Documented, when: datetime) -> RoutedProblemList:
@@ -461,7 +548,7 @@ def create_app(
         circuits would do: which devices they would cut off from the core or
         leave without redundancy, and what they would do to the whole
         network and each named network."""
-        d = docs
+        d = documented()
         failures = d.across.failures_of(question.failures)
         if question.at is None:
             return d.across.what_if(failures, None)
@@ -476,7 +563,7 @@ def create_app(
         its tunnels, worked out on the network as documented; or, with
         ``at``, on top of what is down at that moment, where a risk only
         then is new."""
-        d = docs
+        d = documented()
         if at is None:
             return d.across.risks()
         when = moment_at(d, at)
@@ -487,7 +574,7 @@ def create_app(
     @app.get("/api/events")
     def get_events() -> EventLog:
         """Return the changes the source saw over its whole history."""
-        d = docs
+        d = documented()
         now = datetime.now(UTC)
         since = now - d.state.retention
         return EventLog(since=since, until=now, events=events_of(d, since, now))
@@ -509,7 +596,7 @@ def create_app(
         fixes recorded, discovery findings first seen, who is on call, and
         the notes written since the last shift change."""
         now = datetime.now(UTC)
-        return handover_of(docs, now - timedelta(hours=hours), now, live=True)
+        return handover_of(documented(), now - timedelta(hours=hours), now, live=True)
 
     def handover_of(
         d: _Documented, since: datetime, until: datetime, live: bool
@@ -558,6 +645,7 @@ def create_app(
                 if w.end > since and w.start < until + (until - since)
             ],
             changes=[c for c in changes.changes() if since <= c.at <= until][::-1],
+            overrides=lines(overrides.overrides(), since, until),
             findings=[
                 f for f in found if f.first_seen and since <= f.first_seen <= until
             ],
@@ -593,7 +681,7 @@ def create_app(
         if times is None:
             return
         with handovers.lock:
-            d = docs
+            d = documented()
             now = datetime.now(UTC)
             # Saved just after the change, a shift as long as history is
             # lacks only the moments it began.
@@ -718,7 +806,7 @@ def create_app(
     @app.post("/api/incidents", status_code=201)
     def open_incident(incoming: IncidentIn) -> IncidentReport:
         """Open an incident from a problem there is now."""
-        d = docs
+        d = documented()
         now = datetime.now(UTC)
         problem = problem_now(d, incoming.problem)
         events = events_of(d, now - d.state.retention, now)
@@ -733,12 +821,12 @@ def create_app(
     @app.get("/api/incidents/{number}")
     def get_incident(number: int) -> IncidentReport:
         """Return an incident with its timeline, and its postmortem as a message."""
-        return incident_report(docs, an_incident(number))
+        return incident_report(documented(), an_incident(number))
 
     @app.post("/api/incidents/{number}/problems")
     def join_incident(number: int, joining: JoinIn) -> IncidentReport:
         """Add a problem there is now to an incident not yet closed."""
-        d = docs
+        d = documented()
         an_incident(number)
         now = datetime.now(UTC)
         problem = problem_now(d, joining.problem)
@@ -766,7 +854,7 @@ def create_app(
             closed = incidents.close(number, closing, datetime.now(UTC))
         except IncidentRefused as e:
             raise HTTPException(409, str(e)) from e
-        return incident_report(docs, closed)
+        return incident_report(documented(), closed)
 
     @app.post("/api/shift-notes", status_code=201)
     def add_note(note: ShiftNoteIn) -> ShiftNote:
@@ -795,13 +883,13 @@ def create_app(
         Runs come every 15 minutes, and each is compared once for every viewer.
         """
         now = datetime.now(UTC)
-        return discovered(docs, now if at is None else in_history(at, now))
+        return discovered(documented(), now if at is None else in_history(at, now))
 
     @app.get("/api/history/{device}")
     def get_history(device: str) -> DeviceHistory:
         """Return one device's readings over the source's whole history."""
         now = datetime.now(UTC)
-        state = docs.state
+        state = documented().state
         history = state.history(device, now - state.retention, now)
         if history is None:
             raise HTTPException(404, f"{device!r} is not monitored")
@@ -809,7 +897,7 @@ def create_app(
 
     def check_targets(window: WindowIn) -> None:
         """Refuse a window naming devices, sites, or links that do not exist."""
-        network = docs.network
+        network = documented().network
         unknown = [
             t.id if t.kind != "links" else ", ".join(t.ids)
             for t in window.targets
@@ -822,7 +910,7 @@ def create_app(
 
     def changed_plans() -> None:
         """Planned work changes what the simulator shows, so start afresh."""
-        d = docs
+        d = documented()
         d.monitor.forget()
         d.log.forget()
         if warm:
@@ -865,7 +953,7 @@ def create_app(
     @app.post("/api/acks", status_code=201)
     def acknowledge(ack: AckIn) -> Ack:
         """Acknowledge a problem there is now, with a note."""
-        monitor = docs.monitor
+        monitor = documented().monitor
         present = {p.id: p for p in monitor.moment(monitor.now()).problems.problems}
         if ack.problem not in present:
             raise HTTPException(404, f"No problem {ack.problem!r} now")
@@ -880,7 +968,7 @@ def create_app(
 
     def need_directory() -> tuple[Directory, Ownership]:
         """The on-call directory and who owns what, or a 404 saying where it goes."""
-        owners = docs.owners
+        owners = documented().owners
         if directory is None or owners is None:
             raise HTTPException(
                 404,
@@ -911,7 +999,7 @@ def create_app(
         Nothing is sent: the page is recorded, and escalates on paper.
         """
         _, found = need_directory()
-        monitor = docs.monitor
+        monitor = documented().monitor
         present = {p.id: p for p in monitor.moment(monitor.now()).problems.problems}
         problem = present.get(page.problem)
         if problem is None:
@@ -982,7 +1070,7 @@ def create_app(
         offers would do now: to the ports involved, to redundancy, and to the
         problems there are. Or, to mark it expected, what Live reads now on
         the ports it is about."""
-        d = docs
+        d = documented()
         found, fix = offered(d, finding, expect)
         now = d.monitor.now()
         readings = {
@@ -1018,7 +1106,7 @@ def create_app(
                 ],
             )
         try:
-            would = build(applied(d.topology, [fix]))
+            would = build(applied(d.topology, [fix]), d.rules)
         except ChangeConflict as e:
             raise HTTPException(409, str(e)) from e
         old, new = ports(fix.before), ports(fix.after)
@@ -1067,7 +1155,7 @@ def create_app(
         the documentation, which everything then follows; or mark the
         finding expected, which changes no link."""
         with changes.lock:
-            found, fix = offered(docs, change.finding, change.expect)
+            found, fix = offered(documented(), change.finding, change.expect)
             accepted = new_change(found, fix, change, datetime.now(UTC))
             if fix.kind == "expect":
                 changes.save([*changes.changes(), accepted])
@@ -1095,6 +1183,98 @@ def create_app(
                 raise HTTPException(
                     409, f"A later change depends on it; revert that first ({e})"
                 ) from e
+
+    @app.get("/api/overrides")
+    def get_overrides() -> OverrideList:
+        """Return every override not withdrawn, newest first, with how each
+        stands now."""
+        return OverrideList(overrides=documented().overrides[::-1])
+
+    def follow(d: _Documented, kept: list[Override], kinds: set[str]) -> None:
+        """Keep the overrides, and follow them: worked out again, unless
+        only the views use what changed."""
+        nonlocal docs
+        if kinds <= SHOWN_ONLY:
+            standing = apply(d.fixed, kept, datetime.now(UTC)).now
+            overrides.save(kept)
+            docs = replace(d, overrides=standing)
+            return
+        document(made=kept)
+
+    @app.post("/api/overrides", status_code=201)
+    def make_override(made: OverrideIn) -> Override:
+        """Make an override, in place of one of its kind an object has one
+        of at a time (a rename, a lock of the field, a label of the key);
+        everything follows it."""
+        with changes.lock:
+            d = documented()
+            now = datetime.now(UTC)
+            if made.expires is not None and made.expires <= now:
+                raise HTTPException(422, "It would have expired already")
+            try:
+                check(d.topology, made)
+            except OverrideRefused as e:
+                raise HTTPException(409, str(e)) from e
+            every = overrides.overrides()
+            standing = [o for o in every if o.withdrawn is None and same(o, made)]
+            if standing and made.kind not in SINGLE:
+                raise HTTPException(409, f"{made.value!r} is already there")
+            new = new_override(made, now)
+            gone = {o.id for o in standing}
+            kept = [
+                o.model_copy(update={"withdrawn": Stamp(by=made.by, at=now)})
+                if o.id in gone
+                else o
+                for o in every
+            ]
+            follow(d, [*kept, new], {made.kind})
+            return new
+
+    def an_override(override_id: str) -> tuple[list[Override], int]:
+        """Every override, and where one not withdrawn is among them."""
+        every = overrides.overrides()
+        at = next(
+            (
+                i
+                for i, o in enumerate(every)
+                if o.id == override_id and o.withdrawn is None
+            ),
+            None,
+        )
+        if at is None:
+            raise HTTPException(404, f"No override {override_id!r}")
+        return every, at
+
+    @app.post("/api/overrides/{override_id}/withdraw", status_code=204)
+    def withdraw_override(override_id: str, withdrawal: WithdrawIn) -> None:
+        """Withdraw an override: it stops applying, and is kept for the handover."""
+        with changes.lock:
+            d = documented()
+            every, at = an_override(override_id)
+            o = every[at]
+            every[at] = o.model_copy(
+                update={"withdrawn": Stamp(by=withdrawal.by, at=datetime.now(UTC))}
+            )
+            follow(d, every, {o.kind})
+
+    @app.post("/api/overrides/{override_id}/renew")
+    def renew_override(override_id: str, renewal: RenewIn) -> Override:
+        """Give an override a new expiry, or none: an expired one applies again."""
+        with changes.lock:
+            d = documented()
+            now = datetime.now(UTC)
+            if renewal.expires is not None and renewal.expires <= now:
+                raise HTTPException(422, "It would have expired already")
+            every, at = an_override(override_id)
+            renewed = every[at].model_copy(
+                update={
+                    "expires": renewal.expires,
+                    "renewed": Stamp(by=renewal.by, at=now),
+                }
+            )
+            every[at] = renewed
+            follow(d, every, {renewed.kind})
+            return renewed
 
     @app.get("/api/layouts")
     def list_layouts() -> list[LayoutSummary]:
@@ -1136,7 +1316,8 @@ def app_from_env() -> FastAPI:
     Uvicorn's reloader re-imports the app in a fresh process, so settings
     travel in ``SUNSTONE_TOPOLOGY``, ``SUNSTONE_WEB_DIR``,
     ``SUNSTONE_LAYOUTS``, ``SUNSTONE_OPERATIONS``, ``SUNSTONE_CHANGES``,
-    ``SUNSTONE_HANDOVERS``, ``SUNSTONE_INCIDENTS``, and ``SUNSTONE_ONCALL``
+    ``SUNSTONE_OVERRIDES``, ``SUNSTONE_HANDOVERS``, ``SUNSTONE_INCIDENTS``,
+    and ``SUNSTONE_ONCALL``
     rather than as arguments.
 
     Returns:
@@ -1146,6 +1327,7 @@ def app_from_env() -> FastAPI:
         KeyError: If ``SUNSTONE_TOPOLOGY`` is not set.
         TopologyError: If the topology file is missing or invalid.
         ChangesError: If the changes no longer apply to the topology file.
+        OverridesError: If the overrides file cannot be read.
         HandoverError: If the saved handovers file cannot be read.
         IncidentError: If the incidents file cannot be read.
         DirectoryError: If the on-call directory is invalid, or was named
@@ -1155,6 +1337,7 @@ def app_from_env() -> FastAPI:
     layouts = os.environ.get("SUNSTONE_LAYOUTS")
     operations = os.environ.get("SUNSTONE_OPERATIONS")
     changes = os.environ.get("SUNSTONE_CHANGES")
+    overrides = os.environ.get("SUNSTONE_OVERRIDES")
     handovers = os.environ.get("SUNSTONE_HANDOVERS")
     incidents = os.environ.get("SUNSTONE_INCIDENTS")
     oncall = os.environ.get("SUNSTONE_ONCALL")
@@ -1165,6 +1348,7 @@ def app_from_env() -> FastAPI:
             layouts=Path(layouts) if layouts else None,
             operations=Path(operations) if operations else None,
             changes=Path(changes) if changes else None,
+            overrides=Path(overrides) if overrides else None,
             handovers=Path(handovers) if handovers else None,
             incidents=Path(incidents) if incidents else None,
             oncall=Path(oncall) if oncall else None,

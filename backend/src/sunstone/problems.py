@@ -306,6 +306,9 @@ def _outages(
                         following.append(other)
             frontier = following
         seen |= group
+        if group <= network.quiet:
+            # Devices rated ignored, cutting off none that count.
+            continue
 
         edge = {
             link.a.device if link.a.device in group else end_name(link.b)
@@ -441,6 +444,8 @@ def _device_problems(
         record = view.devices.get(name)
         health = view.health(name)
         if name in unreached or record is None or health not in ("degraded", "nodata"):
+            continue
+        if name in network.quiet:
             continue
         target = DeviceCenter(kind="device", id=name)
         if health == "nodata":

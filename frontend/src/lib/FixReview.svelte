@@ -12,6 +12,7 @@ on the ports it is about, and a note saying why, which it needs.
 	import { acceptFix, fetchReview, type Change, type Review } from './api/changes.ts';
 	import type { Finding } from './api/discovery.ts';
 	import { linkEnds, portNow, reviewEffects, reviewWarning } from './discovery.ts';
+	import { named } from './overrides.svelte.ts';
 	import { rememberName, ui } from './state.svelte.ts';
 	import { formatSpeed } from './topology.ts';
 
@@ -80,12 +81,12 @@ on the ports it is about, and a note saying why, which it needs.
 {#if expect || fix}
 	<form class="review" aria-label={expect ? 'Mark expected' : 'Review fix'} onsubmit={accept}>
 		<h3>{expect ? 'Mark expected' : 'Review fix'}</h3>
-		<p class="title">{finding.title}</p>
+		<p class="title">{named(finding.title)}</p>
 		{#if expect}
-			<p class="muted">{finding.detail}</p>
+			<p class="muted">{named(finding.detail)}</p>
 		{:else if fix?.kind === 'document' && fix.before && fix.after}
-			<p><b>{fix.summary}</b></p>
-			<p class="muted">{finding.detail}</p>
+			<p><b>{named(fix.summary)}</b></p>
+			<p class="muted">{named(finding.detail)}</p>
 			<dl>
 				<dt>Documented</dt>
 				<dd>{showing(showsOf(fix.before))}</dd>
@@ -93,7 +94,7 @@ on the ports it is about, and a note saying why, which it needs.
 				<dd>{showing(showsOf(fix.after))}</dd>
 			</dl>
 		{:else if fix}
-			<p><b>{fix.summary}</b></p>
+			<p><b>{named(fix.summary)}</b></p>
 			<dl>
 				{#if fix.before}
 					<dt>Documented</dt>

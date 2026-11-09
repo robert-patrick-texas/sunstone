@@ -9,8 +9,9 @@ links that are down or partly down are dashed, and links with no data dotted.
 An impact is drawn like a path: affected sites, devices, and links in impact
 styles, everything else faded. Resources are hexagons amid their members'
 sites, with dotted leaders to them; with live state, in their status colors.
-Where the map is goes into `ui.camera`, for links; a link's camera, if any,
-is where the map opens.
+What is hidden from the map is left out, and devices are labeled by the
+names they are shown by. Where the map is goes into `ui.camera`, for links;
+a link's camera, if any, is where the map opens.
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
@@ -31,7 +32,9 @@ is where the map opens.
 	import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 	import type { Comparison } from '../api/discovery.ts';
 	import type { StatusReport } from '../api/status.ts';
+	import { drawnLinks } from '../graph/drawn.ts';
 	import type { Impact } from '../impact.ts';
+	import { overrides } from '../overrides.svelte.ts';
 	import { timed } from '../perf.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
@@ -124,9 +127,12 @@ is where the map opens.
 
 	// The topology never changes while the view is open, so these are computed once.
 	const positions = untrack(() => devicePositions(index));
-	const pairs = untrack(() => sitePairs(index));
-	const pairOfLink = new Map(pairs.flatMap((p) => p.linkIds.map((id) => [id, p.key] as const)));
 	const resourceAt = untrack(() => resourcePositions(index));
+	// Which links each pair of sites has drawn changes with what is hidden.
+	const pairs = $derived(sitePairs(index));
+	const pairOfLink = $derived(
+		new Map(pairs.flatMap((p) => p.linkIds.map((id) => [id, p.key] as const)))
+	);
 
 	const roleColor: ExpressionSpecification = [
 		'match',
@@ -273,7 +279,7 @@ is where the map opens.
 		m.addSource('sites', { type: 'geojson', data: siteFeatures(index, l, i), promoteId: 'code' });
 		m.addSource('device-links', {
 			type: 'geojson',
-			data: linkFeatures(index.topology.links, positions, l, i),
+			data: linkFeatures(drawnLinks(index), positions, l, i),
 			promoteId: 'id'
 		});
 		m.addSource('devices', {
@@ -637,7 +643,7 @@ is where the map opens.
 			source: 'devices',
 			minzoom: 15.5,
 			layout: {
-				'text-field': ['get', 'name'],
+				'text-field': ['get', 'label'],
 				'text-font': FONT,
 				'text-size': 10,
 				'text-offset': [0, 0.9],
@@ -710,7 +716,8 @@ is where the map opens.
 		);
 	});
 
-	// Named networks chosen, live state turned on or off, or an impact shown, redraw their tunnels.
+	// Named networks chosen, live state turned on or off, an impact shown, or
+	// something hidden or shown again, redraw their tunnels.
 	$effect(() => {
 		const [m, networks, l, i] = [map, ui.networks, live, impact];
 		if (!m) return;
@@ -724,18 +731,20 @@ is where the map opens.
 		);
 	});
 
-	// New snapshots and status, or a new impact or discovery, replace the features' properties.
+	// New snapshots and status, a new impact or discovery, or something hidden,
+	// shown again, or renamed, replace the features.
 	$effect(() => {
-		const [m, l, i, d, s] = [map, live, impact, drift, status];
+		const [m, l, i, d, s, p] = [map, live, impact, drift, status, pairs];
+		void [overrides.list, overrides.showHidden];
 		if (!m) return;
 		untrack(() =>
 			timed('map update', () => {
 				const update = (id: string, data: GeoJSON.FeatureCollection) =>
 					(m.getSource(id) as GeoJSONSource | undefined)?.setData(data);
 				update('sites', siteFeatures(index, l, i));
-				update('site-links', sitePairFeatures(index, pairs, l, i, d));
+				update('site-links', sitePairFeatures(index, p, l, i, d));
 				update('devices', deviceFeatures(index, positions, l, i));
-				update('device-links', linkFeatures(index.topology.links, positions, l, i, d));
+				update('device-links', linkFeatures(drawnLinks(index), positions, l, i, d));
 				update('resources', resourceFeatures(index, resourceAt, s));
 			})
 		);

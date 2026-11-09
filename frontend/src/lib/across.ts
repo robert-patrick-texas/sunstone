@@ -5,13 +5,16 @@
  * cut off from it ("black loses 2 of 4 circuits at HOU; blue, grey stay
  * up"), and each resource whose status changes, and why. Shared risks
  * name what fails several of a network's tunnels at once. The server works
- * both out (`backend/src/sunstone/across.py`).
+ * both out (`backend/src/sunstone/across.py`); what it says names devices
+ * and external nodes as the topology does, so they are given the names they
+ * go by here.
  */
 import type { NetworkImpact } from './api/analysis.ts';
 import type { Risk, RiskItem } from './api/risks.ts';
 import type { components } from './api/schema.d.ts';
 import type { Status } from './api/status.ts';
 import { layersOf } from './layers.ts';
+import { named, shown } from './overrides.svelte.ts';
 import type { Failure } from './state.svelte.ts';
 import { STATUS_LABEL, statusWord } from './status.ts';
 import { term } from './terms.ts';
@@ -143,11 +146,12 @@ export function networkLine(
 	if (losses.length === 0 && impact.sites_lost.length === 0) {
 		const caveat = after.caveats[0];
 		const group = after.groups[0];
-		note =
+		const said =
 			after.status === 'operational' && caveat
 				? `over ${caveat.split(':')[0]}`
 				: (after.reasons[0] ??
 					(group ? `${group.name} ${STATUS_LABEL[group.status].toLowerCase()}` : null));
+		note = said === null ? null : named(said);
 	}
 	return {
 		network,
@@ -208,7 +212,7 @@ export function resourceLine(impact: ResourceImpact): ResourceLine {
 				? STATUS_LABEL[after.status]
 				: `${STATUS_LABEL[before]} → ${STATUS_LABEL[after.status]}`,
 		after: after.status,
-		detail: after.reasons.join(', ')
+		detail: named(after.reasons.join(', '))
 	};
 }
 
@@ -257,9 +261,10 @@ export function riskSummary(index: TopologyIndex, risk: Risk, tunnels: number): 
  * @returns A device's name, a link's short name, or a provider's name.
  */
 export function riskItemName(index: TopologyIndex, item: RiskItem): string {
+	if (item.kind === 'device') return shown(item.id);
 	if (item.kind !== 'link') return item.id;
 	const link = index.links.get(item.id);
-	return link ? linkName(link) : item.id;
+	return link ? named(linkName(link)) : item.id;
 }
 
 /**

@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { NetworkStatus, StatusReport } from './api/status.ts';
 import { eventRows, rowSites, tunnelName, tunnelTarget, EVENT_CATEGORIES } from './history.ts';
+import { overrides } from './overrides.svelte.ts';
 import { needing, siteStatus, statusOf, statusWord } from './status.ts';
 import { layeredIndex } from './test-fixture.ts';
+
+afterEach(() => {
+	overrides.list = [];
+});
 
 function network(name: string | null, extra: Partial<NetworkStatus> = {}): NetworkStatus {
 	return {
@@ -65,6 +70,39 @@ describe('network status', () => {
 		expect(siteStatus(grey, 'D').reason).toBe('blue degraded at D');
 		// Not a site in another's name: DA is neither DAL nor D.
 		expect(siteStatus(grey, 'DA').word).toBe('Operational');
+	});
+
+	it("gives a site's reason with devices and external nodes by their new names", () => {
+		overrides.list = [
+			{
+				id: 'o1',
+				target: { kind: 'external', id: 'bravo-iad-1', interface: null },
+				kind: 'rename',
+				key: null,
+				value: 'BRV-IAD-ENC01',
+				note: '',
+				by: 'Pat',
+				at: '2026-11-07T14:00:00Z',
+				expires: null,
+				renewed: null,
+				withdrawn: null,
+				state: 'active',
+				reason: null,
+				topology_value: null
+			}
+		];
+		const grey = network('grey', {
+			groups: [
+				{
+					kind: 'site',
+					id: 'IAD',
+					name: 'Ashburn',
+					status: 'offline',
+					reasons: ['bravo-iad-1 down']
+				}
+			]
+		});
+		expect(siteStatus(grey, 'IAD').reason).toBe('BRV-IAD-ENC01 down');
 	});
 });
 

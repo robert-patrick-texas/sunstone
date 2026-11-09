@@ -2,11 +2,16 @@
  * The shift handover as the report shows it: how long things lasted,
  * outages sorted into whole sites, circuits and other links, and single
  * devices, the handovers saved at shift changes and who signed for them,
- * and the message to post.
+ * overrides made, withdrawn, or expired, and the message to post.
  */
 import type { Handover, HandoverList, HandoverSummary, Outage, SignOff } from './api/handover.ts';
 import type { Problem } from './api/analysis.ts';
+import type { OverrideLine, Target } from './api/overrides.ts';
+import { lagMembers } from './connections.ts';
 import { clock } from './history.ts';
+import { describe, lagId, named, targetName } from './overrides.svelte.ts';
+import type { AnySelection } from './state.svelte.ts';
+import type { TopologyIndex } from './topology.ts';
 import { DEFAULT_HANDOVER_H } from './url.ts';
 
 /** Spans a handover can cover, in hours; the first is the default. */
@@ -117,8 +122,68 @@ export function signedLine(signed: SignOff): string {
  *
  * @param handover - The handover.
  * @param link - Where to open it in Sunstone.
- * @returns The subject, the text, and the link.
+ * @returns The subject, the text, and the link, with names as shown.
  */
 export function messageText(handover: Pick<Handover, 'message'>, link: string): string {
-	return `${handover.message.subject}\n\n${handover.message.text}\n\nIn Sunstone: ${link}`;
+	const { subject, text } = handover.message;
+	return `${named(subject)}\n\n${named(text)}\n\nIn Sunstone: ${link}`;
+}
+
+/** An override made, withdrawn, or expired, as a handover lists it. */
+export interface OverrideRow {
+	/** What it is on, what it does, and its note: "bravo-iad-1 · Hidden from status · lab". */
+	what: string;
+	/** "Made by Pat", "Withdrawn by Sam", or "Expired". */
+	event: string;
+	/** What to select to show it; null for a port channel no longer in the topology. */
+	target: AnySelection | null;
+}
+
+/**
+ * An override's line in a handover.
+ *
+ * @param line - What happened to it, and when.
+ * @param index - The topology, for a link's ends and a port channel's members.
+ * @returns The line.
+ */
+export function overrideRow(line: OverrideLine, index: TopologyIndex | null): OverrideRow {
+	const o = line.override;
+	const said = describe(o);
+	const event = {
+		made: `Made by ${o.by}`,
+		withdrawn: `Withdrawn${o.withdrawn ? ` by ${o.withdrawn.by}` : ''}`,
+		expired: 'Expired'
+	};
+	return {
+		// A rename's line names what was renamed by its name in the topology.
+		what: [o.kind === 'rename' ? o.target.id : targetName(o.target, index), said, o.note]
+			.filter(Boolean)
+			.join(' · '),
+		event: event[line.event],
+		target: selectionOf(o.target, index)
+	};
+}
+
+/**
+ * What to select to show what an override is on.
+ *
+ * @param of - The target.
+ * @param index - The topology, for a port channel's members.
+ * @returns It; a port's device; a port channel's members; null for a port
+ *   channel not in the topology.
+ */
+export function selectionOf(of: Target, index: TopologyIndex | null): AnySelection | null {
+	switch (of.kind) {
+		case 'port':
+			return { kind: 'device', id: of.id };
+		case 'link':
+			return { kind: 'links', ids: [of.id] };
+		case 'lag': {
+			const lag = index?.topology.lags.find((g) => lagId(g) === of.id);
+			if (!index || !lag) return null;
+			return { kind: 'links', ids: lagMembers(index.topology, lag).map((l) => l.id) };
+		}
+		default:
+			return { kind: of.kind, id: of.id };
+	}
 }

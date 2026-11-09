@@ -1,6 +1,30 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { IncidentSummary } from './api/incidents.ts';
+import type { OverrideNow } from './api/overrides.ts';
 import { first, incidentLabel, into, lasted, postmortemText } from './incident.ts';
+import { overrides } from './overrides.svelte.ts';
+
+afterEach(() => {
+	overrides.list = [];
+});
+
+/** bravo-iad-1, a tenant's inline encryptor, renamed. */
+const RENAMED: OverrideNow = {
+	id: 'o1',
+	target: { kind: 'external', id: 'bravo-iad-1', interface: null },
+	kind: 'rename',
+	key: null,
+	value: 'BRV-IAD-ENC01',
+	note: '',
+	by: 'Pat',
+	at: '2026-10-27T14:00:00Z',
+	expires: null,
+	renewed: null,
+	withdrawn: null,
+	state: 'active',
+	reason: null,
+	topology_value: null
+};
 
 function incident(extra: Partial<IncidentSummary>): IncidentSummary {
 	return {
@@ -42,6 +66,19 @@ describe('incidents', () => {
 		const message = { subject: 'Incident 1: HOU cut off', text: 'Problems (1)' };
 		expect(postmortemText({ message }, 'http://noc/?incident=1')).toBe(
 			'Incident 1: HOU cut off\n\nProblems (1)\n\nIn Sunstone: http://noc/?incident=1'
+		);
+	});
+
+	it('are listed and copied with devices and external nodes by their new names', () => {
+		overrides.list = [RENAMED];
+		const title = 'dal-gsw-01 – bravo-iad-1 down';
+		expect(incidentLabel(incident({ number: 4, title }))).toBe(
+			'4 · dal-gsw-01 – BRV-IAD-ENC01 down · open'
+		);
+		const message = { subject: `Incident 4: ${title}`, text: `- ${title}, cleared 15:20` };
+		expect(postmortemText({ message }, 'http://noc/?incident=4')).toBe(
+			'Incident 4: dal-gsw-01 – BRV-IAD-ENC01 down\n\n- dal-gsw-01 – BRV-IAD-ENC01 down, cleared 15:20' +
+				'\n\nIn Sunstone: http://noc/?incident=4'
 		);
 	});
 });
