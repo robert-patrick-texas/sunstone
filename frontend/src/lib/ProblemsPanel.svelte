@@ -22,6 +22,7 @@ showing the impact.
 	import type { OnCall } from './api/oncall.ts';
 	import type { Window } from './api/operations.ts';
 	import { personOf } from './oncall.ts';
+	import { named } from './overrides.svelte.ts';
 	import { grouped, handling, MARK } from './problem-kinds.ts';
 	import { resourcesNeeding } from './resources.ts';
 	import { scopeOf } from './scope.ts';
@@ -108,7 +109,9 @@ showing the impact.
 						>
 						<span>
 							<span class="title">{n.name} {statusWord(n).toLowerCase()}</span>
-							<span class="detail">{[...n.reasons, ...n.caveats].slice(0, 2).join(' · ')}</span>
+							<span class="detail"
+								>{named([...n.reasons, ...n.caveats].slice(0, 2).join(' · '))}</span
+							>
 						</span>
 					</button>
 				</li>
@@ -128,7 +131,7 @@ showing the impact.
 						<i style:--c={STATUS_COLOR[r.status]} aria-hidden="true">{STATUS_GLYPH[r.status]}</i>
 						<span>
 							<span class="title">{r.name} {STATUS_LABEL[r.status].toLowerCase()}</span>
-							{#if r.reasons.length}<span class="detail">{r.reasons[0]}</span>{/if}
+							{#if r.reasons.length}<span class="detail">{named(r.reasons[0] ?? '')}</span>{/if}
 						</span>
 					</button>
 				</li>
@@ -154,12 +157,12 @@ showing the impact.
 						<span>
 							<span class="title"
 								>{#if problem.priority === 'high'}<b class="high-mark">High</b>
-								{/if}{problem.title}</span
+								{/if}{named(problem.title)}</span
 							>
-							{#if problem.detail}<span class="detail">{problem.detail}</span>{/if}
-							{#if across}<span class="detail">{across}</span>{/if}
+							{#if problem.detail}<span class="detail">{named(problem.detail)}</span>{/if}
+							{#if across}<span class="detail">{named(across)}</span>{/if}
 							{#if problem.responsible}
-								<span class="detail">{problem.responsible} answers first</span>
+								<span class="detail">{named(problem.responsible)} answers first</span>
 							{/if}
 							{#if problem.planned.length}
 								<span class="tag planned"

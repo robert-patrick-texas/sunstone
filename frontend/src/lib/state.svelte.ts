@@ -100,7 +100,8 @@ export const ui = $state({
 	/** How the list of problems is grouped: by kind, or by region. */
 	problemsBy: 'kind' as 'kind' | 'region',
 	/** Which list the side panel shows. */
-	sideTab: 'problems' as 'problems' | 'events' | 'maintenance' | 'oncall' | 'discovery',
+	sideTab: 'problems' as
+		'problems' | 'events' | 'maintenance' | 'oncall' | 'discovery' | 'overrides',
 	/** The team the on-call list is showing, by id. */
 	team: null as string | null,
 	/** Who is using Sunstone, for signing maintenance and acknowledgements. */

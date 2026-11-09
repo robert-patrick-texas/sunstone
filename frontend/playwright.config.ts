@@ -14,11 +14,12 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = Number(process.env['SUNSTONE_E2E_PORT'] ?? 18940);
 const LAYERS_PORT = PORT + 1;
-// Layouts, maintenance, acknowledgements, notes, fixes, handovers, and incidents saved by
-// the tests go to fresh files, never beside the sample data.
+// Layouts, maintenance, acknowledgements, notes, fixes, overrides, handovers, and incidents
+// saved by the tests go to fresh files, never beside the sample data.
 const LAYOUTS = join(tmpdir(), `sunstone-e2e-${process.pid}.layouts.json`);
 const OPERATIONS = join(tmpdir(), `sunstone-e2e-${process.pid}.operations.json`);
 const CHANGES = join(tmpdir(), `sunstone-e2e-${process.pid}.changes.json`);
+const OVERRIDES = join(tmpdir(), `sunstone-e2e-${process.pid}.overrides.json`);
 const HANDOVERS = join(tmpdir(), `sunstone-e2e-${process.pid}.handovers.json`);
 const INCIDENTS = join(tmpdir(), `sunstone-e2e-${process.pid}.incidents.json`);
 const LAYERS_STATE = join(tmpdir(), `sunstone-e2e-${process.pid}-layers`);
@@ -40,12 +41,23 @@ export default defineConfig({
 	projects: [
 		{
 			name: 'chromium',
-			testIgnore: ['fixes.spec.ts', 'layers.spec.ts'],
+			testIgnore: ['fixes.spec.ts', 'layers.spec.ts', 'overrides.spec.ts'],
 			use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 900 } }
 		},
 		{
 			name: 'layers',
 			testMatch: 'layers.spec.ts',
+			use: {
+				...devices['Desktop Chrome'],
+				viewport: { width: 1400, height: 900 },
+				baseURL: `http://127.0.0.1:${LAYERS_PORT}`
+			}
+		},
+		// Overrides change what the layered sample shows, so after its own tests.
+		{
+			name: 'overrides',
+			testMatch: 'overrides.spec.ts',
+			dependencies: ['layers'],
 			use: {
 				...devices['Desktop Chrome'],
 				viewport: { width: 1400, height: 900 },
@@ -65,6 +77,7 @@ export default defineConfig({
 			command:
 				'uv run sunstone serve --topology ../data/sample/small.yaml --web-dir ../frontend/build ' +
 				`--layouts ${LAYOUTS} --operations ${OPERATIONS} --changes ${CHANGES} ` +
+				`--overrides ${OVERRIDES} ` +
 				`--handovers ${HANDOVERS} --incidents ${INCIDENTS} --port ${PORT}`,
 			cwd: '../backend',
 			url: `http://127.0.0.1:${PORT}/api/topology`,

@@ -7,7 +7,10 @@
  * they are), resources (by name, tag, or description), problems,
  * maintenance windows, on-call teams and people, and commands. Links and
  * devices are found by their priority too ("high"), defaults included,
- * except medium by default, which nearly everything is.
+ * except medium by default, which nearly everything is. Overrides add to
+ * what each is found by: a site, device, or external node by its aliases and
+ * new name, shown by that name; anything by tags and labels given here, a
+ * label as `key:value` or by its value alone.
  *
  * Every word typed must match something about an entry. A match counts for
  * more when it is a whole name than when it starts one, when it starts a
@@ -21,6 +24,7 @@
 import type { Problem } from './api/analysis.ts';
 import type { OnCall } from './api/oncall.ts';
 import type { Window } from './api/operations.ts';
+import type { Target as OverrideTarget } from './api/overrides.ts';
 import type { Priority } from './api/topology.ts';
 import type { Command, CommandId } from './commands.ts';
 import {
@@ -40,6 +44,15 @@ import {
 	type Roles
 } from './connections.ts';
 import { span, targetName } from './maintenance.ts';
+import {
+	aliases,
+	labels as givenLabels,
+	lagId,
+	named,
+	shown,
+	tags as addedTags,
+	target as overrideTarget
+} from './overrides.svelte.ts';
 import { linkRating, PRIORITY_LABEL } from './priorities.ts';
 import { KINDS } from './problem-kinds.ts';
 import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
@@ -169,6 +182,26 @@ function idFields(...ids: Parameters<typeof idWords>[0][]): Field[] {
 	return ids.flatMap((sides) => idWords(sides).flatMap((w) => field(w, NAME)));
 }
 
+/** A device or external node by its name in the topology, and by its new name here. */
+const nameFields = (name: string, weight: number): Field[] =>
+	[...new Set([name, shown(name)])].flatMap((n) => field(n, weight));
+
+/**
+ * What overrides here add to find something by: other names (a site's,
+ * device's, or external node's), tags, and labels as `key:value` or the
+ * value alone.
+ */
+function overrideFields(of: OverrideTarget): Field[] {
+	return [
+		...aliases(of).flatMap((a) => field(a, NAME)),
+		...addedTags(of).flatMap((t) => field(t, ALIAS)),
+		...givenLabels(of).flatMap(({ key, value }) => [
+			...field(`${key}:${value}`, ALIAS),
+			...field(value, ALIAS)
+		])
+	];
+}
+
 /** An interface by its full name and its short form. */
 const interfaceFields = (name: string | null | undefined, weight: number): Field[] =>
 	name ? [...new Set([name, shortInterface(name)])].flatMap((n) => field(n, weight)) : [];
@@ -261,7 +294,8 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 			...field(n.description, CONTEXT, 'words'),
 			...field(n.tenant, ALIAS),
 			...words('network'),
-			...tags(n.tags)
+			...tags(n.tags),
+			...overrideFields(overrideTarget('network', n.name))
 		]);
 	}
 	if (item.kind === 'transport') {
@@ -276,7 +310,8 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 			...field(TRANSPORT_KIND[t.kind], CONTEXT, 'words'),
 			...field(transportService(t), CONTEXT, 'words'),
 			...words('transport'),
-			...tags(t.tags)
+			...tags(t.tags),
+			...overrideFields(overrideTarget('transport', t.name))
 		]);
 	}
 	if (item.kind === 'external') {
@@ -284,14 +319,15 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 		if (!e) return null;
 		const kind = term(index, e.kind);
 		const detail = [kind, e.tenant, e.platform, e.description];
-		return entry(head(e.name, detail.filter(Boolean).join(' · ')), target, [
+		return entry(head(shown(e.name), detail.filter(Boolean).join(' · ')), target, [
 			...field(e.name, NAME),
 			...field(e.tenant, ALIAS),
 			...field(e.platform, PART),
 			...field(e.description, CONTEXT, 'words'),
 			...words(e.kind),
 			...words('external'),
-			...tags(e.tags)
+			...tags(e.tags),
+			...overrideFields(overrideTarget('external', e.name))
 		]);
 	}
 	if (item.kind === 'tunnel') {
@@ -302,7 +338,7 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 		const detail = [
 			t.network,
 			t.technology,
-			`${t.a.device} – ${far}`,
+			`${shown(t.a.device)} – ${shown(far)}`,
 			`over ${t.rides}`,
 			t.enterprise_cid?.a,
 			rolesText(roles)
@@ -314,12 +350,13 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 			...field(t.network, ALIAS),
 			...field(t.technology, PART),
 			...field(t.kind === 'macsec' ? 'MACsec' : null, CONTEXT, 'words'),
-			...field(t.a.device, CONTEXT),
-			...field(far, CONTEXT),
+			...nameFields(t.a.device, CONTEXT),
+			...nameFields(far, CONTEXT),
 			...interfaceFields(t.a.interface, CONTEXT),
 			...roleFields(roles),
 			...words('tunnel'),
-			...tags(t.tags)
+			...tags(t.tags),
+			...overrideFields(overrideTarget('tunnel', t.name))
 		]);
 	}
 	if (item.kind === 'fabric') {
@@ -335,7 +372,8 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 			...field(f.technology, PART),
 			...roleFields(fabricRoles(f)),
 			...words('fabric'),
-			...tags(f.tags)
+			...tags(f.tags),
+			...overrideFields(overrideTarget('fabric', f.name))
 		]);
 	}
 	if (item.kind === 'resource') {
@@ -347,7 +385,8 @@ function layerEntry(index: TopologyIndex, item: LayerSelection): Entry | null {
 			...field(r.name, NAME),
 			...field(r.description, CONTEXT, 'words'),
 			...field('Resource', CONTEXT, 'words'),
-			...tags(r.tags)
+			...tags(r.tags),
+			...overrideFields(overrideTarget('resource', r.name))
 		]);
 	}
 	const t = index.tenants.get(item.id);
@@ -389,7 +428,8 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 			[
 				...field(site.code, NAME),
 				...field(site.name, NAME),
-				...field(site.region, CONTEXT, 'words')
+				...field(site.region, CONTEXT, 'words'),
+				...overrideFields(overrideTarget('site', site.code))
 			]
 		);
 	}
@@ -401,7 +441,7 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 			{
 				kind: 'device',
 				key,
-				label: device.name,
+				label: shown(device.name),
 				detail: [ROLE_LABEL[device.role], device.site, device.mgmt_ip].filter(Boolean).join(' · ')
 			},
 			target,
@@ -412,7 +452,8 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 				...field(ROLE_LABEL[device.role], CONTEXT, 'words'),
 				...field(device.site, CONTEXT),
 				...field(site?.name, CONTEXT),
-				...priorityFields(device.priority)
+				...priorityFields(device.priority),
+				...overrideFields(overrideTarget('device', device.name))
 			],
 			ipv4(device.mgmt_ip ?? '') ?? undefined
 		);
@@ -431,7 +472,12 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 		) {
 			// Only ever recent: a bundle selected on the map, not something search finds.
 			return entry(
-				{ kind: 'link', key, label: targetName(index, item), detail: [...sites].join(' – ') },
+				{
+					kind: 'link',
+					key,
+					label: named(targetName(index, item)),
+					detail: [...sites].join(' – ')
+				},
 				target,
 				[]
 			);
@@ -444,7 +490,7 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 				key,
 				label: `Port channel ${cid ?? shortInterface(channel.a.interface)}`,
 				detail: [
-					`${channel.a.device} ${shortInterface(channel.a.interface)} – ${channel.b.device} ${shortInterface(channel.b.interface)}`,
+					`${shown(channel.a.device)} ${shortInterface(channel.a.interface)} – ${shown(channel.b.device)} ${shortInterface(channel.b.interface)}`,
 					`${members.length} members`,
 					formatSpeed(links.reduce((sum, l) => sum + l.speed_mbps, 0))
 				].join(' · ')
@@ -455,10 +501,11 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 				...field(channel.circuit?.provider, ALIAS),
 				...field('port channel', CONTEXT, 'words'),
 				...field('lag', CONTEXT),
-				...field(channel.a.device, PART),
-				...field(channel.b.device, PART),
+				...nameFields(channel.a.device, PART),
+				...nameFields(channel.b.device, PART),
 				...interfaceFields(channel.a.interface, PART),
-				...interfaceFields(channel.b.interface, PART)
+				...interfaceFields(channel.b.interface, PART),
+				...overrideFields(overrideTarget('lag', lagId(channel)))
 			]
 		);
 	}
@@ -477,9 +524,9 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 		{
 			kind: 'link',
 			key,
-			label: link.circuit ? linkName(link) : ends,
+			label: named(link.circuit ? linkName(link) : ends),
 			detail: link.circuit
-				? [link.circuit.provider, `${link.a.device} – ${endName(link.b)}`, speed, edges]
+				? [link.circuit.provider, named(`${link.a.device} – ${endName(link.b)}`), speed, edges]
 						.filter(Boolean)
 						.join(' · ')
 				: [speed, lag, link.enterprise_cid?.a, edges].filter(Boolean).join(' · ')
@@ -495,13 +542,14 @@ export function itemEntry(index: TopologyIndex, item: AnySelection): Entry | nul
 			...field(macsecOn(index.topology, link).length ? 'MACsec' : null, CONTEXT, 'words'),
 			...roleFields(roles),
 			...priorityFields(plain ? null : rating.priority),
-			...field(link.a.device, PART),
-			...field(endName(link.b), PART),
+			...nameFields(link.a.device, PART),
+			...nameFields(endName(link.b), PART),
 			...interfaceFields(link.a.interface, PART),
 			...interfaceFields(far?.interface, PART),
 			...interfaceFields(link.a.lag, CONTEXT),
 			...interfaceFields(far?.lag, CONTEXT),
-			...carried(index, link).flatMap((n) => field(n, CONTEXT))
+			...carried(index, link).flatMap((n) => field(n, CONTEXT)),
+			...overrideFields(overrideTarget('link', link.id))
 		]
 	);
 }
@@ -534,9 +582,12 @@ export function topologyEntries(index: TopologyIndex): Entry[] {
 	return items.flatMap((item) => itemEntry(index, item) ?? []);
 }
 
-/** Names something goes by: a device's, a site's code and name, a link's circuit and devices. */
+/**
+ * Names something goes by: a device's, a site's code and name, a link's
+ * circuit and devices; a device or external node by its new name here too.
+ */
 function namesOf(index: TopologyIndex, item: Selection): string[] {
-	if (item.kind === 'device') return [item.id];
+	if (item.kind === 'device') return [item.id, shown(item.id)];
 	if (item.kind === 'site') return [item.id, index.sites.get(item.id)?.name ?? ''];
 	return item.ids.flatMap((id) => {
 		const link = index.links.get(id);
@@ -545,7 +596,9 @@ function namesOf(index: TopologyIndex, item: Selection): string[] {
 					link.enterprise_cid?.a ?? '',
 					link.circuit?.circuit_id.a ?? '',
 					link.a.device,
-					endName(link.b)
+					shown(link.a.device),
+					endName(link.b),
+					shown(endName(link.b))
 				]
 			: [];
 	});
@@ -564,8 +617,8 @@ export function problemEntries(index: TopologyIndex, problems: Problem[]): Entry
 			{
 				kind: 'problem',
 				key: problem.id,
-				label: problem.title,
-				detail: problem.detail || (KINDS.find((k) => k.kind === problem.kind)?.label ?? '')
+				label: named(problem.title),
+				detail: named(problem.detail || (KINDS.find((k) => k.kind === problem.kind)?.label ?? ''))
 			},
 			{ kind: 'problem', problem },
 			[
@@ -594,7 +647,9 @@ export function windowEntries(index: TopologyIndex, windows: Window[]): Entry[] 
 				kind: 'window',
 				key: window.id,
 				label: window.title,
-				detail: `${span(window)} · ${window.targets.map((t) => targetName(index, t)).join(', ')}`
+				detail: named(
+					`${span(window)} · ${window.targets.map((t) => targetName(index, t)).join(', ')}`
+				)
 			},
 			{ kind: 'window', window },
 			[

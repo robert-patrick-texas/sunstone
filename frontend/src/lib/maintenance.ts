@@ -5,6 +5,7 @@
  */
 import type { Window } from './api/operations.ts';
 import { clock } from './history.ts';
+import { named, shown } from './overrides.svelte.ts';
 import type { Selection } from './state.svelte.ts';
 import { deviceEnds, linkName, siteOf, type TopologyIndex } from './topology.ts';
 
@@ -64,13 +65,14 @@ export function windowsFor(index: TopologyIndex, windows: Window[], item: Select
  *
  * @param index - Topology index.
  * @param target - A device, site, or links.
- * @returns The device, the site with "(whole site)", or the link or link count.
+ * @returns The device, the site with "(whole site)", or the link or link
+ *   count, with devices and external nodes by the names they are shown by.
  */
 export function targetName(index: TopologyIndex, target: Selection): string {
-	if (target.kind === 'device') return target.id;
+	if (target.kind === 'device') return shown(target.id);
 	if (target.kind === 'site') return `${target.id} (whole site)`;
 	const links = target.ids.flatMap((id) => index.links.get(id) ?? []);
-	return links.length === 1 && links[0] ? linkName(links[0]) : `${links.length} links`;
+	return links.length === 1 && links[0] ? named(linkName(links[0])) : `${links.length} links`;
 }
 
 /**

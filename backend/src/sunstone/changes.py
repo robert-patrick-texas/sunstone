@@ -25,7 +25,7 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
@@ -131,7 +131,9 @@ def applied(topology: Topology, fixes: list[Fix]) -> Topology:
     Returns:
         The documentation as changed: a moved link stays where it was in the
         list of links, and an added one goes at the end; a port channel
-        whose last member is retired, or moved off it, goes with it.
+        whose last member is retired, or moved off it, goes with it. A fix
+        changes only a link's ends and what it shows, so what an override
+        set on the link as discovery saw it stays out of the documentation.
 
     Raises:
         ChangeConflict: If a fix's link is no longer documented, or the
@@ -152,7 +154,14 @@ def applied(topology: Topology, fixes: list[Fix]) -> Topology:
         if fix.after is None:
             del links[at]
         else:
-            links[at] = fix.after
+            links[at] = Link.model_validate(
+                {
+                    **{k: getattr(links[at], k) for k in Link.model_fields},
+                    "a": fix.after.a,
+                    "b": fix.after.b,
+                    "neighbors": fix.after.neighbors,
+                }
+            )
     lags = [lag for lag in topology.lags if lag_members(lag, links)]
     try:
         return Topology.model_validate({**dict(topology), "links": links, "lags": lags})
@@ -209,8 +218,9 @@ class ChangeStore:
             ChangesError: If the file exists but cannot be read.
         """
         self.path = path
-        self.lock = Lock()
-        """Held while the change set and what is worked out from it change."""
+        self.lock = RLock()
+        """Held while the change set, the overrides, and what is worked out
+        from them change."""
         self._changes = self._read()
 
     def changes(self) -> list[Change]:

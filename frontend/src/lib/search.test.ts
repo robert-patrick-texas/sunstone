@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Problem } from './api/analysis.ts';
 import type { Window } from './api/operations.ts';
+import type { OverrideNow, Target } from './api/overrides.ts';
 import { COMMANDS } from './commands.ts';
+import { lagId, overrides, target } from './overrides.svelte.ts';
 import {
 	commandEntries,
 	groupLabels,
@@ -296,5 +298,104 @@ describe('resources and priorities', () => {
 
 	it('finds medium only where it is set, not by default', () => {
 		expect(labels(look('medium'))).toEqual([['Links', ['c-wan-01 Te1/0/1 – c-acc-01 Te1/0/49']]]);
+	});
+});
+
+describe('overrides', () => {
+	afterEach(() => {
+		overrides.list = [];
+	});
+
+	let next = 0;
+	function made(of: Target, kind: OverrideNow['kind'], more: Partial<OverrideNow> = {}) {
+		next += 1;
+		return {
+			id: `o${next}`,
+			target: of,
+			kind,
+			key: null,
+			value: null,
+			note: '',
+			by: 'Pat',
+			at: '2026-11-08T12:00:00Z',
+			expires: null,
+			renewed: null,
+			withdrawn: null,
+			state: 'active',
+			reason: null,
+			topology_value: null,
+			...more
+		} satisfies OverrideNow;
+	}
+
+	const layered = indexTopology(structuredClone(layeredFixture));
+	// Entries are built after the overrides are set, as the search box does.
+	const look = (query: string, on = index) =>
+		labels(search(query, [topologyEntries(on)], groupLabels(on)));
+
+	it('finds a device by an alias, and shows it by its name', () => {
+		overrides.list = [made(target('device', 'c-acc-01'), 'alias', { value: 'c-sw-70' })];
+		expect(look('c-sw-70')).toEqual([['Devices', ['c-acc-01']]]);
+	});
+
+	it('finds a renamed device by either name, and shows it and its links by the new one', () => {
+		overrides.list = [made(target('device', 'a-acc-01'), 'rename', { value: 'A-ACC-ONE' })];
+		expect(look('a-acc-one')[0]).toEqual(['Devices', ['A-ACC-ONE']]);
+		expect(look('a-acc-01')[0]).toEqual(['Devices', ['A-ACC-ONE']]);
+		expect(look('A-ACC-ONE Te1/0/50')).toContainEqual([
+			'Links',
+			['a-core-01 Te1/0/2 – A-ACC-ONE Te1/0/50']
+		]);
+	});
+
+	it('finds a renamed external node and the link to it by the new name', () => {
+		overrides.list = [made(target('external', 'r1-c'), 'rename', { value: 'R1-ENC01' })];
+		expect(look('r1-enc01', layered)).toEqual([
+			['Externals', ['R1-ENC01']],
+			['Links', ['c-acc-02 Gi1/0/9 – R1-ENC01 black']]
+		]);
+	});
+
+	it("finds a site by an alias, and problems about a device by the device's new name", () => {
+		overrides.list = [
+			made(target('site', 'C'), 'alias', { value: 'Houston' }),
+			made(target('device', 'c-wan-01'), 'rename', { value: 'C-EDGE' })
+		];
+		expect(look('houston')).toEqual([['Sites', ['C · Branch C']]]);
+		const problems = problemEntries(index, [
+			problem('p1', { title: 'c-wan-01 down', target: { kind: 'device', id: 'c-wan-01' } })
+		]);
+		expect(labels(search('c-edge', [problems]))).toEqual([['Problems', ['C-EDGE down']]]);
+	});
+
+	it('finds anything by tags and labels added here, a label by key:value or its value', () => {
+		const member = link('a-core-01:TenGigabitEthernet1/0/1', 'a-acc-01:TenGigabitEthernet1/0/49');
+		const channel = {
+			a: { device: 'a-core-01', interface: 'Port-channel1' },
+			b: { device: 'a-acc-01', interface: 'Port-channel10' },
+			id: 'a-acc-01:Port-channel10--a-core-01:Port-channel1'
+		};
+		const bundled = indexTopology({ ...structuredClone(fixture), lags: [channel] });
+		overrides.list = [
+			made(target('device', 'a-acc-01'), 'tag', { value: 'lab' }),
+			made(target('link', member.id), 'label', { key: 'rack', value: 'B12' }),
+			made(target('tunnel', 'GREY-A-C'), 'label', { key: 'owner', value: 'noc' }),
+			made(target('lag', lagId(channel)), 'tag', { value: 'bundle' })
+		];
+		expect(look('lab')).toEqual([['Devices', ['a-acc-01']]]);
+		for (const query of ['rack:b12', 'b12']) {
+			expect(look(query)).toEqual([['Links', ['a-core-01 Te1/0/1 – a-acc-01 Te1/0/49']]]);
+		}
+		expect(look('owner:noc', layered)).toEqual([['Tunnels', ['GREY-A-C']]]);
+		expect(look('bundle', bundled)).toEqual([['Links', ['Port channel Po1']]]);
+	});
+
+	it('leaves out what does not apply now', () => {
+		overrides.list = [
+			made(target('device', 'a-acc-01'), 'tag', { value: 'lab', state: 'expired' }),
+			made(target('device', 'a-acc-01'), 'alias', { value: 'old-name', state: 'not-applied' })
+		];
+		expect(look('lab')).toEqual([]);
+		expect(look('old-name')).toEqual([]);
 	});
 });

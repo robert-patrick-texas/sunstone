@@ -28,6 +28,7 @@ go without moving the view. Finished layouts are kept while the page is open.
 	import type { NodeSingular } from 'cytoscape';
 	import type { StatusReport } from '../api/status.ts';
 	import { GraphCanvas } from '../graph/canvas.ts';
+	import { hiddenKey } from '../graph/drawn.ts';
 	import type { Impact } from '../impact.ts';
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
@@ -87,7 +88,10 @@ go without moving the view. Finished layouts are kept while the page is open.
 	const graph: LogicalGraph = $derived(
 		logicalGraph(index, ui.networks, logicalExpanded, logical.under, built, states)
 	);
-	const key = $derived(JSON.stringify([ui.networks, logical.under, [...logicalExpanded].sort()]));
+	// What is hidden from the map is part of the key: a layout without it has no place for it.
+	const key = $derived(
+		JSON.stringify([ui.networks, logical.under, [...logicalExpanded].sort(), hiddenKey()])
+	);
 	const status = $derived.by(() => {
 		const words = term(index, 'network', true).toLowerCase();
 		if (graph.shown.length === 0) return '';

@@ -12,8 +12,10 @@
  *
  * Each level is wrapped into lines. One line width is used for every level,
  * chosen so the busiest level comes out about as wide as a screen is.
+ * What is hidden from the map is left out.
  */
 import type { Device } from '../api/topology.ts';
+import { drawnBeyond, drawnLinks } from '../graph/drawn.ts';
 import {
 	deviceNode,
 	frameNode,
@@ -26,6 +28,7 @@ import {
 	type GraphEdge,
 	type GraphNode
 } from '../graph/model.ts';
+import { hiddenOnMap } from '../overrides.svelte.ts';
 import {
 	compareNatural,
 	farDevice,
@@ -71,11 +74,13 @@ interface Block {
  * @returns Site codes per level, ordered to keep links between levels short.
  */
 export function siteLevels(index: TopologyIndex): string[][] {
+	const hidden = hiddenOnMap(index);
+	const links = drawnLinks(index);
 	// Transports and external nodes with links are placed too, by their keys.
-	const beyond = [...index.linksByNode.keys()];
-	const codes = [...index.topology.sites.map((s) => s.code), ...beyond];
+	const sites = index.topology.sites.filter((s) => !hidden.sites.has(s.code));
+	const codes = [...sites.map((s) => s.code), ...drawnBeyond(links)];
 	const adjacent = new Map(codes.map((c) => [c, new Set<string>()]));
-	for (const link of index.topology.links) {
+	for (const link of links) {
 		const a = siteOf(index, link.a.device);
 		const b = isDeviceEnd(link.b) ? siteOf(index, link.b.device) : nodeKey(link.b);
 		if (a === b) continue;
@@ -127,7 +132,8 @@ function average(values: (number | undefined)[]): number {
 
 /** An expanded site: devices in tier rows, each ordered under its upper neighbors. */
 function expandedBlock(index: TopologyIndex, code: string): Block {
-	const devices = index.devicesBySite.get(code) ?? [];
+	const hidden = hiddenOnMap(index);
+	const devices = (index.devicesBySite.get(code) ?? []).filter((d) => !hidden.devices.has(d.name));
 	const x = new Map<string, number>();
 	const placed: Block['devices'] = [];
 	let y = 0;
@@ -224,7 +230,7 @@ export function buildHierarchy(
 		const site = siteOf(index, device);
 		return expanded.has(site) ? device : siteNodeId(site);
 	};
-	return { nodes, edges: mergeLinks(index.topology.links, nodeOf) };
+	return { nodes, edges: mergeLinks(drawnLinks(index), nodeOf) };
 }
 
 function blockNodes(

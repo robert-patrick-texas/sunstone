@@ -1,16 +1,51 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Problem } from './api/analysis.ts';
 import type { HandoverSummary, Outage } from './api/handover.ts';
+import type { Override, OverrideLine, OverrideNow } from './api/overrides.ts';
 import {
 	duration,
 	lasted,
 	messageText,
 	outageSections,
+	overrideRow,
 	savedLabel,
+	selectionOf,
 	signedLine,
 	standing,
 	toSign
 } from './handover.ts';
+import { overrides } from './overrides.svelte.ts';
+import { fixture, fixtureIndex } from './test-fixture.ts';
+import { indexTopology } from './topology.ts';
+
+afterEach(() => {
+	overrides.list = [];
+});
+
+function override(extra: Partial<Override>): Override {
+	return {
+		id: 'o1',
+		target: { kind: 'external', id: 'bravo-iad-1', interface: null },
+		kind: 'rename',
+		key: null,
+		value: 'BRV-IAD-ENC01',
+		note: '',
+		by: 'Pat',
+		at: '2026-10-27T14:00:00Z',
+		expires: null,
+		renewed: null,
+		withdrawn: null,
+		...extra
+	};
+}
+
+/** The rename of bravo-iad-1, a tenant's inline encryptor, applying now. */
+const RENAMED: OverrideNow = {
+	...override({}),
+	state: 'active',
+	reason: null,
+	topology_value: null
+};
 
 function outage(extra: Partial<Outage>): Outage {
 	return {
@@ -123,5 +158,86 @@ describe('saved handovers', () => {
 		expect(messageText({ message }, 'http://noc/?handover=20261027T1200Z')).toBe(
 			'Shift handover 07:00\n\nOpen now (6)\n\nIn Sunstone: http://noc/?handover=20261027T1200Z'
 		);
+	});
+
+	it('are copied with devices and external nodes by their new names', () => {
+		overrides.list = [RENAMED];
+		const message = { subject: 'Shift handover 07:00', text: '- dal-gsw-01 – bravo-iad-1 down' };
+		expect(messageText({ message }, 'http://noc/?handover=1')).toBe(
+			'Shift handover 07:00\n\n- dal-gsw-01 – BRV-IAD-ENC01 down\n\nIn Sunstone: http://noc/?handover=1'
+		);
+	});
+});
+
+describe('overrides in a handover', () => {
+	const index = fixtureIndex();
+	const LINK = 'c-acc-01:Te1/0/49--c-wan-01:Te1/0/1';
+
+	it('say what happened, by whom, to what, and why', () => {
+		const hidden = override({
+			target: { kind: 'device', id: 'c-acc-01', interface: null },
+			kind: 'hide-status',
+			value: null,
+			note: 'lab switch',
+			withdrawn: { by: 'Sam', at: '2026-10-27T15:00:00Z' }
+		});
+		const at = '2026-10-27T15:00:00Z';
+		const rows = (['made', 'withdrawn', 'expired'] as const).map((event) =>
+			overrideRow({ event, at, override: hidden }, index)
+		);
+		expect(rows.map((r) => [r.event, r.what])).toEqual([
+			['Made by Pat', 'c-acc-01 · Hidden from status · lab switch'],
+			['Withdrawn by Sam', 'c-acc-01 · Hidden from status · lab switch'],
+			['Expired', 'c-acc-01 · Hidden from status · lab switch']
+		]);
+		expect(rows[0]?.target).toEqual({ kind: 'device', id: 'c-acc-01' });
+	});
+
+	it('name their targets as shown, and a link by its ends', () => {
+		overrides.list = [
+			{
+				...RENAMED,
+				target: { kind: 'device', id: 'c-acc-01', interface: null },
+				value: 'C ACC One'
+			}
+		];
+		const line: OverrideLine = {
+			event: 'made',
+			at: '2026-10-27T14:00:00Z',
+			override: override({
+				target: { kind: 'link', id: LINK, interface: null },
+				kind: 'tag',
+				value: 'lab'
+			})
+		};
+		expect(overrideRow(line, index).what).toBe('c-wan-01 – C ACC One · Tag lab');
+		expect(overrideRow(line, null).what).toBe(`${LINK} · Tag lab`);
+	});
+
+	it('select what they are on: a port by its device, a port channel by its members', () => {
+		const topology = structuredClone(fixture);
+		const id = 'a-acc-01:Port-channel10--a-core-01:Port-channel1';
+		topology.lags = [
+			{
+				a: { device: 'a-core-01', interface: 'Port-channel1' },
+				b: { device: 'a-acc-01', interface: 'Port-channel10' },
+				id
+			}
+		];
+		const layered = indexTopology(topology);
+		const of = (kind: Override['target']['kind'], id: string, iface: string | null = null) =>
+			selectionOf({ kind, id, interface: iface }, layered);
+		expect(of('device', 'c-acc-01')).toEqual({ kind: 'device', id: 'c-acc-01' });
+		expect(of('port', 'c-acc-01', 'Te1/0/49')).toEqual({ kind: 'device', id: 'c-acc-01' });
+		expect(of('link', LINK)).toEqual({ kind: 'links', ids: [LINK] });
+		expect(of('external', 'r1-c')).toEqual({ kind: 'external', id: 'r1-c' });
+		expect(of('lag', id)).toEqual({
+			kind: 'links',
+			ids: [
+				'a-acc-01:TenGigabitEthernet1/0/49--a-core-01:TenGigabitEthernet1/0/1',
+				'a-acc-01:TenGigabitEthernet1/0/50--a-core-01:TenGigabitEthernet1/0/2'
+			]
+		});
+		expect(of('lag', 'gone')).toBeNull();
 	});
 });

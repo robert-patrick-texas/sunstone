@@ -40,7 +40,7 @@ simulated, reporting the simulated network as really cabled (``cabling.py``).
 import functools
 import re
 from collections.abc import Iterable, Mapping, Set
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Literal, Protocol, runtime_checkable
 
@@ -373,6 +373,36 @@ def _key(interface: str) -> str:
     return short_interface(interface.replace(" ", "")).lower()
 
 
+def port_key(interface: str) -> str:
+    """A port's interface in one form, however a device or person writes it.
+
+    Args:
+        interface: The interface: "GigabitEthernet1/0/1", "Gi1/0/1".
+
+    Returns:
+        The short form, without case or spaces: "gi1/0/1".
+
+    Raises:
+        None
+    """
+    return _key(interface)
+
+
+@dataclass(frozen=True)
+class NeighborRules:
+    """What discovery takes from overrides (``overrides.py``)."""
+
+    names: Mapping[str, str] = field(default_factory=dict)
+    """Other names devices go by, their aliases and new names, to the
+    device's own."""
+    one_device: Mapping[tuple[str, str], str] = field(default_factory=dict)
+    """Ports, by device and port key, whose rows are all one neighbor, to
+    the name it goes by."""
+    ignored: Mapping[tuple[str, str], frozenset[str]] = field(default_factory=dict)
+    """Ports, by device and port key, to the neighbors whose rows there
+    are dropped."""
+
+
 def _name(device: str, interface: str) -> str:
     return f"{device} {short_interface(interface)}"
 
@@ -444,7 +474,10 @@ def _named(row: Neighbor) -> bool:
 
 
 def _adjacencies(
-    topology: Topology, discovery: Discovery, apart: Set[tuple[str, str]]
+    topology: Topology,
+    discovery: Discovery,
+    apart: Set[tuple[str, str]],
+    rules: NeighborRules,
 ) -> list[_Seen]:
     """Every distinct neighbor in the tables, one per device on each port,
     merging what both ends report.
@@ -457,40 +490,75 @@ def _adjacencies(
     that device too, unless the port is documented to show two (``apart``),
     as an NTU over LLDP and our far end over CDP are.
 
+    Overrides can say more (``rules``): a device's other names are its own;
+    every row on some ports is one neighbor, under the name given; and the
+    rows naming some neighbors on a port are dropped, with the rows that
+    neighbor gives about the port, if it answers.
+
     Args:
         topology: What is documented.
         discovery: What devices report.
         apart: Ports, by device and port key, documented to show more than
             one kind of neighbor.
+        rules: What overrides say about names and ports.
 
     Returns:
         The neighbors, in a fixed order.
     """
     names = {d.name.lower(): d.name for d in topology.devices}
+    for other, device in rules.names.items():
+        if device.lower() in names:
+            names.setdefault(other.lower(), device)
+            names.setdefault(_plain(other), device)
     by_address = {d.mgmt_ip: d.name for d in topology.devices if d.mgmt_ip}
+
+    def named(name: str) -> str | None:
+        return names.get(name.lower()) or names.get(_plain(name))
 
     def resolve(row: Neighbor) -> str | None:
         if _named(row):
-            found = names.get(row.remote.lower()) or names.get(_plain(row.remote))
+            found = named(row.remote)
             if found:
                 return found
         return by_address.get(row.mgmt_address or "")
+
+    # The rows to drop: on a port, those naming a neighbor ignored there;
+    # and that neighbor's own about the port, if it is one of ours.
+    dropped = {
+        (port, named(n) or _plain(n)) for port, ns in rules.ignored.items() for n in ns
+    }
+    ours = set(names.values())
+    facing = {(far, port) for port, far in dropped if far in ours}
+
+    def kept(device: str, n: Neighbor, remote: str | None) -> bool:
+        here = (device, _key(n.interface))
+        if (here, remote or _plain(n.remote)) in dropped:
+            return False
+        return remote is None or (device, (remote, _key(n.remote_port))) not in facing
 
     found: dict[frozenset[tuple[str, str]], _Seen] = {}
     for table in discovery.tables:
         on_port: dict[str, list[tuple[Neighbor, str | None]]] = {}
         for n in table.neighbors:
-            on_port.setdefault(_key(n.interface), []).append((n, resolve(n)))
+            remote = resolve(n)
+            if kept(table.device, n, remote):
+                on_port.setdefault(_key(n.interface), []).append((n, remote))
         for port, rows in on_port.items():
+            one = rules.one_device.get((table.device, port))
             groups = (
                 [rows]
-                if len(rows) == 1
+                if len(rows) == 1 or one
                 else _one_per_device(rows, (table.device, port) in apart)
             )
             for group in groups:
                 first = group[0][0]
                 remote = next((r for _, r in group if r), None)
-                far = remote or first.remote
+                if one:
+                    # One neighbor, by the name given; its port from its own
+                    # row, if it is one of ours.
+                    remote = named(one)
+                    first = next((n for n, r in group if remote and r == remote), first)
+                far = remote or one or first.remote
                 key = frozenset({(table.device, port), (far, _key(first.remote_port))})
                 # Most cables are reported from both ends: keep the first report.
                 if key in found:
@@ -556,7 +624,10 @@ def _showing(kinds: Iterable[Neighbors]) -> str:
 
 
 def compare(
-    topology: Topology, discovery: Discovery, state: Visibility | None = None
+    topology: Topology,
+    discovery: Discovery,
+    state: Visibility | None = None,
+    rules: NeighborRules | None = None,
 ) -> Comparison:
     """Compare neighbor tables with the documented links and tunnels.
 
@@ -566,6 +637,8 @@ def compare(
         state: Live state as of the run, to tell links and tunnels that are
             down (not a finding) from those that are missing; None if there
             is none.
+        rules: What overrides say about devices' names and some ports; None
+            for nothing.
 
     Returns:
         Each documented link's and tunnel's check, and every finding.
@@ -946,7 +1019,7 @@ def compare(
             return True
         return False
 
-    for seen in _adjacencies(topology, discovery, apart):
+    for seen in _adjacencies(topology, discovery, apart, rules or NeighborRules()):
         u, v = seen.ends
         joined.add(
             frozenset({(u.device, _key(u.interface)), (v.device, _key(v.interface))})
@@ -1349,8 +1422,17 @@ class SimulatedDiscovery:
             if "far-end" not in real:
                 # A carrier's circuit that does not pass LLDP and CDP.
                 continue
-            # Where the provider's NTU shows, it takes LLDP's frames.
-            cdp_only = "provider" in real
+            # Where the provider's NTU shows, it takes LLDP's frames, as a
+            # device inline does, passing CDP's on.
+            inline = self.cabling.inline.get(
+                frozenset(
+                    {
+                        (cable.a.device, cable.a.interface),
+                        (cable.b.device, cable.b.interface),
+                    }
+                )
+            )
+            cdp_only = "provider" in real or inline is not None
             for here, there in ((cable.a, cable.b), (cable.b, cable.a)):
                 if here.device not in rows or {here.device, there.device} & deaf:
                     continue
@@ -1369,7 +1451,21 @@ class SimulatedDiscovery:
                     devices.get(there.device),
                     cable.platform,
                     cdp_only,
+                    self.cabling.renamed.get(there.device),
                 )
+                if inline is not None:
+                    name, platform = inline
+                    rows[here.device].append(
+                        Neighbor(
+                            interface=here.interface,
+                            remote=name,
+                            remote_port="wan0" if here is cable.a else "lan0",
+                            protocol="lldp",
+                            platform=platform,
+                            capabilities=["router"],
+                            chassis_id=_mac(name),
+                        )
+                    )
         shown = [r for link in self.topology.links for r in beyond.rows(link)]
         for r in [*shown, *beyond.over_tunnels(), *beyond.endpoints]:
             if not hears(r.device, r.interface) or r.remote in down | deaf:
@@ -1433,12 +1529,14 @@ def _rows(
     remote: Device | None,
     platform: str | None,
     cdp_only: bool = False,
+    old_name: str | None = None,
 ) -> list[Neighbor]:
     """The rows a device would report for one neighbor: over CDP from some,
     over LLDP from others, and over both from NX-OS, which describes itself
     differently over each: its name with the chassis serial after it over
     CDP, and over LLDP its name alone, or, from about one in four, no
-    system name at all, only its chassis ID and management address.
+    system name at all, only its chassis ID and management address. A
+    switch renamed sends both, its old name over LLDP.
 
     Args:
         port: The reporting device's port.
@@ -1446,6 +1544,8 @@ def _rows(
         remote: The neighbor, if it is in the topology.
         platform: The platform of a neighbor not in the topology.
         cdp_only: Only CDP reaches the port, as across an NTU or a tunnel.
+        old_name: The hostname the neighbor's LLDP still sends, without a
+            management address, if it was renamed.
 
     Returns:
         One row, or one over each protocol.
@@ -1476,6 +1576,18 @@ def _rows(
     nexus = (remote.platform or "").startswith("N9K")
     if cdp_only:
         return [cdp]
+    if old_name:
+        return [
+            cdp,
+            Neighbor(
+                interface=port,
+                remote=old_name,
+                remote_port=short_interface(there.interface),
+                protocol="lldp",
+                capabilities=capabilities,
+                chassis_id=chassis,
+            ),
+        ]
     if nexus:
         serial = f"FDO{_hash(remote.name) % 100_000_000:08d}"
         unnamed = _hash(remote.name + "|lldp") % 4 == 0

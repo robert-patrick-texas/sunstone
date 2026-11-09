@@ -13,6 +13,8 @@
  * but not documented are drawn as dashed edges (with a node of its own for a
  * neighbor not in the topology), documented links not seen as documented are
  * dotted, devices involved are ringed, and everything else is faded.
+ * Devices and external nodes are labeled by the names they are shown by,
+ * and nothing discovery sees is drawn off a device hidden from the map.
  *
  * Site frames are drawn as backdrops behind their devices, never as Cytoscape
  * compound parents: on the 3,000-device sample, compound nodes doubled the
@@ -41,6 +43,7 @@ import {
 } from '../live.ts';
 import type { PathResult } from '../paths.ts';
 import { footprint } from '../layers.ts';
+import { hiddenOnMap } from '../overrides.svelte.ts';
 import { isPhysical, select, type AnySelection } from '../state.svelte.ts';
 import {
 	COLOR,
@@ -57,6 +60,7 @@ import {
 } from '../theme.ts';
 import { siteOf, type TopologyIndex } from '../topology.ts';
 import { timed } from '../perf.ts';
+import { nodeLabel } from './drawn.ts';
 import { ghostElements, siteNodeId, type GraphEdge, type GraphNode } from './model.ts';
 
 const LABEL_ZOOM = 2;
@@ -482,7 +486,12 @@ export class GraphCanvas {
 				return {
 					group: 'nodes' as const,
 					// Frames are backdrops, not compound parents (see the module comment).
-					data: { ...n, parent: undefined, color: n.role ? ROLE_COLOR[n.role] : COLOR.muted },
+					data: {
+						...n,
+						label: nodeLabel(n),
+						parent: undefined,
+						color: n.role ? ROLE_COLOR[n.role] : COLOR.muted
+					},
 					...(at ? { position: { x: at.x ?? 0, y: at.y ?? 0 } } : {})
 				};
 			}),
@@ -526,7 +535,9 @@ export class GraphCanvas {
 		core.batch(() => {
 			core.elements('.ghost').remove();
 			if (!this.discovery) return;
+			const hidden = hiddenOnMap(this.index);
 			const nodeOf = (device: string) => {
+				if (hidden.devices.has(device)) return null;
 				const node = this.nodeFor(device);
 				return node.nonempty() ? node.id() : null;
 			};

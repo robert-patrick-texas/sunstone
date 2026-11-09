@@ -4,6 +4,7 @@
  */
 import type { IncidentReport, IncidentSummary } from './api/incidents.ts';
 import { duration } from './handover.ts';
+import { named } from './overrides.svelte.ts';
 
 /** What each status reads as. */
 export const STATUS = { open: 'Open', cleared: 'Cleared', closed: 'Closed' } as const;
@@ -12,12 +13,12 @@ export const STATUS = { open: 'Open', cleared: 'Cleared', closed: 'Closed' } as 
  * An incident, to choose it from a list.
  *
  * @param incident - The incident.
- * @returns For example "12 · HOU cut off · open".
+ * @returns For example "12 · HOU cut off · open", with names as shown.
  */
 export function incidentLabel(
 	incident: Pick<IncidentSummary, 'number' | 'title' | 'status'>
 ): string {
-	return `${incident.number} · ${incident.title} · ${incident.status}`;
+	return `${incident.number} · ${named(incident.title)} · ${incident.status}`;
 }
 
 /**
@@ -64,8 +65,9 @@ export function first(incidents: IncidentSummary[]): number | null {
  *
  * @param incident - The incident.
  * @param link - Where to open it in Sunstone.
- * @returns The subject, the text, and the link.
+ * @returns The subject, the text, and the link, with names as shown.
  */
 export function postmortemText(incident: Pick<IncidentReport, 'message'>, link: string): string {
-	return `${incident.message.subject}\n\n${incident.message.text}\n\nIn Sunstone: ${link}`;
+	const { subject, text } = incident.message;
+	return `${named(subject)}\n\n${named(text)}\n\nIn Sunstone: ${link}`;
 }

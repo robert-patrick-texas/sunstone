@@ -6,11 +6,14 @@ devices and links are affected, or while discovery is shown, what it sees
 that the documentation does not. Every color is named here, and the glyphs
 are shown, so color is never the only cue. With named networks shown, also
 what their colors and dashes mean; where resources are drawn, their hexagons.
+With anything hidden from the map, how many, and a switch to show them anyway.
 -->
 <script lang="ts">
 	import type { Status } from './api/status.ts';
+	import { hiding } from './graph/drawn.ts';
 	import { IMPACT_LABEL, type DeviceImpact } from './impact.ts';
 	import { HEALTH_LABEL, type DeviceHealth } from './live.ts';
+	import { overrides } from './overrides.svelte.ts';
 	import { STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL } from './status.ts';
 	import {
 		COLOR,
@@ -51,6 +54,8 @@ what their colors and dashes mean; where resources are drawn, their hexagons.
 	const HEALTHS: DeviceHealth[] = ['up', 'degraded', 'down', 'nodata', 'unmonitored'];
 	const IMPACTS: DeviceImpact[] = ['failed', 'cutoff', 'exposed'];
 	const STATUSES: Status[] = ['operational', 'degraded', 'offline'];
+
+	const hidden = $derived(hiding().length);
 </script>
 
 <div
@@ -146,6 +151,12 @@ what their colors and dashes mean; where resources are drawn, their hexagons.
 			<span><i class="line dotted" style:color={COLOR.muted}></i>To its members</span>
 		</div>
 	{/if}
+	{#if hidden > 0}
+		<div class="row">
+			<span>{hidden} hidden from the map</span>
+			<label><input type="checkbox" bind:checked={overrides.showHidden} />Show</label>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -184,10 +195,14 @@ what their colors and dashes mean; where resources are drawn, their hexagons.
 		font-weight: 600;
 		color: var(--text);
 	}
-	span {
+	span,
+	label {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
+	}
+	input {
+		margin: 0;
 	}
 	.swatch {
 		width: 12px;

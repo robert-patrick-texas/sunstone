@@ -11,10 +11,14 @@ settle offers a fix, reviewed here before it is accepted; the fixes
 accepted are listed with who accepted them, and can be reverted. What
 discovery cannot see, or is not meant to be documented, can be marked
 expected with a note instead, and is then listed apart, to be withdrawn.
+A neighbor not in the topology, seen where the topology is right, offers
+overrides instead: another name for the documented device, one device on
+the port, or ignoring the neighbor there.
 -->
 <script lang="ts">
 	import { revertChange, type Change } from './api/changes.ts';
 	import type { Comparison, Finding, LinkCheck, TunnelCheck } from './api/discovery.ts';
+	import type { OverrideKind } from './api/overrides.ts';
 	import {
 		changedTarget,
 		changeLine,
@@ -23,10 +27,13 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 		TUNNEL_CHECK_LABEL,
 		findingTarget,
 		groupFindings,
+		overrideOffers,
 		seenWhen
 	} from './discovery.ts';
 	import FixReview from './FixReview.svelte';
 	import { clock } from './history.ts';
+	import OverrideForm from './OverrideForm.svelte';
+	import { named } from './overrides.svelte.ts';
 	import { reviewFix, select, showDiscovery, ui, type Selection } from './state.svelte.ts';
 	import type { TopologyIndex } from './topology.ts';
 
@@ -57,6 +64,8 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 	const fixes = $derived(changes.filter((c) => c.fix.kind !== 'expect'));
 	const expectations = $derived(changes.filter((c) => c.fix.kind === 'expect'));
 	let revertProblem = $state<string | null>(null);
+	/** The override a finding offers being made, if any. */
+	let offering = $state<{ finding: string; kind: OverrideKind } | null>(null);
 
 	async function revert(change: Change): Promise<void> {
 		try {
@@ -162,20 +171,24 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 			<h3>{group.label} ({group.items.length})</h3>
 			<ul>
 				{#each group.items as finding (finding.id)}
+					{@const offers = latest ? overrideOffers(finding, index) : []}
+					{@const making = offers.find(
+						(o) => offering?.finding === finding.id && offering.kind === o.kind
+					)}
 					<li>
 						<button class="finding" aria-pressed={shown(finding)} onclick={() => show(finding)}>
-							<span class="title">{finding.title}</span>
-							<span class="detail">{finding.detail}</span>
+							<span class="title">{named(finding.title)}</span>
+							<span class="detail">{named(finding.detail)}</span>
 							{@render when(finding)}
 						</button>
-						{#if latest && (finding.fix || EXPECTABLE.has(finding.kind))}
+						{#if latest && (finding.fix || EXPECTABLE.has(finding.kind) || offers.length)}
 							<p class="offers">
 								{#if finding.fix}
 									<button
 										class="fix"
 										aria-pressed={ui.fixing?.finding === finding.id && !ui.fixing.expect}
 										onclick={() => reviewFix(finding.id, findingTarget(finding))}
-										>Fix: {finding.fix.summary}</button
+										>Fix: {named(finding.fix.summary)}</button
 									>
 								{/if}
 								{#if EXPECTABLE.has(finding.kind)}
@@ -186,7 +199,30 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 										>Mark expected…</button
 									>
 								{/if}
+								{#each offers as o (o.kind)}
+									<button
+										class="fix"
+										aria-pressed={o === making}
+										onclick={() => (offering = { finding: finding.id, kind: o.kind })}
+										>{o.label}</button
+									>
+								{/each}
 							</p>
+						{/if}
+						{#if making}
+							<!-- Made afresh for each offer, from its preset. -->
+							{#key making.kind}
+								<div class="override">
+									<OverrideForm
+										of={making.of}
+										{index}
+										kinds={[making.kind]}
+										preset={{ kind: making.kind, value: making.value }}
+										onmade={() => (offering = null)}
+										oncancel={() => (offering = null)}
+									/>
+								</div>
+							{/key}
 						{/if}
 					</li>
 				{/each}
@@ -202,10 +238,10 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 					{@const target = finding ? findingTarget(finding) : null}
 					<li class="change">
 						<button class="finding gone" onclick={() => target && select(target, true)}>
-							<span class="title">{change.title}</span>
+							<span class="title">{named(change.title)}</span>
 							<span class="detail"
 								>{finding
-									? finding.detail
+									? named(finding.detail)
 									: covered.length
 										? `Not answering; its ${covered.length} links not seen, as expected`
 										: `Not in the ${ui.at ? 'run then' : 'latest run'}`}</span
@@ -227,7 +263,7 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 					<li class="change">
 						<button class="finding" onclick={() => target && select(target, true)}>
 							<span class="title">{changeLine(change)}</span>
-							<span class="detail">{change.title}</span>
+							<span class="detail">{named(change.title)}</span>
 							<span class="when"
 								>{change.by} · {clock(change.at)}{change.note ? ` · ${change.note}` : ''}</span
 							>
@@ -243,8 +279,8 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 				{#each comparison.gone as finding (finding.id)}
 					<li>
 						<button class="finding gone" onclick={() => show(finding)}>
-							<span class="title">{finding.title}</span>
-							<span class="detail">{finding.detail}</span>
+							<span class="title">{named(finding.title)}</span>
+							<span class="detail">{named(finding.detail)}</span>
 							{@render when(finding)}
 						</button>
 					</li>
@@ -349,6 +385,12 @@ expected with a note instead, and is then listed apart, to be withdrawn.
 	}
 	.change .link {
 		margin-top: 6px;
+	}
+	.override {
+		margin: 0 0 8px;
+		padding: 4px 8px;
+		border: 1px solid var(--drift);
+		border-radius: 6px;
 	}
 	.error {
 		color: var(--down);

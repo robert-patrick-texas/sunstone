@@ -14,7 +14,7 @@
  * With no network chosen, every network is shown.
  * Edges of different networks between the same nodes stay apart.
  * A resource with any member drawn is a node of its own too, with a dotted
- * edge to each member drawn.
+ * edge to each member drawn. What is hidden from the map is left out.
  */
 import {
 	beyondNode,
@@ -26,7 +26,9 @@ import {
 	type GraphNode
 } from '../graph/model.ts';
 import type { ResourceStatus } from '../api/status.ts';
+import { drawnLinks } from '../graph/drawn.ts';
 import { beneath, fabricTunnels, layersOf, type Slice } from '../layers.ts';
+import { hiddenOnMap } from '../overrides.svelte.ts';
 import { membersOf } from '../resources.ts';
 import { STATUS_COLOR, STATUS_GLYPH } from '../status.ts';
 import { COLOR, depthColor } from '../theme.ts';
@@ -75,6 +77,8 @@ export function logicalGraph(
 	states: ResourceState[] = []
 ): LogicalGraph {
 	const layers = layersOf(index);
+	const hidden = hiddenOnMap(index);
+	const drawable = new Set(drawnLinks(index).map((l) => l.id));
 	const shown = chosen.length
 		? chosen.filter((n) => layers.slices.has(n))
 		: [...layers.slices.keys()];
@@ -130,13 +134,14 @@ export function logicalGraph(
 		[under, true],
 		[shown, false]
 	] as const) {
-		const here = (device: string) => !faint || places.has(siteOf(index, device));
+		const here = (device: string) =>
+			!hidden.devices.has(device) && (!faint || places.has(siteOf(index, device)));
 		for (const name of names) {
 			const slice = layers.slices.get(name);
 			if (!slice) continue;
 			for (const id of slice.links) {
 				const link = index.links.get(id);
-				if (!link) continue;
+				if (!link || !drawable.has(id)) continue;
 				const ends = deviceEnds(link).map((e) => e.device);
 				if (!ends.every(here)) continue;
 				const far = isDeviceEnd(link.b) ? nodeOf(link.b.device) : nodeKey(link.b);
@@ -149,6 +154,8 @@ export function logicalGraph(
 			for (const t of slice.tunnels) {
 				const far = 'device' in t.b ? t.b.device : null;
 				if (!here(t.a.device) || (far !== null && !here(far))) continue;
+				const gone = 'external' in t.b && hidden.externals.has(t.b.external);
+				if (gone || hidden.tunnels.has(t.name)) continue;
 				devices.add(t.a.device);
 				if (far !== null) devices.add(far);
 				const target = 'device' in t.b ? nodeOf(t.b.device) : nodeKey({ external: t.b.external });
@@ -158,6 +165,7 @@ export function logicalGraph(
 				});
 			}
 			for (const f of slice.fabrics) {
+				if (hidden.fabrics.has(f.name)) continue;
 				const node = `fabric:${f.name}`;
 				// Each member's way in stands for the fabric's tunnels it ends.
 				const ends = new Map<string, string[]>();
@@ -181,17 +189,20 @@ export function logicalGraph(
 		const slice = layers.slices.get(network);
 		if (!slice || !shown.includes(network)) continue;
 		const colon = tunnel.indexOf(':');
+		const fabric = tunnel.slice(0, colon);
 		const [a, b] = tunnel.slice(colon + 1).split('~');
 		if (!a || !b || !index.devices.has(a) || !index.devices.has(b)) continue;
+		if (hidden.devices.has(a) || hidden.devices.has(b) || hidden.fabrics.has(fabric)) continue;
 		devices.add(a).add(b);
 		add(slice, false, 'tunnel', [nodeOf(a), nodeOf(b)], {
 			tunnels: [tunnel],
-			fabric: tunnel.slice(0, colon),
+			fabric,
 			dynamic: true
 		});
 	}
 	// Services are shown reached across the transports drawn in full.
 	for (const e of index.topology.externals) {
+		if (hidden.externals.has(e.name)) continue;
 		for (const t of e.reached_over) {
 			const cloud = nodeKey({ transport: t });
 			if (!full.has(cloud)) continue;
@@ -266,6 +277,7 @@ function resourceParts(
 	nodeOf: (device: string) => string,
 	states: ResourceState[]
 ): { nodes: GraphNode[]; edges: GraphEdge[] } {
+	const hidden = hiddenOnMap(index);
 	const links = new Set(edges.flatMap((e) => e.linkIds));
 	const tunnels = new Set(edges.flatMap((e) => e.tunnels ?? []));
 	// The drawn nodes each resource's own members are at.
@@ -285,9 +297,11 @@ function resourceParts(
 		}
 		at.set(r.name, new Set([...found].filter((n) => drawn.has(n))));
 	}
-	// Shown when anything inside is drawn; the topology has no resource inside itself.
+	// Shown when anything inside is drawn and it is not hidden; the topology has
+	// no resource inside itself.
 	const shows = (name: string): boolean =>
-		(at.get(name)?.size ?? 0) > 0 || (index.resources.get(name)?.resources ?? []).some(shows);
+		!hidden.resources.has(name) &&
+		((at.get(name)?.size ?? 0) > 0 || (index.resources.get(name)?.resources ?? []).some(shows));
 	const nodes: GraphNode[] = [];
 	const members: GraphEdge[] = [];
 	for (const r of index.topology.resources) {

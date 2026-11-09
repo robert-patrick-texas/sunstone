@@ -102,6 +102,8 @@ class Network:
         self.links = {link.id: link for link in topology.links}
         self.ratings = ratings(topology)
         self.high = {d.name for d in topology.devices if d.priority == "high"}
+        # Devices rated ignored: their going down is no problem of its own.
+        self.quiet = {d.name for d in topology.devices if d.priority == "ignored"}
         self.site_of = {d.name: d.site for d in topology.devices}
         self.devices_of: dict[str, list[str]] = {s.code: [] for s in topology.sites}
         for d in topology.devices:

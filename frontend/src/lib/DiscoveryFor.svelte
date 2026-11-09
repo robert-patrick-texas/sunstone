@@ -5,11 +5,13 @@ answered the latest run, how many of its documented links devices confirm,
 and the findings that involve it; for links, each one's check, with the
 finding about it if there is one. A finding of the latest run that offers
 a fix can be reviewed from here, or marked expected, and a link fixed in
-Sunstone, or expected not to be seen, says so.
+Sunstone, or expected not to be seen, says so. One about a neighbor not in
+the topology offers overrides, made here.
 -->
 <script lang="ts">
 	import type { Change } from './api/changes.ts';
 	import type { Comparison, Finding } from './api/discovery.ts';
+	import type { OverrideKind } from './api/overrides.ts';
 	import {
 		changeOf,
 		CHECK_DETAIL,
@@ -20,9 +22,12 @@ Sunstone, or expected not to be seen, says so.
 		findingTarget,
 		linkCheck,
 		NO_FIX,
+		overrideOffers,
 		seenWhen
 	} from './discovery.ts';
 	import { clock } from './history.ts';
+	import OverrideForm from './OverrideForm.svelte';
+	import { named } from './overrides.svelte.ts';
 	import { reviewFix, ui, type Selection } from './state.svelte.ts';
 	import { linkName, type TopologyIndex } from './topology.ts';
 
@@ -41,12 +46,18 @@ Sunstone, or expected not to be seen, says so.
 
 	/** Links listed one by one; a bundle of many says how many more. */
 	const MAX_LINKS = 4;
+
+	/** The override a finding offers being made, if any. */
+	let offering = $state<{ finding: string; kind: OverrideKind } | null>(null);
+
+	/** The overrides a finding offers, from the latest run only. */
+	const offersOf = (f: Finding) => (ui.at === null ? overrideOffers(f, index) : []);
 </script>
 
 {#snippet fixOf(f: Finding)}
 	{#if ui.at === null && f.fix}
 		<br /><button class="link" onclick={() => reviewFix(f.id, findingTarget(f))}
-			>Fix: {f.fix.summary}</button
+			>Fix: {named(f.fix.summary)}</button
 		>
 	{:else if NO_FIX[f.kind]}
 		<br /><span class="muted">{NO_FIX[f.kind]}</span>
@@ -55,6 +66,32 @@ Sunstone, or expected not to be seen, says so.
 		<br /><button class="link" onclick={() => reviewFix(f.id, findingTarget(f), true)}
 			>Mark expected…</button
 		>
+	{/if}
+	{#each offersOf(f) as o (o.kind)}
+		<br /><button
+			class="link"
+			aria-pressed={offering?.finding === f.id && offering.kind === o.kind}
+			onclick={() => (offering = { finding: f.id, kind: o.kind })}>{o.label}</button
+		>
+	{/each}
+{/snippet}
+
+{#snippet overrideOf(f: Finding)}
+	{@const making = offersOf(f).find((o) => offering?.finding === f.id && offering.kind === o.kind)}
+	{#if making}
+		<!-- Made afresh for each offer, from its preset. -->
+		{#key making.kind}
+			<div class="override">
+				<OverrideForm
+					of={making.of}
+					{index}
+					kinds={[making.kind]}
+					preset={{ kind: making.kind, value: making.value }}
+					onmade={() => (offering = null)}
+					oncancel={() => (offering = null)}
+				/>
+			</div>
+		{/key}
 	{/if}
 {/snippet}
 
@@ -88,13 +125,16 @@ Sunstone, or expected not to be seen, says so.
 		{#each check.findings as f (f.id)}
 			{@const when = seenWhen(f, comparison.history_from)}
 			<p class="finding">
-				<b>{f.title}</b><br /><span class="muted">{f.detail}{when ? ` · seen ${when}` : ''}</span>
+				<b>{named(f.title)}</b><br /><span class="muted"
+					>{named(f.detail)}{when ? ` · seen ${when}` : ''}</span
+				>
 				{@render fixOf(f)}
 			</p>
+			{@render overrideOf(f)}
 		{/each}
 		{#each comparison.expected.filter((f) => f.devices.includes(item.id)) as f (f.id)}
 			<p class="fixed">
-				Expected: {f.title}
+				Expected: {named(f.title)}
 				{@render expectedBy(changes.find((c) => c.fix.kind === 'expect' && c.finding === f.id))}
 			</p>
 		{/each}
@@ -106,12 +146,12 @@ Sunstone, or expected not to be seen, says so.
 			{@const fixed = changeOf(changes, id)}
 			{#if link}
 				<p class:finding={!['confirmed', 'provider', 'nothing'].includes(check)}>
-					{#if item.ids.length > 1}{linkName(link)}:
+					{#if item.ids.length > 1}{named(linkName(link))}:
 					{/if}<b
 						>{finding?.kind === 'boundary' ? 'Our own device across it' : CHECK_LABEL[check]}</b
 					>
 					<span class="muted">
-						{#if finding}· {finding.detail}
+						{#if finding}· {named(finding.detail)}
 						{:else if check === 'confirmed' || check === 'provider'}· {CHECK_DETAIL[check] ??
 								'seen'} at {clock(comparison.at)}
 						{:else if CHECK_DETAIL[check]}· {CHECK_DETAIL[check]}
@@ -119,11 +159,12 @@ Sunstone, or expected not to be seen, says so.
 					</span>
 					{#if finding}{@render fixOf(finding)}{/if}
 				</p>
+				{#if finding}{@render overrideOf(finding)}{/if}
 				{@const expectation =
 					check === 'expected' && link ? expectationOf(comparison, changes, link) : null}
 				{#if expectation}
 					<p class="fixed">
-						Expected: {expectation.change?.title ?? expectation.finding.title}
+						Expected: {named(expectation.change?.title ?? expectation.finding.title)}
 						{@render expectedBy(expectation.change)}
 					</p>
 				{/if}
@@ -174,5 +215,13 @@ Sunstone, or expected not to be seen, says so.
 	}
 	.link:hover {
 		text-decoration: underline;
+	}
+	.link[aria-pressed='true'] {
+		color: var(--selected);
+	}
+	.override {
+		margin: 0 0 8px;
+		padding-left: 8px;
+		border-left: 3px solid var(--selected);
 	}
 </style>

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Change, PortNow, Review } from './api/changes.ts';
 import type { Comparison, Finding } from './api/discovery.ts';
 import {
@@ -11,12 +11,14 @@ import {
 	groupFindings,
 	linkCheck,
 	linkEnds,
+	overrideOffers,
 	portNow,
 	reviewEffects,
 	reviewWarning,
 	seenWhen
 } from './discovery.ts';
 import { clock } from './history.ts';
+import { overrides, target } from './overrides.svelte.ts';
 import { fixtureIndex, layeredIndex } from './test-fixture.ts';
 import { farDevice, indexTopology } from './topology.ts';
 
@@ -255,5 +257,88 @@ describe('expectationOf', () => {
 		});
 		expect(expectationOf(comparison, [change], away)).toBeNull();
 		expect(expectationOf(COMPARISON, [change], link)).toBeNull();
+	});
+});
+
+describe('overrideOffers', () => {
+	afterEach(() => {
+		overrides.list = [];
+	});
+
+	const here = { device: 'a-core-01', interface: 'TenGigabitEthernet1/0/1' };
+	const onPort = target('port', here.device, here.interface);
+	const wrong = finding('wrong', {
+		kind: 'wrong-neighbor',
+		documented: [here, { device: 'a-acc-01', interface: 'TenGigabitEthernet1/0/49' }],
+		seen: [here, { device: 'a-sw-70', interface: 'Gi0/1' }],
+		devices: ['a-core-01', 'a-acc-01']
+	});
+
+	it('offers another name, one device, or ignoring a neighbor not in the topology', () => {
+		expect(overrideOffers(wrong, index)).toEqual([
+			{
+				label: 'a-sw-70 is a-acc-01…',
+				kind: 'alias',
+				of: target('device', 'a-acc-01'),
+				value: 'a-sw-70'
+			},
+			{
+				label: 'One device on a-core-01 Te1/0/1…',
+				kind: 'one-device',
+				of: onPort,
+				value: 'a-acc-01'
+			},
+			{
+				label: 'Ignore a-sw-70 on a-core-01 Te1/0/1…',
+				kind: 'ignore-neighbor',
+				of: onPort,
+				value: 'a-sw-70'
+			}
+		]);
+	});
+
+	it('offers ignoring an unknown neighbor, and nothing for one in the topology', () => {
+		const unknown = finding('unknown', {
+			kind: 'unknown-device',
+			seen: [here, { device: 'lab-sw-01', interface: 'Gi0/1' }],
+			devices: ['a-core-01']
+		});
+		expect(overrideOffers(unknown, index).map((o) => [o.kind, o.label])).toEqual([
+			['ignore-neighbor', 'Ignore lab-sw-01 on a-core-01 Te1/0/1…']
+		]);
+		const known = { ...wrong, seen: [here, { device: 'a-wan-01', interface: 'Hu1/0/1' }] };
+		expect(overrideOffers(known, index)).toEqual([]);
+		expect(overrideOffers({ ...wrong, kind: 'wrong-port' }, index)).toEqual([]);
+	});
+
+	it('names devices as shown here, keeping their keys as values', () => {
+		overrides.list = [
+			{
+				id: 'o1',
+				target: target('device', 'a-acc-01'),
+				kind: 'rename',
+				key: null,
+				value: 'ACC-ONE',
+				note: '',
+				by: 'Pat',
+				at: '2026-11-08T12:00:00Z',
+				expires: null,
+				state: 'active'
+			}
+		];
+		const [alias, one] = overrideOffers(wrong, index);
+		expect([alias?.label, alias?.of.id, one?.value]).toEqual([
+			'a-sw-70 is ACC-ONE…',
+			'a-acc-01',
+			'a-acc-01'
+		]);
+		expect(portNow(port('a-acc-01', 'Gi1/0/48'))).toBe('ACC-ONE Gi1/0/48: not monitored');
+		expect(reviewEffects(review('move', { cut_off: ['a-acc-01'] }))).toEqual([
+			'ACC-ONE would have no documented way to the core'
+		]);
+		const link = index.topology.links.find(
+			(l) => l.a.device === 'a-core-01' && l.b && 'device' in l.b && l.b.device === 'a-acc-01'
+		)!;
+		expect(linkEnds(link)).toMatch(/ – ACC-ONE /);
 	});
 });

@@ -6,6 +6,7 @@ incidents open or dealt with in the span; the outages that began or ended
 in it, and how long they lasted; the
 pages and acknowledgements made in it; maintenance done in it, open now,
 or coming in as long again; fixes and expectations recorded in it;
+overrides made, withdrawn, or expired in it;
 discovery findings first seen in it; who is on call now; and the notes the
 outgoing shift wrote for the next one.
 
@@ -41,6 +42,7 @@ from sunstone.live import StateEvent
 from sunstone.model import Topology, device_ends, ratings
 from sunstone.oncall import HandoverTimes, OnCall, Page, RoutedProblem
 from sunstone.operations import ShiftNote, Window
+from sunstone.overrides import OverrideLine
 from sunstone.problems import Ack, Note, PersonName, link_name, natural
 from sunstone.status import NetworkStatus, ResourceStatus
 
@@ -140,6 +142,8 @@ class Handover(_Record):
     again, earliest first."""
     changes: list[Change]
     """Fixes and expectations recorded in the span, latest first."""
+    overrides: list[OverrideLine] = []
+    """Overrides made, withdrawn, or expired in the span, latest first."""
     findings: list[Finding]
     """Discovery findings first seen in the span and still seen."""
     oncall: OnCall | None
@@ -218,9 +222,10 @@ def outages(
 
     Returns:
         Devices at one site that went down at one step, with the links at
-        that site that went down then, and every other link down but those
-        ignored, latest first. A device or link that came back with no
-        event saying it went down was down before history begins.
+        that site that went down then, and every other link down, but for
+        devices and links rated ignored, latest first. A device or link
+        that came back with no event saying it went down was down before
+        history begins.
 
     Raises:
         None
@@ -250,8 +255,9 @@ def outages(
     links = {ln.id: ln for ln in topology.links if rated[ln.id].priority != "ignored"}
     groups: dict[tuple[datetime | None, str], list[_Down]] = {}
     alone: list[_Down] = []
+    quiet = {d.name for d in topology.devices if d.priority == "ignored"}
     for d in kept:
-        if d.kind == "device":
+        if d.kind == "device" and d.name not in quiet:
             groups.setdefault((d.start, site_of[d.name]), []).append(d)
     for d in kept:
         if d.kind != "link" or d.name not in links:
@@ -664,6 +670,14 @@ def _message(h: Handover) -> Message:
             f"Documentation: {len(h.changes)} fixed or marked expected, "
             f"{len(h.findings)} first seen by discovery",
         ]
+    if h.overrides:
+        events = [line.event for line in h.overrides]
+        said = [
+            f"{events.count(e)} {e}"
+            for e in ("made", "withdrawn", "expired")
+            if e in events
+        ]
+        text += ["", f"Overrides: {', '.join(said)}"]
     if h.oncall:
         text += ["", "On call now"]
         for t in h.oncall.teams:

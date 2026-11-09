@@ -8,7 +8,9 @@ LLDP and CDP should show on our port, and its roles at the edge, each with
 what it does to the security boundary. Roles not documented say whether they
 are implied by the far end, or TBD. MACsec says what it is carried on.
 A link's priority says where it comes from and what it does, with who
-answers for it first; and each connection names the resources that hold it.
+answers for it first, or that an override here hides it from status; and
+each connection names the resources that hold it. Fields an override locks
+say so, with what the topology says.
 -->
 <script lang="ts">
 	import type { Fabric, Link, Tunnel } from './api/topology.ts';
@@ -30,6 +32,8 @@ answers for it first; and each connection names the resources that hold it.
 		tunnelRoles,
 		type Roles
 	} from './connections.ts';
+	import { linkHidden, locked } from './OverridesFor.svelte';
+	import { lagId, named, shown, target } from './overrides.svelte.ts';
 	import { linkRating, PRIORITY_EFFECT, ratingText, responsibleText } from './priorities.ts';
 	import { resourcesHolding } from './resources.ts';
 	import { select } from './state.svelte.ts';
@@ -54,6 +58,7 @@ answers for it first; and each connection names the resources that hold it.
 			const lag = lagOf(topology, link);
 			const rating = linkRating(topology, link);
 			return {
+				of: target('link', link.id),
 				cidLabel: link.circuit ? 'CID' : 'Cable ID',
 				cid: link.enterprise_cid,
 				circuit: link.circuit,
@@ -70,13 +75,15 @@ answers for it first; and each connection names the resources that hold it.
 				carriedOn: [] as Link[],
 				roles: linkRoles(topology, link),
 				rating,
-				responsible: responsibleText(topology, link, rating),
+				hidden: linkHidden(index, link),
+				responsible: named(responsibleText(topology, link, rating)),
 				resources: resourcesHolding(index, { kind: 'links', ids: [link.id] })
 			};
 		}
 		const it = item.kind === 'tunnel' ? item.tunnel : item.fabric;
 		const macsec = item.kind === 'tunnel' && item.tunnel.kind === 'macsec';
 		return {
+			of: target(item.kind, it.name),
 			cidLabel: 'CID',
 			cid: it.enterprise_cid,
 			circuit: it.circuit,
@@ -94,6 +101,7 @@ answers for it first; and each connection names the resources that hold it.
 			carriedOn: item.kind === 'tunnel' && macsec ? macsecLinks(topology, item.tunnel) : [],
 			roles: item.kind === 'tunnel' ? tunnelRoles(topology, item.tunnel) : fabricRoles(item.fabric),
 			rating: null,
+			hidden: false,
 			responsible: null,
 			resources: resourcesHolding(
 				index,
@@ -136,7 +144,9 @@ answers for it first; and each connection names the resources that hold it.
 			(e) => 'device' in e && e.device === t.a.device && e.interface === t.a.interface
 		);
 		const far = here ? t.b : t.a;
-		return 'device' in far ? `${far.device} ${shortInterface(far.interface)}` : far.external;
+		return 'device' in far
+			? `${shown(far.device)} ${shortInterface(far.interface)}`
+			: shown(far.external);
 	}
 </script>
 
@@ -144,7 +154,10 @@ answers for it first; and each connection names the resources that hold it.
 <dl>
 	{#if facts.cid}
 		<dt>{facts.cidLabel}</dt>
-		<dd class="mono">{sidesText(facts.cid)}</dd>
+		<dd>
+			<span class="mono">{sidesText(facts.cid)}</span>
+			{@render locked(facts.of, 'enterprise_cid')}
+		</dd>
 	{/if}
 	{#if facts.circuit}
 		<dt>Carrier CID</dt>
@@ -163,13 +176,13 @@ answers for it first; and each connection names the resources that hold it.
 		<dd>
 			{#each facts.carriedOn as l, i (l.id)}{#if i}{' and '}{/if}<button
 					class="link"
-					onclick={() => select({ kind: 'links', ids: [l.id] }, true)}>{linkName(l)}</button
+					onclick={() => select({ kind: 'links', ids: [l.id] }, true)}>{named(linkName(l))}</button
 				>{/each}
 		</dd>
 	{/if}
 	{#if facts.medium}
 		<dt>Medium</dt>
-		<dd>{facts.medium}</dd>
+		<dd>{facts.medium} {@render locked(facts.of, 'medium')}</dd>
 	{/if}
 	{#if facts.lag}
 		<dt>Port channel</dt>
@@ -180,7 +193,8 @@ answers for it first; and each connection names the resources that hold it.
 				>{shortInterface(facts.lag.a.interface)} – {shortInterface(facts.lag.b.interface)}</button
 			>
 			{#if facts.lag.enterprise_cid}<span class="mono">· {sidesText(facts.lag.enterprise_cid)}</span
-				>{/if}
+				>
+				{@render locked(target('lag', lagId(facts.lag)), 'enterprise_cid')}{/if}
 			<span class="muted"
 				>· {facts.members.length} member{facts.members.length === 1 ? '' : 's'}</span
 			>
@@ -226,8 +240,13 @@ answers for it first; and each connection names the resources that hold it.
 		{#if facts.rating}
 			<dt>Priority</dt>
 			<dd>
-				{ratingText(facts.rating)}
-				<span class="muted">· {PRIORITY_EFFECT[facts.rating.priority]}</span>
+				{#if facts.hidden}
+					Ignored <span class="muted">· hidden from status here</span>
+				{:else}
+					{named(ratingText(facts.rating))}
+					<span class="muted">· {PRIORITY_EFFECT[facts.rating.priority]}</span>
+				{/if}
+				{@render locked(facts.of, 'priority')}
 			</dd>
 			<dt title="Who answers for it first when it is down">Responsible</dt>
 			<dd>{facts.responsible}</dd>

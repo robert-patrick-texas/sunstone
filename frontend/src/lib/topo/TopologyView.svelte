@@ -31,7 +31,9 @@ the backend and opened again later.
 	import type { LiveIndex } from '../live.ts';
 	import type { PathResult } from '../paths.ts';
 	import { timed, timedAsync } from '../perf.ts';
+	import { hiddenKey } from '../graph/drawn.ts';
 	import { siteNodeId } from '../graph/model.ts';
+	import { shown } from '../overrides.svelte.ts';
 	import {
 		expandedSites,
 		isPhysical,
@@ -88,6 +90,8 @@ the backend and opened again later.
 	let draws = 0;
 	let lastFamily: string | null = null;
 	let currentKey = '';
+	/** The layout last drawn, so a redraw of the same one (a device renamed) keeps the zoom. */
+	let lastDrawn: string | null = null;
 
 	const framed = $derived(topo.grouped && topo.layout === 'force');
 	const hood = $derived(
@@ -111,15 +115,18 @@ the backend and opened again later.
 			topo.scope === 'path' ? [path?.from, path?.to] : null
 		])
 	);
-	const key = $derived(
-		topo.scope === 'network' ? `${family}|${[...expandedSites].sort().join(',')}` : family
-	);
+	// What is hidden from the map is part of the key: a layout without it has no place for it.
+	const key = $derived.by(() => {
+		const expanded = topo.scope === 'network' ? [...expandedSites].sort().join(',') : '';
+		return [family, expanded, hiddenKey()].join('|');
+	});
 	const status = $derived.by(() => {
 		if (topo.scope === 'path') {
 			if (!path) return '';
-			if (path.hops === null) return `${path.from} and ${path.to} are not connected`;
+			const [from, to] = [shown(path.from), shown(path.to)];
+			if (path.hops === null) return `${from} and ${to} are not connected`;
 			const paths = path.count === 1 ? '1 path' : `${path.count} equal-length paths`;
-			return `${path.from} → ${path.to} · ${path.hops} hops · ${paths} · ${path.devices.size} devices`;
+			return `${from} → ${to} · ${path.hops} hops · ${paths} · ${path.devices.size} devices`;
 		}
 		if (!hood) {
 			const text = `${index.topology.sites.length} sites, ${expandedSites.size} expanded`;
@@ -245,10 +252,11 @@ the backend and opened again later.
 		if (pendingFocus || (!placed && ui.selection && topo.scope === 'network')) {
 			pendingFocus = false;
 			if (ui.selection) focusOn(c, ui.selection);
-		} else {
+		} else if (!cached || k !== lastDrawn) {
 			c.core.fit(undefined, 40);
 		}
 		placed = true;
+		lastDrawn = k;
 	}
 
 	/** Start new nodes where the site box they came out of was, so the picture keeps its shape. */
@@ -338,7 +346,7 @@ the backend and opened again later.
 	}
 
 	function centerName(center: Selection | null): string {
-		if (center?.kind === 'device') return center.id;
+		if (center?.kind === 'device') return shown(center.id);
 		if (center?.kind === 'site') return `Site ${center.id}`;
 		return center ? `${center.ids.length} links` : '';
 	}
@@ -379,7 +387,7 @@ the backend and opened again later.
 		// key and graph now reflect the restored settings; seed the cache so the
 		// redraw uses the saved positions instead of running a layout.
 		remember(key, new Map(Object.entries(saved.positions)));
-		lastFamily = null;
+		lastFamily = lastDrawn = null;
 		if (canvas && key === currentKey) void draw(canvas, graph, key, family);
 	}
 

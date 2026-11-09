@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
 	andList,
 	lineDetail,
@@ -13,6 +13,7 @@ import {
 } from './across.ts';
 import type { NetworkImpact } from './api/analysis.ts';
 import type { NetworkStatus } from './api/status.ts';
+import { overrides, target } from './overrides.svelte.ts';
 import { layeredIndex } from './test-fixture.ts';
 
 const index = layeredIndex();
@@ -176,5 +177,51 @@ describe('shared risk', () => {
 			{ kind: 'links', ids: [circuitC] }
 		]);
 		expect(circuitsOf(index, 'Northwind Fiber')).toHaveLength(2);
+	});
+});
+
+describe('names given here', () => {
+	afterEach(() => {
+		overrides.list = [];
+	});
+
+	it("gives a renamed device its new name in what the server says and in a risk's items", () => {
+		overrides.list = [
+			{
+				id: 'o1',
+				target: target('device', 'c-wan-01'),
+				kind: 'rename',
+				key: null,
+				value: 'C-EDGE',
+				note: '',
+				by: 'Pat',
+				at: '2026-11-08T12:00:00Z',
+				expires: null,
+				renewed: null,
+				withdrawn: null,
+				state: 'active',
+				reason: null,
+				topology_value: null
+			}
+		];
+		const line = networkLine(
+			index,
+			impact('black', {
+				after: status('black', { status: 'degraded', reasons: ['c-wan-01 down'] })
+			})
+		);
+		expect(line.note).toBe('C-EDGE down');
+		const resource = resourceLine({
+			name: 'Global Access',
+			before: 'operational',
+			after: {
+				name: 'Global Access',
+				status: 'degraded',
+				reasons: ['C-INET-01: c-wan-01 down'],
+				members: []
+			}
+		});
+		expect(resource.detail).toBe('C-INET-01: C-EDGE down');
+		expect(riskItemName(index, { kind: 'device', id: 'c-wan-01' })).toBe('C-EDGE');
 	});
 });

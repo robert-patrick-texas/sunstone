@@ -3,6 +3,7 @@
  * so color is never the only cue, and the caveat a working network can carry.
  */
 import type { NetworkStatus, Status, StatusReport } from './api/status.ts';
+import { named } from './overrides.svelte.ts';
 import { HEALTH_COLOR } from './theme.ts';
 
 export const STATUS_LABEL: Record<Status, string> = {
@@ -65,7 +66,7 @@ export interface SiteStatus {
 	status: Status;
 	/** For example `Degraded`, or `Operational*` when what the network rides is degraded there. */
 	word: string;
-	/** Why, the first reason given, or the caveat; empty when there is none. */
+	/** Why, the first reason given, or the caveat, with names as shown; empty when there is none. */
 	reason: string;
 }
 
@@ -83,7 +84,7 @@ export function siteStatus(network: NetworkStatus, site: string): SiteStatus {
 		return {
 			status: group.status,
 			word: STATUS_LABEL[group.status],
-			reason: group.reasons[0] ?? ''
+			reason: named(group.reasons[0] ?? '')
 		};
 	}
 	// Caveats read `blue degraded at HOU: …`.
@@ -93,6 +94,6 @@ export function siteStatus(network: NetworkStatus, site: string): SiteStatus {
 	return {
 		status: 'operational',
 		word: `${STATUS_LABEL.operational}${caveat ? '*' : ''}`,
-		reason: caveat ?? ''
+		reason: named(caveat ?? '')
 	};
 }

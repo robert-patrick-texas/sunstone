@@ -1410,6 +1410,155 @@
     }
    }
   },
+  "/api/overrides": {
+   "get": {
+    "summary": "Get Overrides",
+    "description": "Return every override not withdrawn, newest first, with how each\nstands now.",
+    "operationId": "get_overrides_api_overrides_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OverrideList"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "summary": "Make Override",
+    "description": "Make an override, in place of one of its kind an object has one\nof at a time (a rename, a lock of the field, a label of the key);\neverything follows it.",
+    "operationId": "make_override_api_overrides_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OverrideIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Override"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/overrides/{override_id}/withdraw": {
+   "post": {
+    "summary": "Withdraw Override",
+    "description": "Withdraw an override: it stops applying, and is kept for the handover.",
+    "operationId": "withdraw_override_api_overrides__override_id__withdraw_post",
+    "parameters": [
+     {
+      "name": "override_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Override Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WithdrawIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/overrides/{override_id}/renew": {
+   "post": {
+    "summary": "Renew Override",
+    "description": "Give an override a new expiry, or none: an expired one applies again.",
+    "operationId": "renew_override_api_overrides__override_id__renew_post",
+    "parameters": [
+     {
+      "name": "override_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Override Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RenewIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Override"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/layouts": {
    "get": {
     "summary": "List Layouts",
@@ -3213,6 +3362,14 @@
       },
       "type": "array",
       "title": "Changes"
+     },
+     "overrides": {
+      "items": {
+       "$ref": "#/components/schemas/OverrideLine"
+      },
+      "type": "array",
+      "title": "Overrides",
+      "default": []
      },
      "findings": {
       "items": {
@@ -5108,6 +5265,375 @@
     "title": "Outage",
     "description": "Devices and links that went down together, and came back."
    },
+   "Override": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "target": {
+      "$ref": "#/components/schemas/Target"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "rename",
+       "alias",
+       "tag",
+       "label",
+       "hide-map",
+       "hide-status",
+       "lock",
+       "one-device",
+       "ignore-neighbor"
+      ],
+      "title": "Kind"
+     },
+     "key": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Key"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "title": "By"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "expires": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires"
+     },
+     "renewed": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Stamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "withdrawn": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Stamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "target",
+     "kind",
+     "by",
+     "at"
+    ],
+    "title": "Override",
+    "description": "An override, as made, and withdrawn if it has been."
+   },
+   "OverrideIn": {
+    "properties": {
+     "target": {
+      "$ref": "#/components/schemas/Target"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "rename",
+       "alias",
+       "tag",
+       "label",
+       "hide-map",
+       "hide-status",
+       "lock",
+       "one-device",
+       "ignore-neighbor"
+      ],
+      "title": "Kind"
+     },
+     "key": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Key"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     },
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "expires": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "target",
+     "kind",
+     "by"
+    ],
+    "title": "OverrideIn",
+    "description": "An override someone makes."
+   },
+   "OverrideLine": {
+    "properties": {
+     "event": {
+      "type": "string",
+      "enum": [
+       "made",
+       "withdrawn",
+       "expired"
+      ],
+      "title": "Event"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "override": {
+      "$ref": "#/components/schemas/Override"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "event",
+     "at",
+     "override"
+    ],
+    "title": "OverrideLine",
+    "description": "An override made, withdrawn, or expired in a span, for the handover."
+   },
+   "OverrideList": {
+    "properties": {
+     "overrides": {
+      "items": {
+       "$ref": "#/components/schemas/OverrideNow"
+      },
+      "type": "array",
+      "title": "Overrides"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "overrides"
+    ],
+    "title": "OverrideList",
+    "description": "The overrides not withdrawn, newest first."
+   },
+   "OverrideNow": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "target": {
+      "$ref": "#/components/schemas/Target"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "rename",
+       "alias",
+       "tag",
+       "label",
+       "hide-map",
+       "hide-status",
+       "lock",
+       "one-device",
+       "ignore-neighbor"
+      ],
+      "title": "Kind"
+     },
+     "key": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Key"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note",
+      "default": ""
+     },
+     "by": {
+      "type": "string",
+      "title": "By"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     },
+     "expires": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires"
+     },
+     "renewed": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Stamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "withdrawn": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Stamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "active",
+       "expired",
+       "not-applied"
+      ],
+      "title": "State"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "topology_value": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Topology Value"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "target",
+     "kind",
+     "by",
+     "at",
+     "state"
+    ],
+    "title": "OverrideNow",
+    "description": "An override, and how it stands against the network now."
+   },
    "Ownership": {
     "properties": {
      "sites": {
@@ -5513,6 +6039,35 @@
     ],
     "title": "Region",
     "description": "A region sites are in, inside another region or at the top."
+   },
+   "RenewIn": {
+    "properties": {
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     },
+     "expires": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "by"
+    ],
+    "title": "RenewIn",
+    "description": "A new expiry for an override, or none."
    },
    "Resource": {
     "properties": {
@@ -6417,6 +6972,27 @@
     "title": "SiteCenter",
     "description": "A neighborhood built around every device of a site."
    },
+   "Stamp": {
+    "properties": {
+     "by": {
+      "type": "string",
+      "title": "By"
+     },
+     "at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "At"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "by",
+     "at"
+    ],
+    "title": "Stamp",
+    "description": "Who did something to an override, and when."
+   },
    "StateEvent": {
     "properties": {
      "at": {
@@ -6564,6 +7140,54 @@
     ],
     "title": "Step",
     "description": "One step of escalation: whom to page, so many minutes after the page."
+   },
+   "Target": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "site",
+       "device",
+       "link",
+       "lag",
+       "external",
+       "transport",
+       "tunnel",
+       "fabric",
+       "resource",
+       "network",
+       "port"
+      ],
+      "title": "Kind"
+     },
+     "id": {
+      "type": "string",
+      "maxLength": 400,
+      "minLength": 1,
+      "title": "Id"
+     },
+     "interface": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 100,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Interface"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "kind",
+     "id"
+    ],
+    "title": "Target",
+    "description": "What an override is on: an object by its key, or one port of a device."
    },
    "TeamNow": {
     "properties": {
@@ -7418,6 +8042,23 @@
     ],
     "title": "WindowIn",
     "description": "A maintenance window as someone plans it."
+   },
+   "WithdrawIn": {
+    "properties": {
+     "by": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "By"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "by"
+    ],
+    "title": "WithdrawIn",
+    "description": "Who withdraws an override."
    }
   }
  }

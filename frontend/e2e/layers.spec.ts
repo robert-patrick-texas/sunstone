@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
 test('a network found by search is shown in every view and in the link', async ({ page }) => {
 	await searchFor(page, 'grey');
 	await expect(heading(page)).toHaveText('grey');
-	await expect(details(page).getByText('Rides')).toBeVisible();
+	await expect(details(page).getByText('Rides', { exact: true })).toBeVisible();
 	await expect(details(page).getByRole('button', { name: 'blue2' })).toBeVisible();
 	await expect(details(page).getByRole('button', { name: 'red-alpha' })).toBeVisible();
 	// The header shows which networks are shown, and the link carries them.
@@ -232,9 +232,9 @@ test('problems follow the networks chosen, by kind or by region', async ({ page 
 	);
 	const note = await panel.getByText(/^\d+ not in grey\.$/).allTextContents();
 	expect(listed + Number(/^\d+/.exec(note[0] ?? '0')?.[0])).toBe(total);
-	// Only grey, and what it rides, among the networks.
+	// Only grey, and what it rides (blue, blue2, black), among the networks.
 	await expect(
-		panel.getByRole('button', { name: /^(corp|dci|blue2|red-alpha|red-bravo|partners) / })
+		panel.getByRole('button', { name: /^(corp|dci|red-alpha|red-bravo|partners) / })
 	).toHaveCount(0);
 	// The next problem is the first listed.
 	await page.keyboard.press('j');
@@ -436,7 +436,8 @@ test('discovery finds E-Tree leaves that see each other, and a tunnel on another
 				? true
 				: undefined
 	);
-	await page.goto(`/?at=${encodeURIComponent(at)}`);
+	// Replayed, so the run in effect then is the one shown.
+	await page.goto(`/?live=1&at=${encodeURIComponent(at)}`);
 	await page.keyboard.press('d');
 	const list = page.getByRole('region', { name: 'Discovery' });
 	await expect(
@@ -446,7 +447,7 @@ test('discovery finds E-Tree leaves that see each other, and a tunnel on another
 	await expect(list.getByText('BLUE-HOU-IAD on another tunnel interface')).toBeVisible();
 	await expect(list.getByText(/tunnels confirmed over CDP or inside MACsec/)).toBeVisible();
 	// The tunnel's details say what CDP over it shows.
-	await page.goto(`/?at=${encodeURIComponent(at)}&select=tunnel:BLUE-HOU-IAD&discovery=1`);
+	await page.goto(`/?live=1&at=${encodeURIComponent(at)}&select=tunnel:BLUE-HOU-IAD&discovery=1`);
 	await expect(heading(page)).toHaveText('BLUE-HOU-IAD');
 	await expect(details(page).getByText('Not as documented')).toBeVisible();
 	await expect(details(page).getByText(/sees iad-blu-01 Tunnel112 over CDP/)).toBeVisible();

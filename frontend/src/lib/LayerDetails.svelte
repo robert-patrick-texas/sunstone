@@ -11,8 +11,10 @@ operational, degraded, or offline, why, what is degraded beneath it, and
 its regions, sites, and locations that are not operational; a tunnel's
 state; a fabric's tunnels down and those built spoke to spoke now; and a
 resource's status, why, and each member's.
-Names are links that select and bring that item into view; a network can be
-shown in every view from here.
+Names are links that select and bring that item into view, by the names they
+go by here; a network can be shown in every view from here. All but a tenant
+list their overrides, to make, renew, or withdraw them, and say what they
+do, as the details panel does.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -24,6 +26,9 @@ shown in every view from here.
 	import type { Risk, RiskReport } from './api/risks.ts';
 	import type { Fabric, Link } from './api/topology.ts';
 	import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
+	import OverridesFor, { facts, locked, overridden } from './OverridesFor.svelte';
+	import { hiddenFromStatus, named, shown, target } from './overrides.svelte.ts';
+	import { PRIORITY_LABEL } from './priorities.ts';
 	import { membersOf, resourcesHolding, resourceStatus, type Member } from './resources.ts';
 	import type { StatusReport } from './api/status.ts';
 	import { clock, tunnelName } from './history.ts';
@@ -101,10 +106,10 @@ shown in every view from here.
 	}
 
 	/** Whether a network is shown in every view now. */
-	const shown = (name: string) => ui.networks.includes(name);
+	const inViews = (name: string) => ui.networks.includes(name);
 
 	function toggleShown(name: string): void {
-		ui.networks = shown(name) ? ui.networks.filter((n) => n !== name) : [...ui.networks, name];
+		ui.networks = inViews(name) ? ui.networks.filter((n) => n !== name) : [...ui.networks, name];
 	}
 
 	/** What kind of thing a resource's member is. */
@@ -136,7 +141,9 @@ shown in every view from here.
 {/snippet}
 
 {#snippet deviceLink(name: string)}
-	<button class="link" onclick={(e) => follow(e, { kind: 'device', id: name })}>{name}</button>
+	<button class="link" onclick={(e) => follow(e, { kind: 'device', id: name })}
+		>{shown(name)}</button
+	>
 {/snippet}
 
 {#snippet siteLink(code: string)}
@@ -144,7 +151,9 @@ shown in every view from here.
 {/snippet}
 
 {#snippet externalLink(name: string)}
-	<button class="link" onclick={(e) => follow(e, { kind: 'external', id: name })}>{name}</button>
+	<button class="link" onclick={(e) => follow(e, { kind: 'external', id: name })}
+		>{shown(name)}</button
+	>
 {/snippet}
 
 {#snippet resourceLink(name: string)}
@@ -184,20 +193,25 @@ shown in every view from here.
 	{@const network = index.networks.get(selection.id)}
 	{@const slice = layers.slices.get(selection.id)}
 	{#if network && slice}
+		{@const of = target('network', network.name)}
 		<p class="kind">{term(index, 'network')}</p>
 		<h2>
 			<span class="dot" style:--depth={depthColor(slice.depth)}></span>{network.name}
 		</h2>
+		{@render overridden(of)}
 		<p>{@render boundary(network.boundary === 'outside')}</p>
-		{#if network.description}<p class="muted">{network.description}</p>{/if}
+		{#if network.description}<p class="muted">
+				{network.description}
+				{@render locked(of, 'description')}
+			</p>{/if}
 		{#if statusOf(status, network.name)}
 			{@const now = statusOf(status, network.name)!}
 			<p class="now" style:--c={STATUS_COLOR[now.status]}>
 				<i aria-hidden="true">{STATUS_GLYPH[now.status]}</i><b>{statusWord(now)}</b>
 				<span class="muted">· {now.reached} of {now.sites} sites reached</span>
 			</p>
-			{#each now.reasons as reason (reason)}<p class="reason">{reason}</p>{/each}
-			{#each now.caveats as caveat (caveat)}<p class="reason muted">* {caveat}</p>{/each}
+			{#each now.reasons as reason (reason)}<p class="reason">{named(reason)}</p>{/each}
+			{#each now.caveats as caveat (caveat)}<p class="reason muted">* {named(caveat)}</p>{/each}
 			{#if now.groups.length}
 				<h3>Not operational ({now.groups.length})</h3>
 				<table>
@@ -209,7 +223,7 @@ shown in every view from here.
 							>
 								<td>{g.name} <span class="muted">{g.kind}</span></td>
 								<td style:color={STATUS_COLOR[g.status]}>{STATUS_LABEL[g.status]}</td>
-								<td class="muted">{g.reasons[0] ?? ''}</td>
+								<td class="muted">{named(g.reasons[0] ?? '')}</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -219,18 +233,18 @@ shown in every view from here.
 		<p class="actions">
 			<button
 				onclick={() =>
-					shown(network.name) ? toggleShown(network.name) : showNetwork(network.name)}
+					inViews(network.name) ? toggleShown(network.name) : showNetwork(network.name)}
 			>
-				{shown(network.name) ? 'Stop showing' : 'Show in every view'}
+				{inViews(network.name) ? 'Stop showing' : 'Show in every view'}
 			</button>
-			{#if ui.networks.length > 0 && !shown(network.name)}
+			{#if ui.networks.length > 0 && !inViews(network.name)}
 				<button onclick={() => toggleShown(network.name)}>Show with {ui.networks.join(', ')}</button
 				>
 			{/if}
 			{#if ui.view !== 'logical'}
 				<button
 					onclick={() => {
-						if (!shown(network.name)) showNetwork(network.name);
+						if (!inViews(network.name)) showNetwork(network.name);
 						ui.view = 'logical';
 					}}>Logical view</button
 				>
@@ -245,6 +259,7 @@ shown in every view from here.
 						onclick={(e) => follow(e, { kind: 'tenant', id: network.tenant ?? '' })}
 						>{network.tenant}</button
 					>
+					{@render locked(of, 'tenant')}
 				</dd>
 			{/if}
 			<dt>Rides</dt>
@@ -262,6 +277,7 @@ shown in every view from here.
 						.tunnels.length} tunnels{/if}{#if slice.fabrics.length}, {slice.fabrics.length} fabrics{/if}
 			</dd>
 		</dl>
+		{@render facts(of, network.tags)}
 		{@const own = risks?.networks.find((n) => n.network === network.name)}
 		{#if own}
 			{@const total = own.risks.length + own.more}
@@ -342,7 +358,7 @@ shown in every view from here.
 							<td class="mono">
 								{siteOf(index, t.a.device)} – {'device' in t.b
 									? siteOf(index, t.b.device)
-									: t.b.external}
+									: shown(t.b.external)}
 							</td>
 							<td>{t.rides}</td>
 						</tr>
@@ -360,27 +376,34 @@ shown in every view from here.
 						class="link"
 						onclick={(e) =>
 							follow(e, { kind: kind === 'transport' ? 'transport' : 'external', id: name })}
-						>{name}</button
+						>{kind === 'transport' ? name : shown(name)}</button
 					>
 				{/each}
 			</p>
 		{/if}
 		{@render sites([...slice.sites].sort(compareNatural))}
+		<OverridesFor {of} {index} />
 	{/if}
 {:else if selection.kind === 'transport'}
 	{@const transport = index.transports.get(selection.id)}
 	{#if transport}
 		{@const circuits = index.linksByNode.get(nodeKey({ transport: transport.name })) ?? []}
+		{@const of = target('transport', transport.name)}
 		<p class="kind">{term(index, 'transport')}</p>
 		<h2>{transport.name}</h2>
+		{@render overridden(of)}
 		<p>
 			{@render boundary(true)}
 			<span class="tag">{TRANSPORT_KIND[transport.kind]}</span>
+			{@render locked(of, 'kind', 'Kind')}
 		</p>
-		{#if transport.description}<p class="muted">{transport.description}</p>{/if}
+		{#if transport.description}<p class="muted">
+				{transport.description}
+				{@render locked(of, 'description')}
+			</p>{/if}
 		<dl>
 			{#if transport.provider}<dt>Provider</dt>
-				<dd>{transport.provider}</dd>{/if}
+				<dd>{transport.provider} {@render locked(of, 'provider')}</dd>{/if}
 			{#if transport.service}<dt>Service</dt>
 				<dd>
 					{transportService(transport)}
@@ -389,12 +412,16 @@ shown in every view from here.
 							? ', leaves only the roots'
 							: ''}</span
 					>
-				</dd>{/if}
+					{@render locked(of, 'technology', 'Technology')}
+				</dd>
+			{:else if transport.technology}<dt>Technology</dt>
+				<dd>{transport.technology} {@render locked(of, 'technology')}</dd>{/if}
 			{#if transport.network}<dt>{term(index, 'network')}</dt>
 				<dd>{@render networkLink(transport.network)}</dd>{/if}
 			<dt>Circuits</dt>
 			<dd>{circuits.length} from {sitesOf(circuits.map((l) => l.a.device)).length} sites</dd>
 		</dl>
+		{@render facts(of, transport.tags)}
 		<h3>Circuits</h3>
 		<table>
 			<thead>
@@ -435,6 +462,7 @@ shown in every view from here.
 				)}
 			</p>
 		{/if}
+		<OverridesFor {of} {index} />
 	{/if}
 {:else if selection.kind === 'external'}
 	{@const external = index.externals.get(selection.id)}
@@ -443,8 +471,13 @@ shown in every view from here.
 		{@const tunnels = index.topology.tunnels.filter(
 			(t) => 'external' in t.b && t.b.external === external.name
 		)}
-		<p class="kind">{term(index, external.kind)} · {term(index, 'external')}</p>
-		<h2>{external.name}</h2>
+		{@const of = target('external', external.name)}
+		<p class="kind">
+			{term(index, external.kind)} · {term(index, 'external')}
+			{@render locked(of, 'kind', 'Kind')}
+		</p>
+		<h2>{shown(external.name)}</h2>
+		{@render overridden(of)}
 		<p>{@render boundary(true)}</p>
 		<p class="muted">
 			{#if external.kind === 'tenant'}
@@ -455,7 +488,10 @@ shown in every view from here.
 				A service someone else runs.
 			{/if}
 		</p>
-		{#if external.description}<p class="muted">{external.description}</p>{/if}
+		{#if external.description}<p class="muted">
+				{external.description}
+				{@render locked(of, 'description')}
+			</p>{/if}
 		<dl>
 			{#if external.tenant}
 				<dt>{term(index, 'tenant')}</dt>
@@ -465,12 +501,23 @@ shown in every view from here.
 						onclick={(e) => follow(e, { kind: 'tenant', id: external.tenant ?? '' })}
 						>{external.tenant}</button
 					>
+					{@render locked(of, 'tenant')}
 				</dd>
 			{/if}
 			{#if external.network}<dt>{term(index, 'network')}</dt>
-				<dd>{@render networkLink(external.network)}</dd>{/if}
+				<dd>{@render networkLink(external.network)} {@render locked(of, 'network')}</dd>{/if}
 			{#if external.platform}<dt>Platform</dt>
-				<dd>{external.platform}</dd>{/if}
+				<dd>{external.platform} {@render locked(of, 'platform')}</dd>{/if}
+			{#if external.priority}<dt>Priority</dt>
+				<dd>
+					{#if hiddenFromStatus(of)}
+						Ignored <span class="muted">· hidden from status here</span>
+					{:else}
+						{PRIORITY_LABEL[external.priority]}
+						<span class="muted">· for its cables and circuits without their own</span>
+					{/if}
+					{@render locked(of, 'priority')}
+				</dd>{/if}
 			{#if external.reached_over.length}
 				<dt>Reached over</dt>
 				<dd>
@@ -481,6 +528,7 @@ shown in every view from here.
 				</dd>
 			{/if}
 		</dl>
+		{@render facts(of, external.tags)}
 		{#if links.length}
 			<h3>Connected at</h3>
 			<table>
@@ -512,12 +560,15 @@ shown in every view from here.
 				</tbody>
 			</table>
 		{/if}
+		<OverridesFor {of} {index} />
 	{/if}
 {:else if selection.kind === 'tunnel'}
 	{@const tunnel = index.tunnels.get(selection.id)}
 	{#if tunnel}
+		{@const of = target('tunnel', tunnel.name)}
 		<p class="kind">{term(index, 'tunnel')}</p>
 		<h2>{tunnel.name}</h2>
+		{@render overridden(of)}
 		<dl>
 			<dt>{term(index, 'network')}</dt>
 			<dd>{@render networkLink(tunnel.network)}</dd>
@@ -537,7 +588,7 @@ shown in every view from here.
 					{:else}Not said{/if}
 				</dd>{/if}
 			{#if tunnel.technology}<dt>Technology</dt>
-				<dd>{tunnel.technology}</dd>{/if}
+				<dd>{tunnel.technology} {@render locked(of, 'technology')}</dd>{/if}
 			{#if live}
 				{@const now = live.tunnels.get(tunnel.name)}
 				<dt>Now</dt>
@@ -581,7 +632,7 @@ shown in every view from here.
 				</tr>
 			</tbody>
 		</table>
-		{#if tunnel.tags.length}<p class="muted">Tags: {tunnel.tags.join(', ')}</p>{/if}
+		{@render facts(of, tunnel.tags)}
 		<ConnectionFacts {index} item={{ kind: 'tunnel', tunnel }} />
 		{@const check = comparison?.tunnels[tunnel.name]}
 		{#if comparison && check}
@@ -591,7 +642,7 @@ shown in every view from here.
 				<b>{TUNNEL_CHECK_LABEL[check]}</b>
 				<span class="muted"
 					>· {finding
-						? finding.detail
+						? named(finding.detail)
 						: tunnel.kind === 'macsec' && check === 'confirmed'
 							? 'its far end seen inside it, on its port'
 							: TUNNEL_CHECK_DETAIL[check]}{check === 'confirmed'
@@ -616,7 +667,7 @@ shown in every view from here.
 								{/if}{@render riskItems(risk)}</td
 							>
 							<td class="muted">
-								with {others.slice(0, 2).map(tunnelName).join(', ')}{others.length > 2
+								with {named(others.slice(0, 2).map(tunnelName).join(', '))}{others.length > 2
 									? ` and ${others.length - 2} more`
 									: ''}{risk.sites.length ? ` · cuts off ${risk.sites.join(', ')}` : ''}
 							</td>
@@ -625,21 +676,24 @@ shown in every view from here.
 				</tbody>
 			</table>
 		{/if}
+		<OverridesFor {of} {index} />
 	{/if}
 {:else if selection.kind === 'fabric'}
 	{@const fabric = index.fabrics.get(selection.id)}
 	{#if fabric}
 		{@const pairs = fabricTunnels(fabric).length}
 		{@const dynamic = onDemand(fabric)}
+		{@const of = target('fabric', fabric.name)}
 		<p class="kind">{term(index, 'fabric')}</p>
 		<h2>{fabric.name}</h2>
+		{@render overridden(of)}
 		<dl>
 			<dt>{term(index, 'network')}</dt>
 			<dd>{@render networkLink(fabric.network)}</dd>
 			<dt>Over</dt>
 			<dd>{@render networkLink(fabric.rides)}</dd>
 			{#if fabric.technology}<dt>Technology</dt>
-				<dd>{fabric.technology}</dd>{/if}
+				<dd>{fabric.technology} {@render locked(of, 'technology')}</dd>{/if}
 			<dt>Shape</dt>
 			<dd>{SHAPE[fabric.shape]}</dd>
 			<dt>{term(index, 'tunnel', true)}</dt>
@@ -647,14 +701,15 @@ shown in every view from here.
 				{pairs}{#if dynamic}, and up to {dynamic} more spoke to spoke on demand{/if}
 			</dd>
 		</dl>
+		{@render facts(of, fabric.tags)}
 		{#if live}
 			{@const now = fabricLive(fabric.name)}
 			<p class:reason={now.down.length > 0}>
 				{now.down.length ? `${now.down.length} down` : 'All up'}{#if dynamic}
 					· {now.built.length} spoke to spoke now{/if}
 			</p>
-			{#each now.down as t (t)}<p class="reason">{tunnelName(t)} down</p>{/each}
-			{#each now.built as t (t)}<p class="muted">{tunnelName(t)}</p>{/each}
+			{#each now.down as t (t)}<p class="reason">{named(tunnelName(t))} down</p>{/each}
+			{#each now.built as t (t)}<p class="muted">{named(tunnelName(t))}</p>{/each}
 		{/if}
 		<ConnectionFacts {index} item={{ kind: 'fabric', fabric }} />
 		<h3>Members ({fabric.members.length})</h3>
@@ -671,6 +726,7 @@ shown in every view from here.
 				{/each}
 			</tbody>
 		</table>
+		<OverridesFor {of} {index} />
 	{/if}
 {:else if selection.kind === 'resource'}
 	{@const resource = index.resources.get(selection.id)}
@@ -678,15 +734,20 @@ shown in every view from here.
 		{@const now = resourceStatus(status, resource.name)}
 		{@const members = membersOf(index, resource)}
 		{@const partOf = resourcesHolding(index, { kind: 'resource', id: resource.name })}
+		{@const of = target('resource', resource.name)}
 		<p class="kind">Resource</p>
 		<h2>{resource.name}</h2>
-		{#if resource.description}<p class="muted">{resource.description}</p>{/if}
-		{#if resource.tags.length}<p class="muted">Tags: {resource.tags.join(', ')}</p>{/if}
+		{@render overridden(of)}
+		{#if resource.description}<p class="muted">
+				{resource.description}
+				{@render locked(of, 'description')}
+			</p>{/if}
+		{@render facts(of, resource.tags)}
 		{#if now}
 			<p class="now" style:--c={STATUS_COLOR[now.status]}>
 				<i aria-hidden="true">{STATUS_GLYPH[now.status]}</i><b>{STATUS_LABEL[now.status]}</b>
 			</p>
-			{#each now.reasons as reason (reason)}<p class="reason">{reason}</p>{/each}
+			{#each now.reasons as reason (reason)}<p class="reason">{named(reason)}</p>{/each}
 		{/if}
 		{#if partOf.length}
 			<dl>
@@ -720,12 +781,13 @@ shown in every view from here.
 							<td class="nowrap" style:color={state ? STATUS_COLOR[state.status] : undefined}
 								>{state ? STATUS_LABEL[state.status] : ''}</td
 							>
-							<td class="muted">{state?.reason ?? ''}</td>
+							<td class="muted">{named(state?.reason ?? '')}</td>
 						{/if}
 					</tr>
 				{/each}
 			</tbody>
 		</table>
+		<OverridesFor {of} {index} />
 	{/if}
 {:else}
 	{@const tenant = index.tenants.get(selection.id)}
@@ -751,7 +813,7 @@ shown in every view from here.
 					{#each nodes as e (e.name)}
 						{@const at = index.linksByNode.get(nodeKey({ external: e.name }))?.[0]}
 						<tr onclick={() => select({ kind: 'external', id: e.name }, true)}>
-							<td>{e.name}</td>
+							<td>{shown(e.name)}</td>
 							<td class="muted">{e.platform ?? ''}</td>
 							<td
 								>{#if at}{@render siteLink(siteOf(index, at.a.device))}{/if}</td

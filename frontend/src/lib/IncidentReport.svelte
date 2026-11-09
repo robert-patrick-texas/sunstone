@@ -23,6 +23,7 @@ of the timeline leaves it and replays that moment.
 	} from './api/incidents.ts';
 	import { clock } from './history.ts';
 	import { first, incidentLabel, into, lasted, postmortemText, STATUS } from './incident.ts';
+	import { named } from './overrides.svelte.ts';
 	import { rememberName, select, showProblem, ui, type Selection } from './state.svelte.ts';
 
 	const {
@@ -206,7 +207,7 @@ of the timeline leaves it and replays that moment.
 	<header class="bar">
 		<h1 tabindex="-1">{incident ? `Incident ${incident.number}` : 'Incidents'}</h1>
 		{#if incident}
-			<span class="title">{incident.title}</span>
+			<span class="title">{named(incident.title)}</span>
 			<span class="status {incident.status}">{STATUS[incident.status]}</span>
 		{/if}
 		<select
@@ -273,7 +274,7 @@ of the timeline leaves it and replays that moment.
 						<dt>Paged</dt>
 						<dd>
 							{incident.paged
-								? `${incident.paged.text} · ${at(incident.paged.at)}`
+								? `${named(incident.paged.text)} · ${at(incident.paged.at)}`
 								: 'No team has been paged'}
 						</dd>
 						<dt>{incident.cleared_at ? 'Cleared' : incident.closed ? 'Not cleared' : 'Lasting'}</dt>
@@ -295,7 +296,7 @@ of the timeline leaves it and replays that moment.
 						{#each incident.problems as m (m.problem)}
 							<li>
 								<button class="row" class:open={!m.cleared_at} onclick={() => goMember(m)}>
-									<span class="what">{m.title}</span>
+									<span class="what">{named(m.title)}</span>
 									<span class="when"
 										>{m.cleared_at ? `cleared ${clock(m.cleared_at)}` : 'still there'}</span
 									>
@@ -382,7 +383,7 @@ of the timeline leaves it and replays that moment.
 								<button class="row entry {e.kind}" disabled={!e.target} onclick={() => goEntry(e)}>
 									<span class="clock">{clock(e.at)}</span>
 									<span class="what"
-										>{e.text}{e.kind === 'note' && e.by ? ` (${e.by})` : ''}{e.planned
+										>{named(e.text)}{e.kind === 'note' && e.by ? ` (${e.by})` : ''}{e.planned
 											? ' · planned'
 											: ''}</span
 									>

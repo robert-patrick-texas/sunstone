@@ -55,8 +55,11 @@ test('the d key and search both open discovery', async ({ page }) => {
 test('discovery goes on the map, and Back takes it off again', async ({ page }) => {
 	const legend = page.getByLabel('Legend');
 	await page.keyboard.press('d');
+	// The device on another's port that is in the topology: the others are
+	// the renamed switch's old hostname and the WAN optimizer.
 	await discovery(page)
 		.getByRole('button', { name: /^Another device on/ })
+		.filter({ hasNotText: 'not in the topology' })
 		.click();
 	await expect(page).toHaveURL(/discovery=1/);
 	await expect(legend.getByText('Seen, not documented')).toBeVisible();

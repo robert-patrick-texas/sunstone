@@ -22,6 +22,7 @@ from sunstone.discovery import (
     Comparison,
     DiscoverySource,
     Finding,
+    NeighborRules,
     compare,
     visibility,
 )
@@ -36,7 +37,11 @@ class DiscoveryLog:
     """Comparisons of every discovery run over the last day."""
 
     def __init__(
-        self, topology: Topology, source: DiscoverySource, state: StateSource
+        self,
+        topology: Topology,
+        source: DiscoverySource,
+        state: StateSource,
+        rules: NeighborRules | None = None,
     ) -> None:
         """Keep a log of a discovery source's runs.
 
@@ -45,6 +50,8 @@ class DiscoveryLog:
             source: Where neighbor tables come from.
             state: Live state, to tell links that are down from links that
                 are missing, and how far back history goes.
+            rules: What overrides say about devices' names and some ports;
+                None for nothing.
 
         Raises:
             None
@@ -52,6 +59,7 @@ class DiscoveryLog:
         self.topology = topology
         self.source = source
         self.state = state
+        self.rules = rules
         self._runs: dict[datetime, Comparison] = {}
         self._lock = threading.Lock()
 
@@ -125,7 +133,9 @@ class DiscoveryLog:
             if found is not None:
                 return found
             seen = visibility(self.state, run)
-            found = compare(self.topology, self.source.discover(run, seen), seen)
+            found = compare(
+                self.topology, self.source.discover(run, seen), seen, self.rules
+            )
             self._runs[run] = found
             horizon = datetime.now(UTC) - self.state.retention - self.source.interval
             for old in [r for r in self._runs if r < horizon]:

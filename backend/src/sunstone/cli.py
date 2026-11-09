@@ -18,12 +18,13 @@ from sunstone.layouts import LayoutStoreError
 from sunstone.loader import TopologyError, load_topology
 from sunstone.oncall import DirectoryError, load_directory
 from sunstone.operations import OperationsError
+from sunstone.overrides import OverridesError
 from sunstone.settings import DEFAULT_CONFIG, Settings, SettingsError, load_settings
 from sunstone.update.releases import ReleaseError, https_getter
 from sunstone.update.updater import INSTALLED, UpdateError, Updater
 from sunstone.update.versions import Version
 
-KINDS = ("layouts", "operations", "changes", "handovers", "incidents")
+KINDS = ("layouts", "operations", "changes", "overrides", "handovers", "incidents")
 
 
 def main() -> None:
@@ -210,6 +211,7 @@ def _check(args: argparse.Namespace) -> int:
         TopologyError,
         DirectoryError,
         ChangesError,
+        OverridesError,
         OperationsError,
         HandoverError,
         IncidentError,

@@ -8,8 +8,9 @@
  * are listed as one row.
  *
  * Each row keeps what changed, so the list can follow the networks chosen
- * and a region: see {@link rowSites}. Cables and circuits rated ignored
- * (access ports users come and go on) going down and up are left out.
+ * and a region: see {@link rowSites}. Devices, cables, and circuits rated
+ * ignored (access ports users come and go on, a lab switch) going down and
+ * up are left out.
  */
 import type { DeviceHistory, StateEvent } from './api/state.ts';
 import type { Link } from './api/topology.ts';
@@ -84,8 +85,8 @@ export interface EventRow {
 
 /**
  * Turn events into rows, newest first, grouping devices at one site that
- * change the same way at the same step, and leaving out ignored links going
- * down and up.
+ * change the same way at the same step, and leaving out ignored devices and
+ * links going down and up.
  *
  * @param index - Topology index.
  * @param events - Events, oldest first, as the API returns them.
@@ -105,6 +106,8 @@ export function eventRows(
 	for (const e of events) {
 		if (!shown.has(CATEGORY[e.kind])) continue;
 		if (e.device) {
+			const downUp = e.kind === 'down' || e.kind === 'up';
+			if (downUp && ignoredDevice(index, e.device)) continue;
 			const site = siteOf(index, e.device);
 			const key = [e.at, e.kind, site, e.planned].join(' ');
 			const group = groups.get(key) ?? {
@@ -251,6 +254,11 @@ export function rowSites(index: TopologyIndex, row: EventRow): Set<string> {
 	return new Set(devices.map((d) => siteOf(index, d)).filter((s) => s !== ''));
 }
 
+/** Whether a device is rated ignored: hidden from status, or a lab switch. */
+function ignoredDevice(index: TopologyIndex, device: string): boolean {
+	return index.devices.get(device)?.priority === 'ignored';
+}
+
 function linkTitle(link: Link, e: StateEvent): string {
 	const name = linkName(link);
 	const pct = Math.round(e.pct ?? 0);
@@ -269,11 +277,12 @@ function linkTitle(link: Link, e: StateEvent): string {
 /**
  * How much went down at each step, for marking the timeline: devices and
  * links, so that a branch losing every device stands out from one switch.
- * Cables and circuits rated ignored are left out, as Events leaves them.
+ * Devices, cables, and circuits rated ignored are left out, as Events
+ * leaves them.
  *
  * @param events - Events.
  * @param start - Time of step 0, in milliseconds.
- * @param index - Topology index, for each link's priority.
+ * @param index - Topology index, for each device's and link's priority.
  * @returns Devices and links that went down, by step index; quiet steps are absent.
  */
 export function downsBySteps(
@@ -284,6 +293,7 @@ export function downsBySteps(
 	const steps = new Map<number, number>();
 	for (const e of events) {
 		if (e.kind !== 'down' && e.kind !== 'link-down') continue;
+		if (e.device && index && ignoredDevice(index, e.device)) continue;
 		const link = e.link && index ? index.links.get(e.link) : undefined;
 		if (link && index && linkRating(index.topology, link).priority === 'ignored') continue;
 		const step = Math.round((Date.parse(e.at) - start) / STEP_MS);

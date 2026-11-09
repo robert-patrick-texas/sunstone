@@ -13,6 +13,9 @@
  * none, and the map draws structure only. Given an impact to show, affected
  * features carry `impact` (and a `glyph` and site `label` to match), and
  * unaffected ones carry neither.
+ *
+ * What is hidden from the map is left out, and devices are labeled by the
+ * names they are shown by.
  */
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import type { SeenLink } from '../api/discovery.ts';
@@ -28,6 +31,7 @@ import {
 	type LiveIndex
 } from '../live.ts';
 import { fabricTunnels, layersOf } from '../layers.ts';
+import { hiddenOnMap, shown } from '../overrides.svelte.ts';
 import { resourceSites, resourceStatus } from '../resources.ts';
 import { STATUS_GLYPH } from '../status.ts';
 import { depthColor, HEALTH_GLYPH, IMPACT_COLOR, IMPACT_GLYPH, TUNNEL_COLOR } from '../theme.ts';
@@ -74,7 +78,9 @@ export function pairKey(a: string, b: string): string {
  */
 export function sitePairs(index: TopologyIndex): SitePair[] {
 	const pairs = new Map<string, SitePair>();
+	const hidden = hiddenOnMap(index);
 	for (const link of index.topology.links) {
+		if (hidden.links.has(link.id)) continue;
 		const far = farDevice(link);
 		if (far === null) continue; // into a transport or to an external node
 		const a = siteOf(index, link.a.device);
@@ -138,16 +144,20 @@ export function siteFeatures(
 	live: LiveIndex | null = null,
 	impact: Impact | null = null
 ): FeatureCollection<Point> {
+	const hidden = hiddenOnMap(index);
+	const sites = index.topology.sites.filter((s) => !hidden.sites.has(s.code));
 	return collection(
-		index.topology.sites.map((site) => {
+		sites.map((site) => {
 			const devices = (index.devicesBySite.get(site.code) ?? []).map((d) => d.name);
 			const properties: Record<string, unknown> = {
 				code: site.code,
 				name: site.name,
 				devices: devices.length
 			};
-			const transports = layersOf(index).transportsAt.get(site.code);
-			if (transports) properties['transports'] = transports.join(' · ');
+			const transports = layersOf(index)
+				.transportsAt.get(site.code)
+				?.filter((t) => !hidden.transports.has(t));
+			if (transports?.length) properties['transports'] = transports.join(' · ');
 			if (live) {
 				const { health, counts } = groupHealth(live, devices);
 				properties['health'] = health;
@@ -197,6 +207,7 @@ export function networkArcs(
 	impact: Impact | null = null
 ): FeatureCollection<LineString> {
 	const layers = layersOf(index);
+	const hidden = hiddenOnMap(index);
 	const arcs = new Map<
 		string,
 		{ a: string; b: string; tunnels: string[]; properties: Record<string, string | boolean> }
@@ -208,6 +219,7 @@ export function networkArcs(
 		id: string,
 		ref: Record<string, string | boolean>
 	) => {
+		if (hidden.devices.has(x) || hidden.devices.has(y)) return;
 		const [a, b] = [siteOf(index, x), siteOf(index, y)];
 		if (a === b) return;
 		const key = `${network}|${pairKey(a, b)}${ref['dynamic'] ? '|on demand' : ''}`;
@@ -222,9 +234,11 @@ export function networkArcs(
 		const slice = layers.slices.get(name);
 		if (!slice) continue;
 		for (const t of slice.tunnels) {
+			if (hidden.tunnels.has(t.name)) continue;
 			if ('device' in t.b) add(t.a.device, t.b.device, name, t.name, { tunnel: t.name });
 		}
 		for (const f of slice.fabrics) {
+			if (hidden.fabrics.has(f.name)) continue;
 			for (const { a, b } of fabricTunnels(f)) {
 				add(a.device, b.device, name, `${f.name}:${a.device}~${b.device}`, { fabric: f.name });
 			}
@@ -233,7 +247,8 @@ export function networkArcs(
 			if (t.network !== name || !t.dynamic || t.status !== 'up') continue;
 			const fabric = t.tunnel.slice(0, t.tunnel.indexOf(':'));
 			const [a, b] = t.tunnel.slice(fabric.length + 1).split('~');
-			if (a && b) add(a, b, name, t.tunnel, { fabric, dynamic: true });
+			if (!a || !b || hidden.fabrics.has(fabric)) continue;
+			add(a, b, name, t.tunnel, { fabric, dynamic: true });
 		}
 	}
 	const seen = new Map<string, number>();
@@ -340,9 +355,15 @@ export function deviceFeatures(
 	live: LiveIndex | null = null,
 	impact: Impact | null = null
 ): FeatureCollection<Point> {
+	const hidden = hiddenOnMap(index);
+	const devices = index.topology.devices.filter((d) => !hidden.devices.has(d.name));
 	return collection(
-		index.topology.devices.map((device) => {
-			const properties: Record<string, unknown> = { name: device.name, role: device.role };
+		devices.map((device) => {
+			const properties: Record<string, unknown> = {
+				name: device.name,
+				label: shown(device.name),
+				role: device.role
+			};
 			if (live) {
 				const health = deviceHealth(live, device.name);
 				properties['health'] = health;
@@ -442,9 +463,11 @@ export function seenFeatures(
 	positions: Map<string, LonLat>
 ): FeatureCollection<LineString | Point> {
 	const features: Feature<LineString | Point>[] = [];
+	const hidden = hiddenOnMap(index);
 	for (const s of seen) {
 		const from = positions.get(s.a.device);
-		if (!from) continue;
+		if (!from || hidden.devices.has(s.a.device)) continue;
+		if (s.known && hidden.devices.has(s.b.device)) continue;
 		let to = s.known ? positions.get(s.b.device) : undefined;
 		if (!s.known) {
 			const site = index.sites.get(siteOf(index, s.a.device));
@@ -518,10 +541,12 @@ export function resourceFeatures(
 	report: StatusReport | null = null
 ): FeatureCollection<Point | LineString> {
 	const features: Feature<Point | LineString>[] = [];
+	const hidden = hiddenOnMap(index);
 	for (const [name, at] of positions) {
+		if (hidden.resources.has(name)) continue;
 		for (const code of resourceSites(index, name)) {
 			const site = index.sites.get(code);
-			if (!site) continue;
+			if (!site || hidden.sites.has(code)) continue;
 			features.push({
 				type: 'Feature',
 				geometry: { type: 'LineString', coordinates: [at, [site.lon, site.lat]] },

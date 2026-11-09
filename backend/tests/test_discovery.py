@@ -256,8 +256,11 @@ class TestSimulated:
         at = lab_in(cabling)
         found = SimulatedDiscovery(topology, cabling, state).discover(at)
         result = compare(topology, found, Visibility.of(state.snapshot(at)))
+        # Three of the devices on another's port are not in the topology:
+        # the renamed switch's old hostname at both its uplinks, and a WAN
+        # optimizer answering LLDP.
         assert Counter(f.kind for f in result.findings) == {
-            "wrong-neighbor": 1,
+            "wrong-neighbor": 4,
             "wrong-port": 1,
             "not-seen": 1,
             "undocumented": 1,
@@ -269,10 +272,11 @@ class TestSimulated:
         assert sorted(s.finding.split(":")[0] for s in result.seen) == [
             "undocumented",
             "unknown-device",
-            "wrong-neighbor",
+            # The WAN optimizer is seen from both of its ends.
+            *["wrong-neighbor"] * 5,
             "wrong-port",
         ]
-        lab = next(s for s in result.seen if not s.known)
+        lab = next(s for s in result.seen if s.b.device.startswith("lab-"))
         assert (lab.b.device, lab.platform) == ("lab-sw-01", "WS-C2960X-24TS")
 
     def test_the_lab_switch_comes_and_goes(self, topology: Topology) -> None:
@@ -407,14 +411,16 @@ class TestFixes:
         self, topology: Topology
     ) -> None:
         _, findings = fixable(topology)
-        offered = {f.kind: f.fix.kind if f.fix else None for f in findings}
+        offered = Counter((f.kind, f.fix.kind if f.fix else None) for f in findings)
         assert offered == {
-            "wrong-neighbor": "move",
-            "wrong-port": "move",
-            "not-seen": "retire",
-            "undocumented": "add",
-            "unknown-device": None,
-            "no-neighbors": None,
+            ("wrong-neighbor", "move"): 1,
+            # A device not in the topology: the renamed switch, the optimizer.
+            ("wrong-neighbor", None): 3,
+            ("wrong-port", "move"): 1,
+            ("not-seen", "retire"): 1,
+            ("undocumented", "add"): 1,
+            ("unknown-device", None): 1,
+            ("no-neighbors", None): 1,
         }
         documented = {
             f"{e.device}:{e.interface}"
@@ -454,6 +460,7 @@ class TestFixes:
             Visibility.of(state.snapshot(at)),
         )
         assert [f.kind for f in again.findings] == [
+            *["wrong-neighbor"] * 3,
             "not-seen",
             "unknown-device",
             "no-neighbors",
@@ -689,7 +696,7 @@ class TestExpected:
         }
         shown = expecting(result, aside, topology)
         assert [f.kind for f in shown.findings] == [
-            "wrong-neighbor",
+            *["wrong-neighbor"] * 4,
             "wrong-port",
             "undocumented",
         ]
@@ -697,7 +704,11 @@ class TestExpected:
         # The link across the media converter, and the silent switch's links.
         assert Counter(shown.links.values())["expected"] == 3
         assert "not-seen" not in shown.links.values()
-        assert all(s.known for s in shown.seen)
+        # Left unknown: what the renamed switch's LLDP and the WAN
+        # optimizer say they are, on documented ports.
+        [old] = cabling.renamed.values()
+        [(inline, _)] = cabling.inline.values()
+        assert {s.b.device for s in shown.seen if not s.known} == {old, inline}
         assert shown.confirmed == result.confirmed
         assert expecting(result, set(), topology).findings == result.findings
 
