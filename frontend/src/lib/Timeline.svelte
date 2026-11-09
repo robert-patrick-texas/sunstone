@@ -8,11 +8,12 @@ forward a step a second until it catches up.
 -->
 <script lang="ts">
 	import type { EventLog } from './api/state.ts';
+	import type { TopologyIndex } from './topology.ts';
 	import { clock, downsBySteps, STEP_MS } from './history.ts';
 	import { ui } from './state.svelte.ts';
 	import { HEALTH_COLOR } from './theme.ts';
 
-	const { log }: { log: EventLog } = $props();
+	const { log, index = null }: { log: EventLog; index?: TopologyIndex | null } = $props();
 
 	const PLAY_MS = 1000;
 
@@ -24,7 +25,7 @@ forward a step a second until it catches up.
 	);
 	// Square-root heights keep one device visible beside a whole branch.
 	const bars = $derived.by(() => {
-		const downs = [...downsBySteps(log.events, start)].filter(([i]) => i >= 0);
+		const downs = [...downsBySteps(log.events, start, index)].filter(([i]) => i >= 0);
 		const most = Math.sqrt(Math.max(1, ...downs.map(([, n]) => n)));
 		return downs.map(([i, n]) => ({ i, n, h: Math.max(0.15, Math.sqrt(n) / most) }));
 	});

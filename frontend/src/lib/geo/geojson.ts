@@ -5,6 +5,8 @@
  * one line. Zoomed in, a site's devices are drawn on rings around the site's
  * coordinates, upper tiers on inner rings. The rings are a drawing aid, not
  * real device locations: sources give coordinates per site, not per device.
+ * Resources are points of their own amid their members' sites, with leader
+ * lines to those sites; that place, too, is a drawing aid.
  *
  * Given live state, features also carry `health` (and `util`, `glyph`, or a
  * fuller site `label`) for the map's live styling; without it they carry
@@ -14,6 +16,7 @@
  */
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import type { SeenLink } from '../api/discovery.ts';
+import type { StatusReport } from '../api/status.ts';
 import type { Link } from '../api/topology.ts';
 import { deviceImpact, linksImpact, tunnelsImpact, worstImpact, type Impact } from '../impact.ts';
 import {
@@ -25,6 +28,8 @@ import {
 	type LiveIndex
 } from '../live.ts';
 import { fabricTunnels, layersOf } from '../layers.ts';
+import { resourceSites, resourceStatus } from '../resources.ts';
+import { STATUS_GLYPH } from '../status.ts';
 import { depthColor, HEALTH_GLYPH, IMPACT_COLOR, IMPACT_GLYPH, TUNNEL_COLOR } from '../theme.ts';
 import { farDevice, ROLES, siteOf, type TopologyIndex } from '../topology.ts';
 
@@ -460,4 +465,74 @@ export function seenFeatures(
 		});
 	}
 	return { type: 'FeatureCollection', features };
+}
+
+/** How far a resource moves off a spot already taken, as a share of the span of all sites. */
+const RESOURCE_STEP = 0.03;
+
+/**
+ * Where to draw each resource: in the middle of its members' sites. A spot
+ * a site or a resource placed before already takes moves it north, a step
+ * at a time, so a resource at one site sits just above it and none hides
+ * another.
+ *
+ * @param index - Topology index.
+ * @returns Longitude/latitude per resource name; none for a resource at no site.
+ */
+export function resourcePositions(index: TopologyIndex): Map<string, LonLat> {
+	const { sites } = index.topology;
+	const lons = sites.map((s) => s.lon);
+	const lats = sites.map((s) => s.lat);
+	const span = Math.max(
+		Math.max(...lons) - Math.min(...lons),
+		Math.max(...lats) - Math.min(...lats)
+	);
+	const step = RESOURCE_STEP * (span || 1);
+	const taken: LonLat[] = sites.map((s) => [s.lon, s.lat]);
+	const positions = new Map<string, LonLat>();
+	for (const { name } of index.topology.resources) {
+		const at = resourceSites(index, name).flatMap((code) => index.sites.get(code) ?? []);
+		if (at.length === 0) continue;
+		const lon = at.reduce((sum, s) => sum + s.lon, 0) / at.length;
+		let lat = at.reduce((sum, s) => sum + s.lat, 0) / at.length;
+		while (taken.some(([x, y]) => Math.hypot(x - lon, y - lat) < 0.75 * step)) lat += step;
+		taken.push([lon, lat]);
+		positions.set(name, [lon, lat]);
+	}
+	return positions;
+}
+
+/**
+ * Resources as a point each, with a leader line from it to each of its
+ * members' sites.
+ *
+ * @param index - Topology index.
+ * @param positions - From {@link resourcePositions}.
+ * @param report - Status, while live state is shown; or null.
+ * @returns Points named for their resource, and with a report, its status
+ *   and glyph; lines naming their resource and site.
+ */
+export function resourceFeatures(
+	index: TopologyIndex,
+	positions: Map<string, LonLat>,
+	report: StatusReport | null = null
+): FeatureCollection<Point | LineString> {
+	const features: Feature<Point | LineString>[] = [];
+	for (const [name, at] of positions) {
+		for (const code of resourceSites(index, name)) {
+			const site = index.sites.get(code);
+			if (!site) continue;
+			features.push({
+				type: 'Feature',
+				geometry: { type: 'LineString', coordinates: [at, [site.lon, site.lat]] },
+				properties: { id: `${name}|${code}`, resource: name, site: code }
+			});
+		}
+		const properties: Record<string, unknown> = { id: name, name };
+		const status = resourceStatus(report, name)?.status;
+		if (status) properties['status'] = status;
+		if (status && STATUS_GLYPH[status]) properties['glyph'] = STATUS_GLYPH[status];
+		features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: at }, properties });
+	}
+	return collection(features);
 }

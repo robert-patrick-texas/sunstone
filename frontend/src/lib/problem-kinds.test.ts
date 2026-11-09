@@ -18,6 +18,7 @@ function problem(id: string, kind: Problem['kind'], extra: Partial<Problem> = {}
 		ack: null,
 		team: null,
 		urgency: 'high',
+		priority: 'medium',
 		paging: null,
 		networks: [],
 		...extra
@@ -119,5 +120,29 @@ describe('grouped by region', () => {
 		const grey = view(['grey'], 'kind');
 		expect(stepProblem(PLACED, 'C', 1, grey)?.id).toBe('b-core-01');
 		expect(stepProblem(PLACED, 'b-core-01', 1, grey)?.id).toBe('C');
+	});
+});
+
+describe('high-priority problems', () => {
+	const MIXED = [
+		problem('h1', 'link-down', { priority: 'high', ack: ACK }),
+		problem('h2', 'busy', { priority: 'high' }),
+		...PLACED
+	];
+
+	it('come first, on their own, by kind and by region, the ones someone is on after', () => {
+		for (const by of ['kind', 'region'] as const) {
+			const groups = grouped(MIXED, view([], by));
+			expect(groups[0]).toMatchObject({ key: 'high-priority', label: 'High priority' });
+			expect(groups[0]?.items.map((p) => p.id)).toEqual(['h2', 'h1']);
+			expect(groups.slice(1).flatMap((g) => g.items.map((p) => p.id))).not.toContain('h1');
+		}
+	});
+
+	it('are stepped through first', () => {
+		const byRegion = view([], 'region');
+		expect(stepProblem(MIXED, null, 1, byRegion)?.id).toBe('h2');
+		expect(stepProblem(MIXED, 'h1', 1, byRegion)?.id).toBe('C');
+		expect(stepProblem(MIXED, 'h2', -1, byRegion)?.id).toBe('b-core-01');
 	});
 });

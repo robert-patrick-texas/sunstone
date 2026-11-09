@@ -67,6 +67,7 @@ describe('standing', () => {
 		ack: null,
 		team: null,
 		urgency: 'high',
+		priority: 'medium',
 		paging: null,
 		networks: []
 	} as Problem;

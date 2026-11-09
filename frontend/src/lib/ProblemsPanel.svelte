@@ -3,13 +3,18 @@
 Problems in the live state shown (now, or a replayed moment), most urgent
 first, grouped by kind or by region, after the networks that are not
 working as they should: the whole network and named networks degraded or
-offline, or working over something degraded. The server finds them, once
-per moment for every viewer. With networks chosen in the header, only
-their problems are listed, and only they and the networks beneath them. Within each kind, problems someone has acknowledged, then ones that
-planned maintenance accounts for, come after the rest, dimmed and marked.
-An outage or link down names the networks it takes something from, and
-what: what fixing it would bring back. Clicking one selects it, brings it into view, and shows its impact in every
-view; clicking it again stops showing the impact.
+offline, or working over something degraded, and the resources degraded
+or offline. The server finds them, once per moment for every viewer. With
+networks chosen in the header, only their problems are listed, and only
+they and the networks beneath them; every resource stays listed, since
+none belongs to a network. High-priority problems come first, on their
+own, marked High. Within each kind, problems someone has acknowledged,
+then ones that planned maintenance accounts for, come after the rest,
+dimmed and marked. An outage or link down names the networks it takes
+something from, and what: what fixing it would bring back; a link someone
+downstream answers for first says who. Clicking one selects it, brings it
+into view, and shows its impact in every view; clicking it again stops
+showing the impact.
 -->
 <script lang="ts">
 	import { problemNetworks } from './across.ts';
@@ -18,10 +23,11 @@ view; clicking it again stops showing the impact.
 	import type { Window } from './api/operations.ts';
 	import { personOf } from './oncall.ts';
 	import { grouped, handling, MARK } from './problem-kinds.ts';
+	import { resourcesNeeding } from './resources.ts';
 	import { scopeOf } from './scope.ts';
 	import type { StatusReport } from './api/status.ts';
-	import { showNetwork, showProblem, ui } from './state.svelte.ts';
-	import { needing, STATUS_COLOR, STATUS_GLYPH, statusWord } from './status.ts';
+	import { select, showNetwork, showProblem, ui } from './state.svelte.ts';
+	import { needing, STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL, statusWord } from './status.ts';
 	import type { TopologyIndex } from './topology.ts';
 
 	const {
@@ -46,6 +52,7 @@ view; clicking it again stops showing the impact.
 				(n.network !== null && (scope.networks.includes(n.network) || scope.under.has(n.network)))
 		)
 	);
+	const resources = $derived(status ? resourcesNeeding(status) : []);
 	const name = (id: string) => (oncall ? personOf(oncall, id).name : id);
 
 	const groups = $derived(grouped(problems, { index, scope, by: ui.problemsBy }));
@@ -108,6 +115,26 @@ view; clicking it again stops showing the impact.
 			{/each}
 		</ul>
 	{/if}
+	{#if resources.length}
+		<h3>Resources ({resources.length})</h3>
+		<ul>
+			{#each resources as r (r.name)}
+				<li>
+					<button
+						class="problem"
+						aria-pressed={ui.selection?.kind === 'resource' && ui.selection.id === r.name}
+						onclick={() => select({ kind: 'resource', id: r.name }, true)}
+					>
+						<i style:--c={STATUS_COLOR[r.status]} aria-hidden="true">{STATUS_GLYPH[r.status]}</i>
+						<span>
+							<span class="title">{r.name} {STATUS_LABEL[r.status].toLowerCase()}</span>
+							{#if r.reasons.length}<span class="detail">{r.reasons[0]}</span>{/if}
+						</span>
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 	{#each groups as group (group.key)}
 		<h3>{group.label} ({group.items.length})</h3>
 		<ul>
@@ -117,6 +144,7 @@ view; clicking it again stops showing the impact.
 					<button
 						class="problem"
 						class:handled={handling(problem) > 0}
+						class:high={problem.priority === 'high'}
 						data-problem={problem.id}
 						aria-pressed={ui.problem === problem.id}
 						onclick={() => showProblem(problem)}
@@ -124,9 +152,15 @@ view; clicking it again stops showing the impact.
 						<i style:--c={MARK[problem.kind].color} aria-hidden="true">{MARK[problem.kind].glyph}</i
 						>
 						<span>
-							<span class="title">{problem.title}</span>
+							<span class="title"
+								>{#if problem.priority === 'high'}<b class="high-mark">High</b>
+								{/if}{problem.title}</span
+							>
 							{#if problem.detail}<span class="detail">{problem.detail}</span>{/if}
 							{#if across}<span class="detail">{across}</span>{/if}
+							{#if problem.responsible}
+								<span class="detail">{problem.responsible} answers first</span>
+							{/if}
 							{#if problem.planned.length}
 								<span class="tag planned"
 									>Planned: {problem.planned
@@ -199,6 +233,10 @@ view; clicking it again stops showing the impact.
 	}
 	.problem:hover {
 		background: var(--panel-2);
+	}
+	/* High priority: a stripe in the accent, besides the mark in words. */
+	.problem.high {
+		box-shadow: inset 3px 0 0 var(--accent);
 	}
 	.problem[aria-pressed='true'] {
 		background: var(--panel-2);

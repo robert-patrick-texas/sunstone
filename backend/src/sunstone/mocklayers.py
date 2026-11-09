@@ -41,8 +41,12 @@ network joins the data centers to its other members: at IAD for peering
 among them only, at DAL as open, carrying Internet routes too. Tampa's
 Internet circuit has no roles yet (TBD). IAD is in a co-location facility
 whose cross-connects join its two halls. Circuits say what LLDP and CDP
-show on our port, the provider's NTU or nothing, by provider. Everything
-is fictional.
+show on our port, the provider's NTU or nothing, by provider. The data
+center interconnect's E-Lines and the data centers' Internet circuits are
+high priority; five resources gather what the enterprise depends on beyond
+its own networks: the ways out at the TIC gateways, the research network's
+peering, the cloud, the partner's VPN, and the branches' fabrics.
+Everything is fictional.
 """
 
 import random
@@ -64,6 +68,7 @@ from sunstone.model import (
     Link,
     NamedNetwork,
     Neighbors,
+    Resource,
     Role,
     Secured,
     SegmentIds,
@@ -855,7 +860,67 @@ def generate_layers(seed: int) -> Topology:
         tunnels=g.tunnels,
         fabrics=fabrics,
     )
-    return labeled(_cross_connected(with_groups(topology), "IAD"))
+    return _with_resources(labeled(_cross_connected(with_groups(topology), "IAD")))
+
+
+# The data center interconnect, and the ways out at the TIC gateways,
+# support mission essential functions.
+HIGH = (
+    "DAL-IAD-01",
+    "DAL-IAD-02",
+    "DAL-INET-01",
+    "DAL-INET-02",
+    "IAD-INET-01",
+    "IAD-INET-02",
+)
+
+
+def _with_resources(topology: Topology) -> Topology:
+    """Rate the circuits mission essential functions rely on high, and
+    gather what the enterprise depends on beyond its own networks into
+    resources, once every link has its CID."""
+    links = [
+        link.model_copy(update={"priority": "high"})
+        if link.enterprise_cid and link.enterprise_cid.a in HIGH
+        else link
+        for link in topology.links
+    ]
+    resources = [
+        Resource(
+            name="Global Access",
+            description="Ways out to the world at the TIC gateways",
+            tags=["tic"],
+            circuits=[
+                "DAL-INET-01",
+                "DAL-INET-02",
+                "DAL-REN-01",
+                "IAD-INET-01",
+                "IAD-INET-02",
+            ],
+        ),
+        Resource(
+            name="Research Peering",
+            description="Prairie REN's community, at IAD",
+            circuits=["IAD-REN-01"],
+        ),
+        Resource(
+            name="Nimbus Cloud access",
+            description="Directly at IAD, and over the Internet",
+            circuits=["IAD-NIMBUS-01"],
+            resources=["Global Access"],
+        ),
+        Resource(
+            name="Acme Logistics",
+            description="The freight partner's VPN",
+            tunnels=["Acme VPN"],
+        ),
+        Resource(
+            name="Branch VPN",
+            description="Corp's fabrics to the branches",
+            fabrics=["DMVPN-INET", "DMVPN-MPLS"],
+        ),
+    ]
+    return topology.model_copy(update={"links": links, "resources": resources})
 
 
 def _cross_connected(topology: Topology, code: str) -> Topology:

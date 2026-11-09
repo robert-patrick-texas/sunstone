@@ -14,6 +14,7 @@
  * those, and so on.
  */
 import type { Fabric, FabricMember, Link, Tunnel } from './api/topology.ts';
+import { linkByCid, resourceDevices } from './resources.ts';
 import type { LayerSelection } from './state.svelte.ts';
 import { deviceEnds, isDeviceEnd, nodeKey, siteOf, type TopologyIndex } from './topology.ts';
 
@@ -219,8 +220,8 @@ export function beneath(layers: Layers, names: Iterable<string>): Set<string> {
 }
 
 /**
- * What a transport, external node, network, tunnel, fabric, or tenant
- * stands for in the physical network.
+ * What a transport, external node, network, tunnel, fabric, tenant, or
+ * resource stands for in the physical network.
  *
  * @param index - Topology index.
  * @param selection - The selection.
@@ -267,6 +268,17 @@ export function footprint(index: TopologyIndex, selection: LayerSelection): Foot
 		}
 	} else if (selection.kind === 'fabric') {
 		for (const m of index.fabrics.get(id)?.members ?? []) found.devices.add(m.device);
+	} else if (selection.kind === 'resource') {
+		// Its members' devices and its circuits, inner resources' included.
+		for (const d of resourceDevices(index, id)) found.devices.add(d);
+		const resource = index.resources.get(id);
+		for (const cid of resource?.circuits ?? []) {
+			const link = linkByCid(index, cid);
+			if (link) found.links.add(link.id);
+		}
+		for (const inner of resource?.resources ?? []) {
+			for (const l of footprint(index, { kind: 'resource', id: inner }).links) found.links.add(l);
+		}
 	} else {
 		const layers = layersOf(index);
 		for (const n of index.topology.networks) {

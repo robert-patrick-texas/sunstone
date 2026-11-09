@@ -1,6 +1,7 @@
 /**
  * What the NOC wall display shows in turn: an overview of each view, then
- * each problem no one is on yet, most urgent first.
+ * each problem no one is on yet, most urgent first, high priority before
+ * the rest.
  */
 import type { Problem, ProblemKind } from './api/analysis.ts';
 import { KINDS } from './problem-kinds.ts';
@@ -31,7 +32,8 @@ export function unhandled(p: Problem): boolean {
 /**
  * The slides to show in turn.
  *
- * @param problems - Problems, most urgent first, as the server ranks them.
+ * @param problems - Problems, most urgent first, as the server ranks them:
+ *   high priority before the rest.
  * @returns Overviews, then up to {@link MAX_PROBLEM_SLIDES} problems no one is on.
  */
 export function slidesFor(problems: Problem[]): Slide[] {
@@ -51,14 +53,17 @@ export function slidesFor(problems: Problem[]): Slide[] {
  * How many problems no one is on, by kind, for the wall's bar.
  *
  * @param problems - Problems.
- * @returns Kinds with any such problems, most urgent first, and how many are handled.
+ * @returns How many of them are high priority; kinds with any such
+ *   problems, most urgent first; and how many are handled.
  */
 export function tally(problems: Problem[]): {
+	high: number;
 	kinds: { kind: ProblemKind; short: string; count: number }[];
 	handled: number;
 } {
 	const open = problems.filter(unhandled);
 	return {
+		high: open.filter((p) => p.priority === 'high').length,
 		kinds: KINDS.map((k) => ({
 			kind: k.kind,
 			short: k.short,

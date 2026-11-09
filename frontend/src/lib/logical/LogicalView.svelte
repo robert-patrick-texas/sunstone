@@ -3,10 +3,11 @@
 The logical view: the named networks chosen in the header, or every one,
 without geography. Sites are boxes; double-click one to see its devices in
 those networks, and double-click its frame to fold it again. Transports,
-fabrics, and external nodes have places of their own. What the networks
-shown ride is drawn faintly beneath, unless turned off. In live state,
-tunnels spokes have built to each other are drawn too, and come and go
-without moving the view. Finished layouts are kept while the page is open.
+fabrics, and external nodes have places of their own, and so does each
+resource with any member drawn, in its status color in live state. What the
+networks shown ride is drawn faintly beneath, unless turned off. In live
+state, tunnels spokes have built to each other are drawn too, and come and
+go without moving the view. Finished layouts are kept while the page is open.
 -->
 <script module lang="ts">
 	import type { Position } from 'cytoscape';
@@ -25,6 +26,7 @@ without moving the view. Finished layouts are kept while the page is open.
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import type { NodeSingular } from 'cytoscape';
+	import type { StatusReport } from '../api/status.ts';
 	import { GraphCanvas } from '../graph/canvas.ts';
 	import type { Impact } from '../impact.ts';
 	import type { LiveIndex } from '../live.ts';
@@ -34,18 +36,26 @@ without moving the view. Finished layouts are kept while the page is open.
 	import { term } from '../terms.ts';
 	import type { TopologyIndex } from '../topology.ts';
 	import { layoutInWorker, Superseded } from '../topo/worker.ts';
-	import { logicalGraph, type BuiltTunnel, type LogicalGraph } from './graph.ts';
+	import {
+		logicalGraph,
+		type BuiltTunnel,
+		type LogicalGraph,
+		type ResourceState
+	} from './graph.ts';
 
 	const {
 		index,
 		path,
 		impact,
-		live
+		live,
+		status: report
 	}: {
 		index: TopologyIndex;
 		path: PathResult | null;
 		impact: Impact | null;
 		live: LiveIndex | null;
+		/** Every network's and resource's status, while live state is shown. */
+		status: StatusReport | null;
 	} = $props();
 
 	let container: HTMLDivElement;
@@ -69,8 +79,13 @@ without moving the view. Finished layouts are kept while the page is open.
 		)
 	);
 	const built = $derived(JSON.parse(builtKey) as BuiltTunnel[]);
+	// The same for resources: built again only when one's status changes.
+	const statesKey = $derived(
+		JSON.stringify(report?.resources.map((r) => ({ name: r.name, status: r.status })) ?? [])
+	);
+	const states = $derived(JSON.parse(statesKey) as ResourceState[]);
 	const graph: LogicalGraph = $derived(
-		logicalGraph(index, ui.networks, logicalExpanded, logical.under, built)
+		logicalGraph(index, ui.networks, logicalExpanded, logical.under, built, states)
 	);
 	const key = $derived(JSON.stringify([ui.networks, logical.under, [...logicalExpanded].sort()]));
 	const status = $derived.by(() => {

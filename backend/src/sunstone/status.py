@@ -22,6 +22,15 @@ A group is operational, degraded, or offline:
 A named network whose own groups are all operational, but which rides one
 that is degraded at its sites, reads operational with a caveat naming what
 is degraded beneath it.
+
+A cable's or circuit's priority limits rule 1: an ``ignored`` one down
+degrades nothing, and a ``low`` one only its locations and sites. Reach,
+offline, and partitions are the same whatever the priorities.
+
+A resource is operational when all its members are: each circuit up with
+its device reached from the core, each tunnel up with its device reached,
+each fabric's tunnels all up, and each resource inside it operational. It
+is offline when none of them can be used, and degraded otherwise.
 """
 
 from collections import defaultdict
@@ -32,13 +41,21 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from sunstone.layers import Edge, Layers, reach_edges
+from sunstone.layers import Edge, Layers, fabric_tunnel_id, fabric_tunnels, reach_edges
 from sunstone.live import TunnelState
-from sunstone.model import Topology
+from sunstone.model import (
+    Resource,
+    Topology,
+    TunnelEnd,
+    circuits_by_cid,
+    device_ends,
+    ratings,
+)
 from sunstone.problems import LiveView, link_name
 
 Status = Literal["operational", "degraded", "offline"]
 GroupKind = Literal["network", "region", "site", "location"]
+MemberKind = Literal["circuit", "tunnel", "fabric", "resource"]
 ROOT = "network"
 MAX_REASONS = 6
 
@@ -76,12 +93,37 @@ class NetworkStatus(_Record):
     tunnels_down: list[str]
 
 
+class MemberStatus(_Record):
+    """One of a resource's members, and whether it can be used."""
+
+    kind: MemberKind
+    name: str
+    """A circuit's CID, or a tunnel's, fabric's, or resource's name."""
+    status: Status
+    reason: str | None = None
+    """Why it is not operational: ``down``, ``cut off``, ``degraded``,
+    ``offline``, or what is down (``iad-wan-01 down``, ``3 of 20 tunnels
+    down``)."""
+    link: str | None = None
+    """For a circuit, its link's id."""
+
+
+class ResourceStatus(_Record):
+    """A resource's status, from its members'."""
+
+    name: str
+    status: Status
+    reasons: list[str]
+    members: list[MemberStatus]
+
+
 class StatusReport(_Record):
     """Every network's status at a moment."""
 
     at: datetime
     whole: NetworkStatus
     networks: list[NetworkStatus]
+    resources: list[ResourceStatus] = []
 
 
 @dataclass
@@ -125,6 +167,7 @@ class Statuses:
         self.cores = {d.name for d in topology.devices if d.role == "core"}
         core_sites = {self.site_of[d] for d in self.cores}
         self.links = {link.id: link for link in topology.links}
+        self.priority = {i: r.priority for i, r in ratings(topology).items()}
         self.whole_tree = self._tree(None)
         self.trees = {n.name: self._tree(n.name) for n in topology.networks}
         self.anchors: dict[str, set[str]] = {}
@@ -218,7 +261,39 @@ class Statuses:
         whole = self._status(
             None, self.whole_tree, set(self.site_of), whole_edges, down, cut, self.cores
         )
-        return StatusReport(at=at, whole=whole, networks=self.named(down, cut, states))
+        return StatusReport(
+            at=at,
+            whole=whole,
+            networks=self.named(down, cut, states),
+            resources=self.resources(down, cut, states),
+        )
+
+    def resources(
+        self, down: set[str], cut: set[str], tunnels: Iterable[TunnelState]
+    ) -> list[ResourceStatus]:
+        """Each resource's status, given what is down.
+
+        Args:
+            down: Devices down.
+            cut: Links down, by id.
+            tunnels: The tunnels' states; a tunnel left out is taken to be up.
+
+        Returns:
+            Each resource's status, in the topology's order.
+
+        Raises:
+            None
+        """
+        if not self.topology.resources:
+            return []
+        gone = {t.tunnel for t in tunnels if t.status == "down"}
+        edges = reach_edges(self.topology.links, self.layers.hops)
+        live = [
+            e for e in edges if e.id not in cut and e.a not in down and e.b not in down
+        ]
+        reached = _reach(live, self.cores - down, set(self.site_of) - down)
+        judge = _Members(self.topology, down, cut, gone, reached)
+        return [judge.resource(r.name) for r in self.topology.resources]
 
     def named(
         self, down: set[str], cut: set[str], tunnels: Iterable[TunnelState]
@@ -323,11 +398,17 @@ class Statuses:
         for e in edges:
             if e.id not in cut:
                 continue
+            # A cable's or circuit's priority limits how far it climbs.
+            priority = self.priority.get(e.id, "medium")
+            if priority == "ignored":
+                continue
             ends = [tree.up(group_of(e.a)), tree.up(group_of(e.b))]
             owner = next(g for g in ends[0] if g in ends[1])
             what = self._name(e)
             for chain in ends:
                 for g in chain[: chain.index(owner) + 1]:
+                    if priority == "low" and _kind(g) not in ("site", "location"):
+                        break
                     if what not in reasons[g]:
                         reasons[g].append(what)
         # Rule 2: groups no anchor reaches are offline; those above, degraded.
@@ -420,6 +501,132 @@ class Statuses:
         return f"{edge.id} down"
 
 
+class _Members:
+    """Works out whether each resource's members can be used, given what
+    is down."""
+
+    def __init__(
+        self,
+        topology: Topology,
+        down: set[str],
+        cut: set[str],
+        gone: set[str],
+        reached: set[str],
+    ) -> None:
+        self.down = down
+        self.cut = cut
+        self.gone = gone
+        self.reached = reached
+        self.by_cid = circuits_by_cid(topology.links)
+        self.tunnels = {t.name: t for t in topology.tunnels}
+        self.fabrics = {f.name: f for f in topology.fabrics}
+        self.defined: dict[str, Resource] = {r.name: r for r in topology.resources}
+        self.done: dict[str, ResourceStatus] = {}
+
+    def _ends(self, devices: list[str]) -> tuple[Status, str | None]:
+        """Whether a connection up between some devices can be used."""
+        for d in devices:
+            if d in self.down:
+                return "offline", f"{d} down"
+        if not any(d in self.reached for d in devices):
+            return "offline", "cut off"
+        return "operational", None
+
+    def circuit(self, cid: str) -> MemberStatus:
+        """A circuit by its CID: usable while up and its device is reached."""
+        link = self.by_cid[cid][0]
+        if link.id in self.cut:
+            status: Status = "offline"
+            reason: str | None = "down"
+        else:
+            status, reason = self._ends([e.device for e in device_ends(link)])
+        return MemberStatus(
+            kind="circuit", name=cid, status=status, reason=reason, link=link.id
+        )
+
+    def tunnel(self, name: str) -> MemberStatus:
+        """A tunnel: usable while up and its device is reached."""
+        t = self.tunnels[name]
+        if name in self.gone:
+            return MemberStatus(
+                kind="tunnel", name=name, status="offline", reason="down"
+            )
+        ends = [t.a.device] + ([t.b.device] if isinstance(t.b, TunnelEnd) else [])
+        status, reason = self._ends(ends)
+        return MemberStatus(kind="tunnel", name=name, status=status, reason=reason)
+
+    def fabric(self, name: str) -> MemberStatus:
+        """A fabric: operational with all its tunnels up, offline with none,
+        and degraded in between; a group (no tunnels) by its members."""
+        f = self.fabrics[name]
+        pairs = fabric_tunnels(f)
+        if pairs:
+            usable = sum(
+                1
+                for a, b in pairs
+                if fabric_tunnel_id(f, a, b) not in self.gone
+                and self._ends([a.device, b.device])[0] == "operational"
+            )
+            total, what = len(pairs), "tunnels"
+        else:
+            usable = sum(
+                1 for m in f.members if self._ends([m.device])[0] == "operational"
+            )
+            total, what = len(f.members), "members"
+        lost = total - usable
+        if not lost:
+            return MemberStatus(kind="fabric", name=name, status="operational")
+        status: Status = "offline" if not usable else "degraded"
+        reason = (
+            f"all {total} {what} down"
+            if not usable
+            else f"{lost} of {total} {what} down"
+        )
+        return MemberStatus(kind="fabric", name=name, status=status, reason=reason)
+
+    def resource(self, name: str) -> ResourceStatus:
+        """A resource's status, from its members', inner resources first."""
+        found = self.done.get(name)
+        if found is not None:
+            return found
+        r = self.defined[name]
+        members = [
+            *(self.circuit(c) for c in r.circuits),
+            *(self.tunnel(t) for t in r.tunnels),
+            *(self.fabric(f) for f in r.fabrics),
+            *(self._inner(x) for x in r.resources),
+        ]
+        usable = [m for m in members if m.status != "offline"]
+        status: Status = (
+            "operational"
+            if all(m.status == "operational" for m in members)
+            else "offline"
+            if not usable
+            else "degraded"
+        )
+        reasons = [_member_reason(m) for m in members if m.status != "operational"]
+        found = self.done[name] = ResourceStatus(
+            name=name, status=status, reasons=_short(reasons), members=members
+        )
+        return found
+
+    def _inner(self, name: str) -> MemberStatus:
+        inner = self.resource(name)
+        reason = None if inner.status == "operational" else inner.status
+        return MemberStatus(
+            kind="resource", name=name, status=inner.status, reason=reason
+        )
+
+
+def _member_reason(member: MemberStatus) -> str:
+    """Why a resource is not operational, for one of its members:
+    ``DAL-REN-01 down``, ``IAD-INET-01: iad-wan-01 down``."""
+    reason = member.reason or member.status
+    if reason in ("down", "cut off", "degraded", "offline"):
+        return f"{member.name} {reason}"
+    return f"{member.name}: {reason}"
+
+
 def _reach(edges: list[Edge], start: set[str], members: set[str]) -> set[str]:
     """Members reached from the anchors; without anchors up, the largest
     group of members that reach each other."""
@@ -448,6 +655,21 @@ def _reach(edges: list[Edge], start: set[str], members: set[str]) -> set[str]:
         if len(part & members) > len(best):
             best = part & members
     return best
+
+
+def resources_needing(report: StatusReport) -> list[ResourceStatus]:
+    """The resources that need someone: degraded or offline.
+
+    Args:
+        report: Every network's and resource's status.
+
+    Returns:
+        Those resources, offline first, in the topology's order.
+    """
+    return sorted(
+        (r for r in report.resources if r.status != "operational"),
+        key=lambda r: r.status != "offline",
+    )
 
 
 def needing(report: StatusReport) -> list[NetworkStatus]:

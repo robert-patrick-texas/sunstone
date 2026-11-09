@@ -45,7 +45,7 @@ from sunstone.layouts import DeviceCenter, LinksCenter, SiteCenter
 from sunstone.live import TunnelState
 from sunstone.model import device_ends
 from sunstone.problems import Problem
-from sunstone.status import NetworkStatus, Status, Statuses
+from sunstone.status import NetworkStatus, ResourceStatus, Status, Statuses
 
 # Most shared risks listed for one network.
 MAX_RISKS = 40
@@ -80,11 +80,22 @@ class NetworkImpact(_Record):
     """Its sites reached before, and not with the failures."""
 
 
+class ResourceImpact(_Record):
+    """What some failures do to one resource."""
+
+    name: str
+    before: Status
+    after: ResourceStatus
+    """Its status with the failures, with why."""
+
+
 class LayeredWhatIf(WhatIf):
     """What failing some items would do, physically and to each network."""
 
     networks: list[NetworkImpact]
     """The whole and each named network the failures change, bottom up."""
+    resources: list[ResourceImpact] = []
+    """Each resource whose status or reasons the failures change."""
 
 
 class RiskItem(_Record):
@@ -163,6 +174,7 @@ class _State:
     up: dict[str, bool]
     whole: NetworkStatus | None
     networks: list[NetworkStatus]
+    resources: list[ResourceStatus]
 
 
 class Across:
@@ -267,7 +279,12 @@ class Across:
                     _keep(self._baselines, key, base, KEPT_MOMENTS)
         after = self._state(when, was | failures, failing, built, dynamic)
         networks = self._compare(base, after, dynamic)
-        return LayeredWhatIf(**dict(physical), networks=networks)
+        resources = [
+            ResourceImpact(name=a.name, before=b.status, after=a)
+            for b, a in zip(base.resources, after.resources, strict=True)
+            if (b.status, b.reasons) != (a.status, a.reasons)
+        ]
+        return LayeredWhatIf(**dict(physical), networks=networks, resources=resources)
 
     def fixing(
         self,
@@ -393,8 +410,8 @@ class Across:
         down, cut = set(failures.devices), set(failures.links)
         if whole:
             report = self.statuses.of(at, down, cut, tunnels)
-            return _State(failures, up, report.whole, report.networks)
-        return _State(failures, up, None, self.statuses.named(down, cut, tunnels))
+            return _State(failures, up, report.whole, report.networks, report.resources)
+        return _State(failures, up, None, self.statuses.named(down, cut, tunnels), [])
 
     def _compare(
         self, before: _State, after: _State, dynamic: dict[str, str]

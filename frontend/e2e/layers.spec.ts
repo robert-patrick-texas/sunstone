@@ -220,8 +220,11 @@ test('problems follow the networks chosen, by kind or by region', async ({ page 
 		'aria-pressed',
 		'true'
 	);
-	// Grey's own regions; every problem is listed under one, or counted as elsewhere.
-	const regions = panel.getByRole('heading', { name: /^(grey-west|grey-east|No region) \(\d+\)$/ });
+	// Grey's own regions, after any high-priority problems on their own; every
+	// problem is listed under one, or counted as elsewhere.
+	const regions = panel.getByRole('heading', {
+		name: /^(High priority|grey-west|grey-east|No region) \(\d+\)$/
+	});
 	await expect(regions.first()).toBeVisible();
 	const listed = (await regions.allTextContents()).reduce(
 		(n, h) => n + Number(/\((\d+)\)$/.exec(h)?.[1]),
@@ -447,4 +450,66 @@ test('discovery finds E-Tree leaves that see each other, and a tunnel on another
 	await expect(heading(page)).toHaveText('BLUE-HOU-IAD');
 	await expect(details(page).getByText('Not as documented')).toBeVisible();
 	await expect(details(page).getByText(/sees iad-blu-01 Tunnel112 over CDP/)).toBeVisible();
+});
+
+test('a resource lists its members, and a circuit its priority and resources', async ({ page }) => {
+	await searchFor(page, 'Global Access');
+	await expect(heading(page)).toHaveText('Global Access');
+	await expect(details(page).getByText('Ways out to the world at the TIC gateways')).toBeVisible();
+	await expect(details(page).getByRole('heading', { name: 'Members (5)' })).toBeVisible();
+	// A resource inside another says what it is part of.
+	await page.goto('/?select=resource:Nimbus%20Cloud%20access');
+	await expect(details(page).getByRole('button', { name: 'Global Access' })).toBeVisible();
+	await details(page).getByRole('button', { name: 'Global Access' }).click();
+	await expect(heading(page)).toHaveText('Global Access');
+	// A member circuit: the enterprise's to answer for, at the default for its role.
+	await details(page).getByRole('button', { name: 'DAL-REN-01' }).click();
+	await expect(heading(page)).toHaveText('Link');
+	await expect(details(page).getByText('Medium · open, by default')).toBeVisible();
+	await expect(details(page).getByRole('button', { name: 'Global Access' })).toBeVisible();
+});
+
+test("high is the admins' to set; access is low, its tenant's first", async ({ page }) => {
+	await searchFor(page, 'DAL-IAD-01');
+	await expect(heading(page)).toHaveText('Link');
+	await expect(details(page).getByText('High · set on the link')).toBeVisible();
+	await searchFor(page, 'DAL-C0022');
+	await expect(heading(page)).toHaveText('Link');
+	await expect(details(page).getByText('Low · access, by default')).toBeVisible();
+	await expect(details(page).getByText('Alpha (tenant)')).toBeVisible();
+});
+
+test('resources not operational are listed with the networks in Problems', async ({ page }) => {
+	const { at, found } = await momentWith(
+		page,
+		(at) => `/api/status?at=${encodeURIComponent(at)}`,
+		(answer: { resources: { name: string; status: string }[] }) =>
+			answer.resources.find((r) => r.status !== 'operational')?.name
+	);
+	await page.goto(`/?live=1&at=${encodeURIComponent(at)}`);
+	const panel = page.getByRole('region', { name: 'Problems' });
+	await expect(panel.getByRole('heading', { name: /^Resources \(\d+\)$/ })).toBeVisible();
+	await panel.getByRole('button', { name: new RegExp(`^\\W*${found} (degraded|offline)`) }).click();
+	await expect(heading(page)).toHaveText(found);
+	await expect(
+		details(page)
+			.getByText(/^(Degraded|Offline)$/)
+			.first()
+	).toBeVisible();
+});
+
+test('high-priority problems come first, marked High', async ({ page }) => {
+	const { at, found } = await momentWith(
+		page,
+		(at) => `/api/problems?at=${encodeURIComponent(at)}`,
+		(answer: { problems: { title: string; priority: string }[] }) =>
+			answer.problems.find((p) => p.priority === 'high')?.title
+	);
+	await page.goto(`/?live=1&at=${encodeURIComponent(at)}`);
+	const panel = page.getByRole('region', { name: 'Problems' });
+	// After the networks and resources not as they should be, the problems.
+	const first = panel.getByRole('heading', { name: /^(?!Networks |Resources ).*\(\d+\)$/ }).first();
+	await expect(first).toHaveText(/^High priority \(\d+\)$/);
+	const problem = panel.getByRole('button', { name: found }).first();
+	await expect(problem.getByText('High', { exact: true })).toBeVisible();
 });

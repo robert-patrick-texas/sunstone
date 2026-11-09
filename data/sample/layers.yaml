@@ -225,6 +225,7 @@ links:
   enterprise_cid: DAL-INET-01
   edges: [transit, egress, ingress]
   neighbors: provider
+  priority: high
 - a: {device: dal-wan-01, interface: GigabitEthernet0/0/1}
   b: {transport: INET}
   speed_mbps: 500
@@ -234,6 +235,7 @@ links:
   enterprise_cid: DAL-INET-02
   edges: [transit, egress, ingress]
   neighbors: provider
+  priority: high
 - a: {device: dal-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 200
@@ -373,6 +375,7 @@ links:
   enterprise_cid: IAD-INET-01
   edges: [transit, egress, ingress]
   neighbors: nothing
+  priority: high
 - a: {device: iad-wan-01, interface: GigabitEthernet0/0/1}
   b: {transport: INET}
   speed_mbps: 1000
@@ -382,6 +385,7 @@ links:
   enterprise_cid: IAD-INET-02
   edges: [transit, egress, ingress]
   neighbors: provider
+  priority: high
 - a: {device: iad-wan-02, interface: GigabitEthernet0/0/0}
   b: {transport: Mesa MPLS}
   speed_mbps: 200
@@ -431,6 +435,7 @@ links:
   medium: fiber
   enterprise_cid: DAL-IAD-01
   neighbors: far-end
+  priority: high
 - a: {device: dal-wan-02, interface: HundredGigE1/0/1, lag: Port-channel1}
   b: {device: iad-wan-02, interface: HundredGigE1/0/1, lag: Port-channel1}
   speed_mbps: 100000
@@ -441,6 +446,7 @@ links:
   medium: fiber
   enterprise_cid: DAL-IAD-02
   neighbors: far-end
+  priority: high
 - a: {device: aus-wan-01, interface: GigabitEthernet0/0/0}
   b: {transport: INET}
   speed_mbps: 500
@@ -1840,3 +1846,21 @@ lags:
 - a: {device: aus-wan-01, interface: Port-channel10}
   b: {device: sat-wan-02, interface: Port-channel10}
   enterprise_cid: AUS-SAT-PO01
+resources:
+- name: Global Access
+  description: Ways out to the world at the TIC gateways
+  tags: [tic]
+  circuits: [DAL-INET-01, DAL-INET-02, DAL-REN-01, IAD-INET-01, IAD-INET-02]
+- name: Research Peering
+  description: Prairie REN's community, at IAD
+  circuits: [IAD-REN-01]
+- name: Nimbus Cloud access
+  description: Directly at IAD, and over the Internet
+  circuits: [IAD-NIMBUS-01]
+  resources: [Global Access]
+- name: Acme Logistics
+  description: The freight partner's VPN
+  tunnels: [Acme VPN]
+- name: Branch VPN
+  description: Corp's fabrics to the branches
+  fabrics: [DMVPN-INET, DMVPN-MPLS]

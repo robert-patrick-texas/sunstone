@@ -24,6 +24,7 @@ from sunstone.model import (
     Link,
     Topology,
     device_ends,
+    ratings,
     transport_hops,
 )
 
@@ -99,6 +100,8 @@ class Network:
         self.number = {name: i for i, name in enumerate(self.names)}
         self.cores = [i for i, d in enumerate(topology.devices) if d.role == "core"]
         self.links = {link.id: link for link in topology.links}
+        self.ratings = ratings(topology)
+        self.high = {d.name for d in topology.devices if d.priority == "high"}
         self.site_of = {d.name: d.site for d in topology.devices}
         self.devices_of: dict[str, list[str]] = {s.code: [] for s in topology.sites}
         for d in topology.devices:

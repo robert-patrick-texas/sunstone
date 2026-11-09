@@ -242,6 +242,28 @@ const STYLE: StylesheetJson = [
 			'text-wrap': 'wrap'
 		}
 	},
+	// Resources: small solid hexagons, named under them, in their status
+	// colors with live state; dotted edges to their members.
+	{
+		selector: 'node[kind = "resource"]',
+		style: {
+			shape: 'hexagon',
+			width: 'data(w)',
+			height: 'data(h)',
+			'background-color': 'data(tint)',
+			'border-color': COLOR.background,
+			'border-width': 1.5,
+			label: 'data(label)',
+			color: COLOR.text,
+			'font-size': 11,
+			'text-valign': 'bottom',
+			'text-margin-y': 4
+		}
+	},
+	{
+		selector: 'edge[kind = "member"]',
+		style: { 'line-style': 'dotted', 'line-color': COLOR.muted, opacity: 0.6, width: 1.2 }
+	},
 	{
 		selector: 'edge.context',
 		style: { opacity: 1, 'z-index': 5, 'font-size': 8, color: COLOR.text }
@@ -404,13 +426,15 @@ export class GraphCanvas {
 			const { kind, id, site, device } = e.target.data();
 			// Something only discovery sees selects the device it hangs off.
 			if (kind === 'ghost') select({ kind: 'device', id: device });
-			else if (kind === 'transport' || kind === 'external' || kind === 'fabric') {
+			else if (['transport', 'external', 'fabric', 'resource'].includes(kind)) {
 				select({ kind, id: id.slice(kind.length + 1) });
 			} else select(kind === 'device' ? { kind: 'device', id } : { kind: 'site', id: site });
 		});
 		this.core.on('tap', 'edge', (e) => {
 			const { kind, linkIds, device, tunnels, fabric, network, source } = e.target.data();
 			if (kind === 'ghost') select({ kind: 'device', id: device });
+			else if (kind === 'member')
+				select({ kind: 'resource', id: source.slice('resource:'.length) });
 			else if (kind === 'fabric' || fabric) select({ kind: 'fabric', id: fabric });
 			else if (kind === 'tunnel') {
 				select(
@@ -545,6 +569,13 @@ export class GraphCanvas {
 				if (own) edgeIds.add(e.id());
 			}
 			if (kind === 'fabric') where.nodes.add(`fabric:${id}`);
+			if (kind === 'resource') {
+				const node = `resource:${id}`;
+				where.nodes.add(node);
+				for (const e of core.edges('[kind = "member"]')) {
+					if (e.data('source') === node) edgeIds.add(e.id());
+				}
+			}
 			const beyond = [...where.nodes].reduce(
 				(all, key) => all.union(core.getElementById(key)),
 				core.edges().filter((e) => edgeIds.has(e.id()))
@@ -612,13 +643,15 @@ export class GraphCanvas {
 	}
 
 	/**
-	 * Move transports, fabrics, and external nodes off anything a layout put
-	 * them on. A transport joins the sites whose circuits go into it, so a
-	 * force-directed layout puts it in their middle, often on the hubs or on
-	 * a fabric over it joining the same sites.
+	 * Move transports, fabrics, external nodes, and resources off anything a
+	 * layout put them on. A transport joins the sites whose circuits go into
+	 * it, so a force-directed layout puts it in their middle, often on the
+	 * hubs or on a fabric over it joining the same sites.
 	 */
 	separateBeyond(): void {
-		const beyond = this.core.nodes('[kind = "transport"], [kind = "fabric"], [kind = "external"]');
+		const beyond = this.core.nodes(
+			'[kind = "transport"], [kind = "fabric"], [kind = "external"], [kind = "resource"]'
+		);
 		const others = this.core
 			.nodes('[kind != "frame"][kind != "ring"]')
 			.difference(beyond)
@@ -678,6 +711,8 @@ export class GraphCanvas {
 				n.addClass(`live live-${health}`);
 			});
 			core.edges().forEach((e) => {
+				// A resource's edges to its members stay as they are: its node shows its status.
+				if (e.data('kind') === 'member') return;
 				// Tunnels by their own health, still dashed; a fabric member's way in
 				// by the tunnels it ends; one the source does not report is neutral.
 				if (['tunnel', 'fabric', 'reach'].includes(e.data('kind'))) {

@@ -6,13 +6,15 @@ times from each monitoring position, and load on each link. Above it, the
 shortest paths between two devices when a path is shown, hop by hop with
 interfaces; or the impact being shown, of a problem or of "what if"
 failures, with what the failures do to each named network they reach (for
-a problem, what fixing it would bring back). With live state, charts of the
+a problem, what fixing it would bring back) and to each resource. A
+device's priority, and each member's of a port channel, say how urgent its
+cables and circuits are. With live state, charts of the
 last day: round trip to a device, load on each of its links, and load on a
 selected link; clicking a chart replays that moment. Names in the panel are
 links that select and bring that item into view.
 -->
 <script lang="ts">
-	import { lineDetail, networkLine } from './across.ts';
+	import { lineDetail, networkLine, resourceLine, type ResourceImpact } from './across.ts';
 	import type { NetworkImpact, Problem } from './api/analysis.ts';
 	import type { RiskReport } from './api/risks.ts';
 	import type { Change } from './api/changes.ts';
@@ -60,6 +62,7 @@ links that select and bring that item into view.
 	import DiscoveryFor from './DiscoveryFor.svelte';
 	import ConnectionFacts from './ConnectionFacts.svelte';
 	import { cidOf, lagMembers, lagOf, sidesText } from './connections.ts';
+	import { linkRating, PRIORITY_LABEL, ratingText } from './priorities.ts';
 	import OnCallFor from './OnCallFor.svelte';
 	import Routing from './Routing.svelte';
 	import Spark from './Spark.svelte';
@@ -87,6 +90,7 @@ links that select and bring that item into view.
 		impact,
 		problem,
 		whatIfNetworks = [],
+		whatIfResources = [],
 		whatIfProblem,
 		risks = null,
 		windows,
@@ -105,6 +109,8 @@ links that select and bring that item into view.
 		problem: Problem | null;
 		/** What the "what if" failures do to the whole network and each named network. */
 		whatIfNetworks?: NetworkImpact[];
+		/** Each resource whose status or reasons the "what if" failures change. */
+		whatIfResources?: ResourceImpact[];
 		/** Why the "what if" impact could not be worked out, if it could not. */
 		whatIfProblem: string | null;
 		/** Each named network's shared risks. */
@@ -445,6 +451,21 @@ links that select and bring that item into view.
 	{/if}
 {/snippet}
 
+{#snippet acrossResources(resources: ResourceImpact[])}
+	<h3>Resources ({resources.length})</h3>
+	<table class="across">
+		<tbody>
+			{#each resources.map(resourceLine) as l (l.name)}
+				<tr onclick={() => select({ kind: 'resource', id: l.name }, true)}>
+					<td class="nowrap">{l.name}</td>
+					<td class="nowrap" style:color={STATUS_COLOR[l.after]}>{l.status}</td>
+					<td class="muted">{l.detail}</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+{/snippet}
+
 {#snippet planButton(item: Selection)}
 	<button onclick={() => planMaintenance([$state.snapshot(item)])}>Plan maintenance…</button>
 {/snippet}
@@ -727,6 +748,9 @@ links that select and bring that item into view.
 				{:else if !ui.whatIf.length && problem?.networks.length}
 					{@render acrossNetworks(problem.networks, true)}
 				{/if}
+				{#if ui.whatIf.length && whatIfResources.length}
+					{@render acrossResources(whatIfResources)}
+				{/if}
 			</section>
 		{/if}
 
@@ -797,6 +821,15 @@ links that select and bring that item into view.
 								<dd>{device.platform}</dd>{/if}
 							{#if device.mgmt_ip}<dt>Management</dt>
 								<dd class="mono">{device.mgmt_ip}</dd>{/if}
+							{#if device.priority}<dt>Priority</dt>
+								<dd>
+									{PRIORITY_LABEL[device.priority]}
+									<span class="muted"
+										>· for its cables and circuits without their own{device.priority === 'high'
+											? ', and its own problems first'
+											: ''}</span
+									>
+								</dd>{/if}
 						</dl>
 						<p class="actions">
 							<button onclick={() => showNeighborhood({ kind: 'device', id: device.name })}>
@@ -1025,13 +1058,17 @@ links that select and bring that item into view.
 								<dd class="mono">{sidesText(channel.circuit.circuit_id)}</dd>{/if}
 						</dl>
 						<table class="members">
-							<thead><tr><th>Member</th><th>CID</th><th>Carrier CID</th></tr></thead>
+							<thead
+								><tr><th>Member</th><th>CID</th><th>Carrier CID</th><th>Priority</th></tr></thead
+							>
 							<tbody>
 								{#each members as m (m.id)}
+									{@const rating = linkRating(index.topology, m)}
 									<tr onclick={() => select({ kind: 'links', ids: [m.id] }, true)}>
 										<td class="mono">{shortInterface(m.a.interface)}</td>
 										<td class="mono">{m.enterprise_cid ? sidesText(m.enterprise_cid) : ''}</td>
 										<td class="mono">{m.circuit ? sidesText(m.circuit.circuit_id) : ''}</td>
+										<td title={ratingText(rating)}>{PRIORITY_LABEL[rating.priority]}</td>
 									</tr>
 								{/each}
 							</tbody>

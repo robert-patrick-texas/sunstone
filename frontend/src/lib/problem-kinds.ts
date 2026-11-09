@@ -1,7 +1,8 @@
 /**
  * How each kind of problem is headed and marked, wherever problems are
  * listed: the side panel and the wall display; and the order the side panel
- * lists them in, by kind or by region, for the networks chosen.
+ * lists them in, high priority first, then by kind or by region, for the
+ * networks chosen.
  */
 import type { Problem, ProblemKind } from './api/analysis.ts';
 import { CRITICAL_PCT, HIGH_PCT } from './live.ts';
@@ -92,9 +93,10 @@ export function inScope(index: TopologyIndex, scope: Scope, problem: Problem): b
 }
 
 /**
- * Problems as the side panel lists them: by kind, most urgent first, or by
- * region in the order the regions are listed; within each, problems someone
- * is on and then planned ones after the rest.
+ * Problems as the side panel lists them: high priority first, on their own;
+ * then the rest by kind, most urgent first, or by region in the order the
+ * regions are listed; within each, problems someone is on and then planned
+ * ones after the rest.
  *
  * @param problems - Problems, most urgent first, as the server ranks them.
  * @param view - Which to keep and how to group them; without it, every
@@ -105,24 +107,34 @@ export function grouped(problems: Problem[], view?: ProblemView): ProblemGroup[]
 	const kept = view ? problems.filter((p) => inScope(view.index, view.scope, p)) : problems;
 	// Sorting is stable, so the server's order holds within each.
 	const sorted = (items: Problem[]) => items.sort((x, y) => handling(x) - handling(y));
+	const high: ProblemGroup = {
+		key: 'high-priority',
+		label: 'High priority',
+		items: sorted(kept.filter((p) => p.priority === 'high'))
+	};
+	const rest = kept.filter((p) => p.priority !== 'high');
 	if (view?.by === 'region') {
 		const { index, scope } = view;
-		const regionOf = new Map(kept.map((p) => [p.id, scope.regionOf(problemSite(index, p))]));
+		const regionOf = new Map(rest.map((p) => [p.id, scope.regionOf(problemSite(index, p))]));
 		const names = scope.regions.map((r) => r.name);
 		if (!names.includes(NO_REGION)) names.push(NO_REGION);
-		return names
-			.map((name) => ({
+		return [
+			high,
+			...names.map((name) => ({
 				key: name,
 				label: name,
-				items: sorted(kept.filter((p) => regionOf.get(p.id) === name))
+				items: sorted(rest.filter((p) => regionOf.get(p.id) === name))
 			}))
-			.filter((g) => g.items.length > 0);
+		].filter((g) => g.items.length > 0);
 	}
-	return KINDS.map((k) => ({
-		key: k.kind,
-		label: k.label,
-		items: sorted(kept.filter((p) => p.kind === k.kind))
-	})).filter((g) => g.items.length > 0);
+	return [
+		high,
+		...KINDS.map((k) => ({
+			key: k.kind,
+			label: k.label,
+			items: sorted(rest.filter((p) => p.kind === k.kind))
+		}))
+	].filter((g) => g.items.length > 0);
 }
 
 /**

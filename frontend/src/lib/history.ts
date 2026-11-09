@@ -8,10 +8,12 @@
  * are listed as one row.
  *
  * Each row keeps what changed, so the list can follow the networks chosen
- * and a region: see {@link rowSites}.
+ * and a region: see {@link rowSites}. Cables and circuits rated ignored
+ * (access ports users come and go on) going down and up are left out.
  */
 import type { DeviceHistory, StateEvent } from './api/state.ts';
 import type { Link } from './api/topology.ts';
+import { linkRating } from './priorities.ts';
 import type { AnySelection } from './state.svelte.ts';
 import { deviceEnds, isDeviceEnd, linkName, siteOf, type TopologyIndex } from './topology.ts';
 
@@ -82,7 +84,8 @@ export interface EventRow {
 
 /**
  * Turn events into rows, newest first, grouping devices at one site that
- * change the same way at the same step.
+ * change the same way at the same step, and leaving out ignored links going
+ * down and up.
  *
  * @param index - Topology index.
  * @param events - Events, oldest first, as the API returns them.
@@ -131,6 +134,8 @@ export function eventRows(
 		}
 		const link = e.link ? index.links.get(e.link) : undefined;
 		if (!link) continue;
+		const downUp = e.kind === 'link-down' || e.kind === 'link-up';
+		if (downUp && linkRating(index.topology, link).priority === 'ignored') continue;
 		rows.push({
 			at: e.at,
 			kind: e.kind,
@@ -264,15 +269,23 @@ function linkTitle(link: Link, e: StateEvent): string {
 /**
  * How much went down at each step, for marking the timeline: devices and
  * links, so that a branch losing every device stands out from one switch.
+ * Cables and circuits rated ignored are left out, as Events leaves them.
  *
  * @param events - Events.
  * @param start - Time of step 0, in milliseconds.
+ * @param index - Topology index, for each link's priority.
  * @returns Devices and links that went down, by step index; quiet steps are absent.
  */
-export function downsBySteps(events: StateEvent[], start: number): Map<number, number> {
+export function downsBySteps(
+	events: StateEvent[],
+	start: number,
+	index: TopologyIndex | null = null
+): Map<number, number> {
 	const steps = new Map<number, number>();
 	for (const e of events) {
 		if (e.kind !== 'down' && e.kind !== 'link-down') continue;
+		const link = e.link && index ? index.links.get(e.link) : undefined;
+		if (link && index && linkRating(index.topology, link).priority === 'ignored') continue;
 		const step = Math.round((Date.parse(e.at) - start) / STEP_MS);
 		steps.set(step, (steps.get(step) ?? 0) + 1);
 	}

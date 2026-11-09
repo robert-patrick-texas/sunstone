@@ -118,7 +118,7 @@ from sunstone.operations import (
 )
 from sunstone.problems import Ack, AckIn, Problem
 from sunstone.simulate import SimulatedState, monitored
-from sunstone.status import StatusReport, needing
+from sunstone.status import StatusReport, needing, resources_needing
 
 NameParam = Annotated[str, PathParam(min_length=1, max_length=MAX_NAME)]
 HANDOVER_GRACE = timedelta(minutes=1)
@@ -543,6 +543,7 @@ def create_app(
             notes=[n for n in operations.notes() if start <= n.at < until],
             problems=problems,
             networks=needing(d.monitor.moment(when).status),
+            resources=resources_needing(d.monitor.moment(when).status),
             incidents=[
                 line
                 for i in incidents.incidents()

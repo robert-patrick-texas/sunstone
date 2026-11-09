@@ -19,6 +19,8 @@ export type Problem = Omit<Schemas['RoutedProblem'], 'impact'> & { impact: Impac
 
 /** What some failures do to the whole network, or to one named network. */
 export type NetworkImpact = Schemas['NetworkImpact'];
+/** What some failures do to one resource. */
+export type ResourceImpact = Schemas['ResourceImpact'];
 
 export interface WhatIf {
 	impact: Impact;
@@ -26,6 +28,8 @@ export interface WhatIf {
 	already: boolean;
 	/** The whole and each named network the failures change, bottom up. */
 	networks: NetworkImpact[];
+	/** Each resource whose status or reasons the failures change. */
+	resources: ResourceImpact[];
 }
 
 function toImpact(api: ApiImpact, tunnels: string[] = []): Impact {
@@ -75,6 +79,7 @@ export async function fetchWhatIf(failures: Failure[], at: string | null): Promi
 	return {
 		impact: toImpact(answer.impact, lost),
 		already: answer.already,
-		networks: answer.networks
+		networks: answer.networks,
+		resources: answer.resources
 	};
 }

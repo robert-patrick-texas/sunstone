@@ -38,11 +38,11 @@ from sunstone.changes import Change
 from sunstone.discovery import Finding
 from sunstone.layouts import Center, DeviceCenter, LinksCenter, SiteCenter
 from sunstone.live import StateEvent
-from sunstone.model import Topology, device_ends
+from sunstone.model import Topology, device_ends, ratings
 from sunstone.oncall import HandoverTimes, OnCall, Page, RoutedProblem
 from sunstone.operations import ShiftNote, Window
 from sunstone.problems import Ack, Note, PersonName, link_name, natural
-from sunstone.status import NetworkStatus
+from sunstone.status import NetworkStatus, ResourceStatus
 
 # Saved handovers kept: a month of 12-hour shifts. Each is about 80 KB on
 # the 3,000-device sample.
@@ -124,6 +124,8 @@ class Handover(_Record):
     networks: list[NetworkStatus] = []
     """The whole network and named networks degraded or offline at the end
     of the span, or working over something degraded, worst first."""
+    resources: list[ResourceStatus] = []
+    """Resources degraded or offline at the end of the span, worst first."""
     incidents: list[IncidentLine] = []
     """Incidents open at the end of the span, or opened, cleared, or closed
     in it, newest first."""
@@ -216,9 +218,9 @@ def outages(
 
     Returns:
         Devices at one site that went down at one step, with the links at
-        that site that went down then, and every other link down, latest
-        first. A device or link that came back with no event saying it
-        went down was down before history begins.
+        that site that went down then, and every other link down but those
+        ignored, latest first. A device or link that came back with no
+        event saying it went down was down before history begins.
 
     Raises:
         None
@@ -244,7 +246,8 @@ def outages(
         or (d.end is not None and d.end >= since)
     ]
     site_of = {d.name: d.site for d in topology.devices}
-    links = {ln.id: ln for ln in topology.links}
+    rated = ratings(topology)
+    links = {ln.id: ln for ln in topology.links if rated[ln.id].priority != "ignored"}
     groups: dict[tuple[datetime | None, str], list[_Down]] = {}
     alone: list[_Down] = []
     for d in kept:
@@ -591,7 +594,11 @@ def _message(h: Handover) -> Message:
     text += ["", f"Open now ({len(h.problems)}, {unhandled} no one is on)"]
     lines = []
     for p in h.problems[:LISTED]:
-        parts = [p.title, *([p.detail] if p.detail else [])]
+        parts = [
+            *(["High"] if p.priority == "high" else []),
+            p.title,
+            *([p.detail] if p.detail else []),
+        ]
         parts += [teams.get(p.team, p.team)] if p.team else []
         lines.append(f"- {' · '.join([*parts, standing(p)])}")
     text += more(lines, len(h.problems))
@@ -601,6 +608,11 @@ def _message(h: Handover) -> Message:
             word = n.status if n.status != "operational" else "operational, but"
             why = " · ".join([*n.reasons, *n.caveats][:2])
             text.append(f"- {n.name} {word}{': ' + why if why else ''}")
+    if h.resources:
+        text += ["", f"Resources ({len(h.resources)} not as they should be)"]
+        for r in h.resources:
+            why = " · ".join(r.reasons[:2])
+            text.append(f"- {r.name} {r.status}{': ' + why if why else ''}")
     # Whole sites and links first: single devices are most of them.
     ordered = sorted(h.outages, key=lambda o: o.target.kind == "device")
     text += ["", f"Outages ({len(h.outages)} began or ended, {down} still down)"]

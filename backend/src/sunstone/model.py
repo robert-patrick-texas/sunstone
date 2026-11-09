@@ -56,6 +56,40 @@ Edge = Literal[
     "access", "transit", "interconnect", "ingress", "egress", "peering", "open"
 ]
 EDGES: tuple[Edge, ...] = get_args(Edge)
+Priority = Literal["ignored", "low", "medium", "high"]
+"""How far a cable's or circuit's outage climbs, and how urgent its problems
+are. ``ignored``: it counts toward no status and raises no problem, as an
+access port users come and go on. ``low``: down, it degrades its location
+and site, never more. ``medium``: it climbs as far as the status rules take
+it. ``high``: it climbs too, and its problems come first."""
+PRIORITIES: tuple[Priority, ...] = get_args(Priority)
+PriorityRole = Literal[
+    "access",
+    "transit",
+    "interconnect",
+    "ingress",
+    "egress",
+    "peering",
+    "open",
+    "internal",
+    "tbd",
+]
+"""What a default priority is for: a role at the edge, a link between two of
+our devices with none (``internal``), or one whose roles are to be
+documented (``tbd``)."""
+DEFAULT_PRIORITIES: dict[PriorityRole, Priority] = {
+    # Someone downstream answers for these: a tenant, a partner, a provider.
+    "access": "low",
+    "interconnect": "low",
+    # The enterprise answers for the rest.
+    "transit": "medium",
+    "ingress": "medium",
+    "egress": "medium",
+    "peering": "medium",
+    "open": "medium",
+    "internal": "medium",
+    "tbd": "medium",
+}
 Neighbors = Literal["far-end", "provider", "nothing"]
 """What LLDP and CDP show on our port: the device at the far end (ours or
 someone else's; across a layer-2 transport, our devices on the same
@@ -131,6 +165,9 @@ class Device(_Record):
     mgmt_ip: str | None = None
     location: str | None = None
     """The location at its site it is in, if the site has locations."""
+    priority: Priority | None = None
+    """The priority of its cables and circuits that have none of their own;
+    ``high`` puts its own problems first too."""
 
 
 class Endpoint(_Record):
@@ -272,6 +309,9 @@ class Link(_Record):
     """What LLDP and CDP show on our port, one or more (the provider's NTU
     over LLDP while CDP passes through to the far end); without it, the far
     end between two of our devices, and not said otherwise."""
+    priority: Priority | None = None
+    """Its own priority; without one, its devices' or its far end's, else
+    the default for its roles (``link_priority``)."""
 
     @field_validator("neighbors", mode="before")
     @classmethod
@@ -424,6 +464,9 @@ class External(_Record):
     platform: str | None = None
     description: str | None = None
     tags: list[str] = []
+    priority: Priority | None = None
+    """The priority of the cables and circuits to it that have none of
+    their own."""
 
 
 class TunnelEnd(_Record):
@@ -536,6 +579,21 @@ class Lag(_Record):
         return "--".join(ends)
 
 
+class Resource(_Record):
+    """Something the enterprise depends on, with a status of its own from
+    its members': a way out to the world, a cloud, a partner. Its members
+    are circuits (any link, by its enterprise CID at either side), tunnels,
+    fabrics, and other resources, each listed by name."""
+
+    name: str
+    description: str | None = None
+    tags: list[str] = []
+    circuits: list[str] = []
+    tunnels: list[str] = []
+    fabrics: list[str] = []
+    resources: list[str] = []
+
+
 class Topology(_Record):
     """A whole network: every site, device, and link, and what is layered
     over them."""
@@ -558,6 +616,9 @@ class Topology(_Record):
     lags: list[Lag] = []
     terms: dict[Term, str] = {}
     """The organization's own words for Sunstone's, such as ``tenant: Customer``."""
+    priorities: dict[PriorityRole, Priority] = {}
+    """Default priorities by role, in place of ``DEFAULT_PRIORITIES``'."""
+    resources: list[Resource] = []
 
     @model_validator(mode="after")
     def _check_references(self) -> Self:
@@ -620,6 +681,7 @@ class Topology(_Record):
         problems += self._layer_problems(device_names, at_port)
         problems += self._lag_problems(device_names)
         problems += self._group_problems()
+        problems += self._resource_problems()
         if problems:
             raise ValueError("\n".join(problems))
         return self
@@ -750,6 +812,60 @@ class Topology(_Record):
         problems += _macsec_problems(self.tunnels, at_port, transports)
         problems += self._fabric_problems()
         problems += _cycles(self._rides())
+        return problems
+
+    def _resource_problems(self) -> list[str]:
+        """Problems with resources: duplicates, members that do not exist,
+        none at all, and resources inside themselves.
+
+        Returns:
+            One message per problem found.
+        """
+        problems = [
+            f"duplicate resource name {name!r}"
+            for name, n in Counter(r.name for r in self.resources).items()
+            if n > 1
+        ]
+        by_cid = circuits_by_cid(self.links)
+        known = {
+            "tunnel": {t.name for t in self.tunnels},
+            "fabric": {f.name for f in self.fabrics},
+            "resource": {r.name for r in self.resources},
+        }
+        for r in self.resources:
+            what = f"resource {r.name!r}"
+            if not (r.circuits or r.tunnels or r.fabrics or r.resources):
+                problems.append(f"{what} has no members")
+            for c in r.circuits:
+                found = by_cid.get(c, [])
+                if not found:
+                    problems.append(f"{what} names unknown circuit {c!r}")
+                elif len(found) > 1:
+                    problems.append(
+                        f"{what} names circuit {c!r}, which {len(found)} links have"
+                    )
+            for kind, names in (
+                ("tunnel", r.tunnels),
+                ("fabric", r.fabrics),
+                ("resource", r.resources),
+            ):
+                problems += [
+                    f"{what} names unknown {kind} {name!r}"
+                    for name in names
+                    if name not in known[kind]
+                ]
+                problems += [
+                    f"{what} names {kind} {name!r} twice"
+                    for name, n in Counter(names).items()
+                    if n > 1
+                ]
+            problems += [
+                f"{what} names circuit {c!r} twice"
+                for c, n in Counter(r.circuits).items()
+                if n > 1
+            ]
+        inside = {r.name: set(r.resources) for r in self.resources}
+        problems += _cycles(inside, "resource", "is inside")
         return problems
 
     def _group_problems(self) -> list[str]:
@@ -1100,11 +1216,16 @@ def _inside_themselves(parents: dict[str, str | None]) -> list[str]:
     return looped
 
 
-def _cycles(rides: dict[str, set[str]]) -> list[str]:
-    """Networks that ride themselves, through any number of others.
+def _cycles(
+    rides: dict[str, set[str]], kind: str = "network", relation: str = "rides"
+) -> list[str]:
+    """Networks that ride themselves, through any number of others, or
+    anything else that can be inside itself.
 
     Args:
         rides: The networks each network rides.
+        kind: What they are, for the message.
+        relation: What each does to the next, for the message.
 
     Returns:
         One message per network found riding itself.
@@ -1116,7 +1237,7 @@ def _cycles(rides: dict[str, set[str]]) -> list[str]:
         while stack:
             n = stack.pop()
             if n == start:
-                problems.append(f"network {start!r} rides itself")
+                problems.append(f"{kind} {start!r} {relation} itself")
                 break
             if n not in seen:
                 seen.add(n)
@@ -1502,3 +1623,134 @@ def cid(link: Link) -> str | None:
     if link.enterprise_cid is not None:
         return link.enterprise_cid.a
     return link.circuit.circuit_id.a if link.circuit else None
+
+
+def circuits_by_cid(links: Iterable[Link]) -> dict[str, list[Link]]:
+    """The links each enterprise CID names, at either side.
+
+    Args:
+        links: Every link.
+
+    Returns:
+        Each CID's links, one unless the CID is used twice.
+
+    Raises:
+        None
+    """
+    found: dict[str, list[Link]] = {}
+    for link in links:
+        ids = link.enterprise_cid
+        if ids is None:
+            continue
+        for c in dict.fromkeys(x for x in (ids.a, ids.z) if x):
+            found.setdefault(c, []).append(link)
+    return found
+
+
+RatingSource = Literal["link", "device", "default"]
+
+
+class Rating(NamedTuple):
+    """A cable's or circuit's priority, where it comes from, and who answers
+    for it."""
+
+    priority: Priority
+    source: RatingSource
+    """``link``: its own; ``device``: one of its devices', or its far end's
+    (the higher where they differ); ``default``: for its roles."""
+    by: str | None
+    """The device or external node that sets it, or the role whose default
+    it is: an edge role, ``internal``, or ``tbd``; None for its own."""
+    responsible: str | None
+    """Who answers for it first when it is down: the tenant, partner,
+    application, or provider at its far end for access and interconnect
+    alone; None for the enterprise."""
+
+
+DOWNSTREAM: frozenset[Edge] = frozenset({"access", "interconnect"})
+"""Roles the party at the far end answers for first."""
+
+
+def ratings(topology: Topology) -> dict[str, Rating]:
+    """Every link's priority, by link id.
+
+    A link's own priority comes first; then one its devices or its far end
+    give (the higher where both ends give one); then the default for its
+    roles, the highest of them: low for access and interconnect, which the
+    party downstream answers for first, and medium for the rest, unless
+    ``priorities`` says otherwise.
+
+    Args:
+        topology: The network.
+
+    Returns:
+        Each link's rating.
+
+    Raises:
+        None
+    """
+    defaults = {**DEFAULT_PRIORITIES, **topology.priorities}
+    devices = {d.name: d.priority for d in topology.devices}
+    externals = {e.name: e for e in topology.externals}
+    transports = {t.name: t for t in topology.transports}
+    rank = PRIORITIES.index
+    found: dict[str, Rating] = {}
+    for link in topology.links:
+        roles = link_roles(link, externals)
+        responsible = _downstream(link, roles, externals, transports)
+        if link.priority is not None:
+            found[link.id] = Rating(link.priority, "link", None, responsible)
+            continue
+        given = [
+            (p, name)
+            for name, p in _end_priorities(link, devices, externals)
+            if p is not None
+        ]
+        if given:
+            p, name = max(given, key=lambda x: rank(x[0]))
+            found[link.id] = Rating(p, "device", name, responsible)
+            continue
+        keys: list[PriorityRole] = (
+            list(roles.edges)
+            if roles.edges
+            else ["tbd" if roles.source == "tbd" else "internal"]
+        )
+        key = max(keys, key=lambda k: rank(defaults[k]))
+        found[link.id] = Rating(defaults[key], "default", key, responsible)
+    return found
+
+
+def _end_priorities(
+    link: Link,
+    devices: Mapping[str, Priority | None],
+    externals: Mapping[str, External],
+) -> list[tuple[str, Priority | None]]:
+    """The priority each end of a link gives, by the end's name."""
+    found = [(e.device, devices.get(e.device)) for e in device_ends(link)]
+    b = link.b
+    if isinstance(b, ExternalEnd) and b.external in externals:
+        found.append((b.external, externals[b.external].priority))
+    return found
+
+
+def _downstream(
+    link: Link,
+    roles: Roles,
+    externals: Mapping[str, External],
+    transports: Mapping[str, Transport],
+) -> str | None:
+    """Who answers first for a link for access or interconnect alone: the
+    tenant, partner, or application at its far end, or the transport's
+    provider; None for the enterprise."""
+    if not roles.edges or not set(roles.edges) <= DOWNSTREAM:
+        return None
+    b = link.b
+    if isinstance(b, ExternalEnd):
+        e = externals.get(b.external)
+        if e is not None and e.kind == "tenant" and e.tenant:
+            return e.tenant
+        return b.external
+    if isinstance(b, TransportEnd):
+        t = transports.get(b.transport)
+        return (t.provider or t.name) if t else b.transport
+    return None

@@ -2,14 +2,15 @@
 @component
 The shift handover: what the incoming shift needs to know about the last
 hours, worked out on the server for every viewer. What is wrong now and who
-is on it, who is on call, the outages that began or ended and how long they
-lasted, pages and acknowledgements, maintenance done, open, and coming,
-and fixes and new discovery findings, with the notes the outgoing shift
-writes for the next. The handover of each shift change is saved, and can be
-opened again as it was; someone from the incoming shift signs for it once
-they have read it, and until they do, the report for now says so, with the
-outgoing shift's notes. It fills the window, prints on paper, is written as
-a message to post in chat or send by email, and a link opens it again
+is on it, high priority first and marked so, the networks and resources not
+as they should be, who is on call, the outages that began or ended and how
+long they lasted, pages and acknowledgements, maintenance done, open, and
+coming, and fixes and new discovery findings, with the notes the outgoing
+shift writes for the next. The handover of each shift change is saved, and
+can be opened again as it was; someone from the incoming shift signs for it
+once they have read it, and until they do, the report for now says so, with
+the outgoing shift's notes. It fills the window, prints on paper, is written
+as a message to post in chat or send by email, and a link opens it again
 (`?handover=12`, or a saved one's id). Clicking something leaves the report
 and shows it: a problem with its impact, an outage at the moment it began.
 -->
@@ -55,7 +56,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		ui,
 		type Selection
 	} from './state.svelte.ts';
-	import { STATUS_COLOR, STATUS_GLYPH, statusWord } from './status.ts';
+	import { STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL, statusWord } from './status.ts';
 	import { DEFAULT_HANDOVER_H } from './url.ts';
 
 	const {
@@ -206,6 +207,15 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		ui.at = at;
 		if (network) showNetwork(network);
 		else ui.networks = [];
+	}
+
+	/** Leave the handover for a resource, as it was at the end of the span. */
+	function goResource(name: string): void {
+		const at = saved ? replayable(handover?.until) : null;
+		close();
+		ui.live = true;
+		ui.at = at;
+		select({ kind: 'resource', id: name }, true);
 	}
 
 	function goProblem(p: { id: string; target: Selection }): void {
@@ -544,6 +554,7 @@ and shows it: a problem with its impact, an outage at the moment it began.
 								<button class="row" class:open={!handled} onclick={() => goProblem(p)}>
 									<span class="what">
 										<i style:--c={MARK[p.kind].color} aria-hidden="true">{MARK[p.kind].glyph}</i>
+										{#if p.priority === 'high'}<b class="high-mark">High</b>{/if}
 										{p.title}
 										{#if p.detail}<span class="muted"> · {p.detail}</span>{/if}
 									</span>
@@ -570,6 +581,30 @@ and shows it: a problem with its impact, an outage at the moment it began.
 											{statusWord(n).toLowerCase()}
 											{#if n.reasons.length || n.caveats.length}<span class="muted">
 													· {[...n.reasons, ...n.caveats].slice(0, 2).join(' · ')}</span
+												>{/if}
+										</span>
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</section>
+				{/if}
+
+				{#if handover.resources.length}
+					<section aria-label="Resources">
+						<h2>Resources ({handover.resources.length})</h2>
+						<ul class="rows">
+							{#each handover.resources as r (r.name)}
+								<li>
+									<button class="row open" onclick={() => goResource(r.name)}>
+										<span class="what">
+											<i style:--c={STATUS_COLOR[r.status]} aria-hidden="true"
+												>{STATUS_GLYPH[r.status]}</i
+											>
+											{r.name}
+											{STATUS_LABEL[r.status].toLowerCase()}
+											{#if r.reasons.length}<span class="muted">
+													· {r.reasons.slice(0, 2).join(' · ')}</span
 												>{/if}
 										</span>
 									</button>
@@ -993,6 +1028,11 @@ and shows it: a problem with its impact, an outage at the moment it began.
 		.row:disabled {
 			color: #000;
 			opacity: 1;
+		}
+		.high-mark {
+			color: #000;
+			background: none;
+			border-color: #000;
 		}
 		.muted,
 		.when,

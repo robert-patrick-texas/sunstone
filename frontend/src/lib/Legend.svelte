@@ -5,11 +5,13 @@ state, device health and link load, or while an impact is shown, how
 devices and links are affected, or while discovery is shown, what it sees
 that the documentation does not. Every color is named here, and the glyphs
 are shown, so color is never the only cue. With named networks shown, also
-what their colors and dashes mean.
+what their colors and dashes mean; where resources are drawn, their hexagons.
 -->
 <script lang="ts">
+	import type { Status } from './api/status.ts';
 	import { IMPACT_LABEL, type DeviceImpact } from './impact.ts';
 	import { HEALTH_LABEL, type DeviceHealth } from './live.ts';
+	import { STATUS_COLOR, STATUS_GLYPH, STATUS_LABEL } from './status.ts';
 	import {
 		COLOR,
 		DRIFT_COLOR,
@@ -30,21 +32,33 @@ what their colors and dashes mean.
 		live,
 		impact,
 		discovery,
-		layers = false
+		layers = false,
+		resources = false,
+		map = false
 	}: {
 		live: boolean;
 		impact: boolean;
 		discovery: boolean;
 		/** Named networks are drawn. */
 		layers?: boolean;
+		/** Resources are drawn. */
+		resources?: boolean;
+		/** Over the geographic map, whose attribution takes the bottom right corner. */
+		map?: boolean;
 	} = $props();
 	const DEPTHS = ['Over circuits', 'Over another', 'Three deep'];
 
 	const HEALTHS: DeviceHealth[] = ['up', 'degraded', 'down', 'nodata', 'unmonitored'];
 	const IMPACTS: DeviceImpact[] = ['failed', 'cutoff', 'exposed'];
+	const STATUSES: Status[] = ['operational', 'degraded', 'offline'];
 </script>
 
-<div class="legend" class:live={(live && !impact) || layers} aria-label="Legend">
+<div
+	class="legend"
+	class:live={(live && !impact) || layers || resources}
+	class:map
+	aria-label="Legend"
+>
 	{#if impact}
 		<div class="row">
 			<b>Impact</b>
@@ -117,6 +131,21 @@ what their colors and dashes mean.
 			<span><i class="outside"></i>Outside the boundary</span>
 		</div>
 	{/if}
+	{#if resources}
+		<div class="row">
+			<b>Resources</b>
+			{#if live}
+				{#each STATUSES as s (s)}
+					<span
+						><i class="hex" style:--c={STATUS_COLOR[s]}>{STATUS_GLYPH[s]}</i>{STATUS_LABEL[s]}</span
+					>
+				{/each}
+			{:else}
+				<span><i class="hex" style:--c={COLOR.muted}></i>Status colors in live state</span>
+			{/if}
+			<span><i class="line dotted" style:color={COLOR.muted}></i>To its members</span>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -136,6 +165,10 @@ what their colors and dashes mean.
 		font-size: 12px;
 		color: var(--muted);
 	}
+	/* Clear of the map's attribution when the map is too narrow for both. */
+	.legend.map {
+		bottom: 40px;
+	}
 	.legend.live {
 		flex-direction: column;
 		align-items: flex-start;
@@ -147,7 +180,7 @@ what their colors and dashes mean.
 		gap: 4px 14px;
 	}
 	.row > b {
-		width: 52px;
+		width: 62px;
 		font-weight: 600;
 		color: var(--text);
 	}
@@ -165,6 +198,18 @@ what their colors and dashes mean.
 		width: 9px;
 		height: 9px;
 		border-radius: 50%;
+	}
+	.hex {
+		display: inline-grid;
+		place-items: center;
+		width: 16px;
+		height: 14px;
+		clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+		background: var(--c);
+		font-style: normal;
+		font-size: 10px;
+		font-weight: 700;
+		color: var(--bg);
 	}
 	.outside {
 		display: inline-block;

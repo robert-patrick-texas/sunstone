@@ -4,11 +4,13 @@ Details of something layered over the links, or beyond them: a named
 network (what it rides, what rides it, its shared risks, sites, tunnels, and
 fabrics), a transport and the circuits into it, an external node and what
 reaches it, a tunnel's two ends and the risks it shares, a fabric's members,
-or a tenant's networks and nodes.
+a tenant's networks and nodes, or a resource's members and the resources it
+is part of.
 What is outside the boundary says so. With live state, a network's status:
 operational, degraded, or offline, why, what is degraded beneath it, and
 its regions, sites, and locations that are not operational; a tunnel's
-state; and a fabric's tunnels down and those built spoke to spoke now.
+state; a fabric's tunnels down and those built spoke to spoke now; and a
+resource's status, why, and each member's.
 Names are links that select and bring that item into view; a network can be
 shown in every view from here.
 -->
@@ -22,6 +24,7 @@ shown in every view from here.
 	import type { Risk, RiskReport } from './api/risks.ts';
 	import type { Fabric, Link } from './api/topology.ts';
 	import { carried, fabricTunnels, layersOf, onDemand } from './layers.ts';
+	import { membersOf, resourcesHolding, resourceStatus, type Member } from './resources.ts';
 	import type { StatusReport } from './api/status.ts';
 	import { clock, tunnelName } from './history.ts';
 	import { HEALTH_LABEL, linkLive, type LiveIndex } from './live.ts';
@@ -104,6 +107,21 @@ shown in every view from here.
 		ui.networks = shown(name) ? ui.networks.filter((n) => n !== name) : [...ui.networks, name];
 	}
 
+	/** What kind of thing a resource's member is. */
+	function memberKind(m: Member): string {
+		return m.kind === 'circuit'
+			? 'Circuit'
+			: m.kind === 'resource'
+				? 'Resource'
+				: term(index, m.kind);
+	}
+
+	/** What choosing a resource's member selects: a circuit's link, or the member itself. */
+	function memberTarget(m: Member): AnySelection | null {
+		if (m.kind === 'circuit') return m.link ? { kind: 'links', ids: [m.link.id] } : null;
+		return { kind: m.kind, id: m.name };
+	}
+
 	function circuitState(link: Link): string {
 		if (!live) return '';
 		const health = linkLive(live, link).health;
@@ -127,6 +145,10 @@ shown in every view from here.
 
 {#snippet externalLink(name: string)}
 	<button class="link" onclick={(e) => follow(e, { kind: 'external', id: name })}>{name}</button>
+{/snippet}
+
+{#snippet resourceLink(name: string)}
+	<button class="link" onclick={(e) => follow(e, { kind: 'resource', id: name })}>{name}</button>
 {/snippet}
 
 {#snippet list(names: string[], render: Snippet<[string]>)}
@@ -257,7 +279,7 @@ shown in every view from here.
 				{/if}
 				<table class="risks">
 					<tbody>
-						{#each own.risks.slice(0, allRisks ? undefined : RISKS_SHOWN) as risk (risk.tunnels.join())}
+						{#each own.risks.slice(0, allRisks ? undefined : RISKS_SHOWN) as risk (`${risk.new}|${risk.tunnels.join()}|${risk.sites.join()}`)}
 							{@const first = risk.items[0]}
 							<tr>
 								<td
@@ -645,6 +667,61 @@ shown in every view from here.
 						<td>{siteOf(index, m.device)}</td>
 						<td class:hub={m.role === 'hub'}>{m.role}</td>
 						<td class="mono">{m.interface}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	{/if}
+{:else if selection.kind === 'resource'}
+	{@const resource = index.resources.get(selection.id)}
+	{#if resource}
+		{@const now = resourceStatus(status, resource.name)}
+		{@const members = membersOf(index, resource)}
+		{@const partOf = resourcesHolding(index, { kind: 'resource', id: resource.name })}
+		<p class="kind">Resource</p>
+		<h2>{resource.name}</h2>
+		{#if resource.description}<p class="muted">{resource.description}</p>{/if}
+		{#if resource.tags.length}<p class="muted">Tags: {resource.tags.join(', ')}</p>{/if}
+		{#if now}
+			<p class="now" style:--c={STATUS_COLOR[now.status]}>
+				<i aria-hidden="true">{STATUS_GLYPH[now.status]}</i><b>{STATUS_LABEL[now.status]}</b>
+			</p>
+			{#each now.reasons as reason (reason)}<p class="reason">{reason}</p>{/each}
+		{/if}
+		{#if partOf.length}
+			<dl>
+				<dt>Part of</dt>
+				<dd>
+					{@render list(
+						partOf.map((r) => r.name),
+						resourceLink
+					)}
+				</dd>
+			</dl>
+		{/if}
+		<h3>Members ({members.length})</h3>
+		<table>
+			<thead
+				><tr
+					><th>Kind</th><th>Name</th>{#if now}<th colspan="2">Now</th>{/if}</tr
+				></thead
+			>
+			<tbody>
+				{#each members as m (m.kind + m.name)}
+					{@const target = memberTarget(m)}
+					{@const state = now?.members.find((x) => x.kind === m.kind && x.name === m.name)}
+					<tr onclick={() => target && select(target, true)}>
+						<td class="muted">{memberKind(m)}</td>
+						<td
+							>{#if target}<button class="link" onclick={(e) => follow(e, target)}>{m.name}</button
+								>{:else}{m.name}{/if}</td
+						>
+						{#if now}
+							<td class="nowrap" style:color={state ? STATUS_COLOR[state.status] : undefined}
+								>{state ? STATUS_LABEL[state.status] : ''}</td
+							>
+							<td class="muted">{state?.reason ?? ''}</td>
+						{/if}
 					</tr>
 				{/each}
 			</tbody>

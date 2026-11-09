@@ -14,7 +14,8 @@ export type Selection =
 export type Failure = Selection | { kind: 'provider'; id: string };
 
 /** What else can be selected: things beyond the devices, and the layers over them. */
-export type LayerKind = 'transport' | 'external' | 'network' | 'tunnel' | 'fabric' | 'tenant';
+export type LayerKind =
+	'transport' | 'external' | 'network' | 'tunnel' | 'fabric' | 'tenant' | 'resource';
 export interface LayerSelection {
 	kind: LayerKind;
 	/** Its name. */
@@ -30,7 +31,8 @@ export const LAYER_KINDS: readonly LayerKind[] = [
 	'network',
 	'tunnel',
 	'fabric',
-	'tenant'
+	'tenant',
+	'resource'
 ];
 
 /**
