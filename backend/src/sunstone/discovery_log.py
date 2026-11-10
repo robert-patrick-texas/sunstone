@@ -94,6 +94,24 @@ class DiscoveryLog:
         run = self.run_of(at)
         return self._annotated(self._compared(run), run)
 
+    def compared_with(self, rules: NeighborRules, at: datetime) -> Comparison:
+        """The run in effect at a moment, compared as other rules would have
+        it, as a rule not yet made would; worked out each time, not kept.
+
+        Args:
+            rules: What overrides would say about names and ports.
+            at: The moment.
+
+        Returns:
+            The comparison, without when each finding was seen.
+
+        Raises:
+            None
+        """
+        run = self.run_of(at)
+        seen = visibility(self.state, run)
+        return compare(self.topology, self.source.discover(run, seen), seen, rules)
+
     def warm(self) -> None:
         """Compare every run of the last day not yet compared, newest first.
 

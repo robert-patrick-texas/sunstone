@@ -41,7 +41,7 @@ export default defineConfig({
 	projects: [
 		{
 			name: 'chromium',
-			testIgnore: ['fixes.spec.ts', 'layers.spec.ts', 'overrides.spec.ts'],
+			testIgnore: ['fixes.spec.ts', 'layers.spec.ts', 'overrides.spec.ts', 'rules.spec.ts'],
 			use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 900 } }
 		},
 		{
@@ -58,6 +58,17 @@ export default defineConfig({
 			name: 'overrides',
 			testMatch: 'overrides.spec.ts',
 			dependencies: ['layers'],
+			use: {
+				...devices['Desktop Chrome'],
+				viewport: { width: 1400, height: 900 },
+				baseURL: `http://127.0.0.1:${LAYERS_PORT}`
+			}
+		},
+		// Rules too, after overrides, as each withdraws what the other made.
+		{
+			name: 'rules',
+			testMatch: 'rules.spec.ts',
+			dependencies: ['overrides'],
 			use: {
 				...devices['Desktop Chrome'],
 				viewport: { width: 1400, height: 900 },

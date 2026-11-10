@@ -388,6 +388,79 @@ def port_key(interface: str) -> str:
     return _key(interface)
 
 
+@functools.cache
+def wildcard(pattern: str) -> re.Pattern[str]:
+    """A pattern people write, as a regular expression.
+
+    Args:
+        pattern: ``*`` for any run of characters, ``?`` for any one, and
+            everything else as itself: ``*-acc-*``, ``Gi1/0/48``, ``SEP*``.
+
+    Returns:
+        An expression matching whole values, ignoring case.
+
+    Raises:
+        None
+    """
+    body = "".join(
+        ".*" if c == "*" else "." if c == "?" else re.escape(c) for c in pattern
+    )
+    return re.compile(body, re.IGNORECASE | re.DOTALL)
+
+
+def like(patterns: Iterable[str], *values: str | None) -> bool:
+    """Whether any value matches any pattern, as a whole and ignoring case.
+
+    Args:
+        patterns: Wildcard patterns (:func:`wildcard`).
+        values: The values; None ones are skipped.
+
+    Returns:
+        True on a match.
+
+    Raises:
+        None
+    """
+    return any(
+        wildcard(p).fullmatch(v) for p in patterns for v in values if v is not None
+    )
+
+
+@dataclass(frozen=True)
+class PortRule:
+    """What a rule (``overrides.py``) says about the ports it matches."""
+
+    devices: frozenset[str]
+    """The devices whose ports it is on."""
+    interfaces: tuple[str, ...]
+    """Interface patterns, any of which a port matches."""
+    kind: Literal["one-device", "ignore-neighbor"]
+    """Every row on the port is one neighbor, by the name the rows give;
+    or the rows naming a neighbor that matches are dropped."""
+    neighbor: str = "*"
+    """For ``ignore-neighbor``, the pattern a neighbor's name matches."""
+
+    def on(self, device: str, interface: str) -> bool:
+        """Whether it is on a port.
+
+        Args:
+            device: The device.
+            interface: The port's interface, as the device gives it.
+
+        Returns:
+            True when the device is one of its own and the interface matches
+            a pattern, long or short.
+
+        Raises:
+            None
+        """
+        if device not in self.devices:
+            return False
+        return like(self.interfaces, interface) or like(
+            [port_key(p) for p in self.interfaces], port_key(interface)
+        )
+
+
 @dataclass(frozen=True)
 class NeighborRules:
     """What discovery takes from overrides (``overrides.py``)."""
@@ -401,6 +474,9 @@ class NeighborRules:
     ignored: Mapping[tuple[str, str], frozenset[str]] = field(default_factory=dict)
     """Ports, by device and port key, to the neighbors whose rows there
     are dropped."""
+    ports: tuple[PortRule, ...] = ()
+    """Rules on the ports they match, oldest first. An override on one port
+    comes before them: its one device there is the one named."""
 
 
 def _name(device: str, interface: str) -> str:
@@ -527,6 +603,28 @@ def _adjacencies(
     dropped = {
         (port, named(n) or _plain(n)) for port, ns in rules.ignored.items() for n in ns
     }
+    # Rules on ports: found in the tables, as no list of ports has them all.
+    # A row on a port a rule is on, naming a neighbor it ignores, is dropped;
+    # so is that neighbor's row about the port, even when the device the
+    # rule is on does not answer.
+    merged: set[tuple[str, str]] = set()
+    for table in discovery.tables if rules.ports else []:
+        for n in table.neighbors:
+            port = (table.device, _key(n.interface))
+            remote = resolve(n)
+            for r in rules.ports:
+                if r.on(table.device, n.interface):
+                    if r.kind == "one-device":
+                        merged.add(port)
+                    elif like([r.neighbor], n.remote, _plain(n.remote), remote):
+                        dropped.add((port, remote or _plain(n.remote)))
+                elif (
+                    r.kind == "ignore-neighbor"
+                    and remote is not None
+                    and r.on(remote, n.remote_port)
+                    and like([r.neighbor], table.device)
+                ):
+                    dropped.add((port, remote))
     ours = set(names.values())
     facing = {(far, port) for port, far in dropped if far in ours}
 
@@ -545,18 +643,21 @@ def _adjacencies(
                 on_port.setdefault(_key(n.interface), []).append((n, remote))
         for port, rows in on_port.items():
             one = rules.one_device.get((table.device, port))
+            together = one is not None or (table.device, port) in merged
             groups = (
-                [rows]
-                if len(rows) == 1 or one
+                # CDP's row first, as its port is always the interface's name.
+                [sorted(rows, key=lambda r: r[0].protocol != "cdp")]
+                if len(rows) == 1 or together
                 else _one_per_device(rows, (table.device, port) in apart)
             )
             for group in groups:
                 first = group[0][0]
                 remote = next((r for _, r in group if r), None)
                 if one:
-                    # One neighbor, by the name given; its port from its own
-                    # row, if it is one of ours.
+                    # One neighbor, by the name given.
                     remote = named(one)
+                if together:
+                    # Its port from its own row, if it is one of ours.
                     first = next((n for n, r in group if remote and r == remote), first)
                 far = remote or one or first.remote
                 key = frozenset({(table.device, port), (far, _key(first.remote_port))})

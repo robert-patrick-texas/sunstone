@@ -735,7 +735,7 @@ a link's camera, if any, is where the map opens.
 	// shown again, or renamed, replace the features.
 	$effect(() => {
 		const [m, l, i, d, s, p] = [map, live, impact, drift, status, pairs];
-		void [overrides.list, overrides.showHidden];
+		void [overrides.list, overrides.rules, overrides.showHidden];
 		if (!m) return;
 		untrack(() =>
 			timed('map update', () => {

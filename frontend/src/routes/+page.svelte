@@ -141,8 +141,10 @@ open, and leaves it as it was when it closes.
 	let changes = $state.raw<Change[]>([]);
 	/** Bumped to fetch live state and events again at once, after planned work changes. */
 	let refresh = $state(0);
-	/** Overrides applying now, for the tab. */
-	const applying = $derived(overrides.list.filter((o) => o.state === 'active').length);
+	/** Overrides and rules applying now, for the tab. */
+	const applying = $derived(
+		[...overrides.list, ...overrides.rules].filter((o) => o.state === 'active').length
+	);
 	const coming = $derived(windows.filter((w) => phaseOf(w, Date.now()) !== 'ended').length);
 	const path = $derived(index && ui.path ? shortestPaths(index, ui.path.from, ui.path.to) : null);
 	// Problems come with each snapshot, found once on the server for every viewer.
@@ -191,7 +193,7 @@ open, and leaves it as it was when it closes.
 		try {
 			// Before the topology, so a change accepted in between shows as one to fetch.
 			changes = await fetchChanges();
-			overrides.list = await fetchOverrides();
+			({ overrides: overrides.list, rules: overrides.rules } = await fetchOverrides());
 			const topology = await fetchTopology();
 			if (topology.devices.length <= EXPAND_ALL_UP_TO) {
 				for (const site of topology.sites) expandedSites.add(site.code);
@@ -522,10 +524,15 @@ open, and leaves it as it was when it closes.
 	async function loadOverrides(): Promise<void> {
 		try {
 			const found = await fetchOverrides();
-			const before = signature(overrides.list);
-			// Every drawing follows the list, so it is replaced only when it changes.
-			if (JSON.stringify(found) !== JSON.stringify(overrides.list)) overrides.list = found;
-			if (index && signature(found) !== before) {
+			const before = signature(overrides.list, overrides.rules);
+			// Every drawing follows the lists, so each is replaced only when it changes.
+			if (JSON.stringify(found.overrides) !== JSON.stringify(overrides.list)) {
+				overrides.list = found.overrides;
+			}
+			if (JSON.stringify(found.rules) !== JSON.stringify(overrides.rules)) {
+				overrides.rules = found.rules;
+			}
+			if (index && signature(found.overrides, found.rules) !== before) {
 				const built = indexTopology(await fetchTopology());
 				if (ui.view === 'geo') fromLink.camera = ui.camera;
 				index = built;

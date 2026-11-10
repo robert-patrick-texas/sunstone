@@ -658,7 +658,10 @@ class TestSample:
         assert [f.kind for f in moved] == ["wrong-port"]
         assert sum(v == "confirmed" for v in c.tunnels.values()) >= 6
         # Nexus cores report each neighbor over CDP and LLDP: still one each.
-        assert not [f for f in c.findings if f.kind == "unknown-device"]
+        # The only neighbors not in the topology are IP phones that say they
+        # are a bridge too.
+        unknown = [f for f in c.findings if f.kind == "unknown-device"]
+        assert all("IP Phone" in (f.detail or "") for f in unknown)
 
 
 def test_samples_are_written_as_they_read(tmp_path: Path) -> None:

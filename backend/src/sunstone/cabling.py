@@ -752,7 +752,9 @@ class Beyond:
         return found
 
     def _endpoints(self, watched: Set[str]) -> None:
-        """Up to three phones and printers on each watched access switch."""
+        """Up to three phones and printers on each watched access switch; a
+        few of the phones say they are a bridge too, as some IP phones do,
+        so discovery takes them for network equipment."""
         used: dict[str, set[str]] = {}
         for ln in self.topology.links:
             for end in device_ends(ln):
@@ -778,6 +780,14 @@ class Beyond:
                     )
                 )
                 port += 1
+        phones = sorted(
+            (i for i, e in enumerate(self.endpoints) if e.platform == PHONE_PLATFORM),
+            key=lambda i: zlib.crc32(self.endpoints[i].remote.encode()),
+        )
+        for i in phones[: max(2, len(self.topology.links) // 1000)]:
+            self.endpoints[i] = replace(
+                self.endpoints[i], capabilities=("switch", "phone")
+            )
 
 
 def _across(

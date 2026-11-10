@@ -6,7 +6,7 @@ incidents open or dealt with in the span; the outages that began or ended
 in it, and how long they lasted; the
 pages and acknowledgements made in it; maintenance done in it, open now,
 or coming in as long again; fixes and expectations recorded in it;
-overrides made, withdrawn, or expired in it;
+overrides and rules made, withdrawn, or expired in it;
 discovery findings first seen in it; who is on call now; and the notes the
 outgoing shift wrote for the next one.
 
@@ -42,7 +42,7 @@ from sunstone.live import StateEvent
 from sunstone.model import Topology, device_ends, ratings
 from sunstone.oncall import HandoverTimes, OnCall, Page, RoutedProblem
 from sunstone.operations import ShiftNote, Window
-from sunstone.overrides import OverrideLine
+from sunstone.overrides import OverrideLine, RuleLine
 from sunstone.problems import Ack, Note, PersonName, link_name, natural
 from sunstone.status import NetworkStatus, ResourceStatus
 
@@ -144,6 +144,8 @@ class Handover(_Record):
     """Fixes and expectations recorded in the span, latest first."""
     overrides: list[OverrideLine] = []
     """Overrides made, withdrawn, or expired in the span, latest first."""
+    rules: list[RuleLine] = []
+    """Rules made, withdrawn, or expired in the span, latest first."""
     findings: list[Finding]
     """Discovery findings first seen in the span and still seen."""
     oncall: OnCall | None
@@ -678,6 +680,14 @@ def _message(h: Handover) -> Message:
             if e in events
         ]
         text += ["", f"Overrides: {', '.join(said)}"]
+    if h.rules:
+        events = [line.event for line in h.rules]
+        said = [
+            f"{events.count(e)} {e}"
+            for e in ("made", "withdrawn", "expired")
+            if e in events
+        ]
+        text += ["", f"Rules: {', '.join(said)}"]
     if h.oncall:
         text += ["", "On call now"]
         for t in h.oncall.teams:

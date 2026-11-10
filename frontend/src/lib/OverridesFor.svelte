@@ -1,13 +1,18 @@
 <!--
 @component
 The overrides on one object, whatever their state, each with Renew and
-Withdraw, and making one there. A device also lists those on its ports, and
-offers to override one: one of its documented interfaces, or one typed.
+Withdraw, and making one there, or a rule like one. A device also lists
+those on its ports, and offers to override one: one of its documented
+interfaces, or one typed. Then the rules on the object: those that apply,
+each with Not here to take the object out of it; those an override here, or
+a newer rule, wins over; and those it is taken out of, with Apply here
+again. A device has the rules on its ports among them.
 
-The details views also take from here what overrides add around an object:
-its name in the topology under a new one, and whether it is hidden from the
-map or from status (`overridden`); its other names, tags beside its own, and
-labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
+The details views also take from here what overrides and rules add around
+an object: its name in the topology under a new one, and whether it is
+hidden from the map or from status (`overridden`); its other names, tags
+beside its own, and labels (`facts`); and "Locked here", or by which rule,
+by a field a lock keeps (`locked`).
 -->
 <script module lang="ts">
 	import type { Target } from './api/overrides.ts';
@@ -15,12 +20,13 @@ labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
 	import { lagOf } from './connections.ts';
 	import {
 		aliases,
+		hiddenFromMap,
 		hiddenFromStatus,
-		labels,
+		labelled,
 		lagId,
 		lockOf,
 		on,
-		tags,
+		tagged,
 		target
 	} from './overrides.svelte.ts';
 	import { deviceEnds, siteOf, type TopologyIndex } from './topology.ts';
@@ -51,12 +57,14 @@ labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
 	 * @param of - The object.
 	 * @param field - The field.
 	 * @param label - The field's name, where the line it is on does not say.
-	 * @returns "Locked here · the topology says access", or null with no lock applying.
+	 * @returns "Locked here · the topology says access", "Locked by rule Lab gear",
+	 *   or null with no lock applying.
 	 */
 	function lockNote(of: Target, field: string, label?: string): string | null {
 		const lock = lockOf(of, field);
 		if (lock?.state !== 'active') return null;
-		const head = label ? `${label} locked here` : 'Locked here';
+		const by = lock.rule ? `by rule ${lock.rule.name}` : 'here';
+		const head = label ? `${label} locked ${by}` : `Locked ${by}`;
 		const says = lock.topology_value;
 		if (says === null || says === undefined) return head;
 		return `${head} · the topology says ${says === '' ? 'nothing' : says}`;
@@ -96,23 +104,48 @@ labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
 </script>
 
 <script lang="ts">
+	import {
+		exceptFromRule,
+		includeInRule,
+		type OverrideKind,
+		type OverrideNow,
+		type RuleNow
+	} from './api/overrides.ts';
+	import { clock } from './history.ts';
 	import OverrideForm from './OverrideForm.svelte';
 	import OverrideItem from './OverrideItem.svelte';
-	import { onPorts, targetKey } from './overrides.svelte.ts';
-	import { compareNatural, isDeviceEnd } from './topology.ts';
+	import {
+		describeRule,
+		onPorts,
+		presetFrom,
+		reloadOverrides,
+		RULE_KINDS,
+		rulesOn,
+		targetKey,
+		type RuleDraft
+	} from './overrides.svelte.ts';
+	import RuleForm from './RuleForm.svelte';
+	import { rememberName, ui } from './state.svelte.ts';
+	import { compareNatural, isDeviceEnd, shortInterface } from './topology.ts';
 
 	const { of, index }: { of: Target; index: TopologyIndex } = $props();
 	const uid = $props.id();
 
 	/**
 	 * The form open, by the key of what it was opened on, so it closes when the
-	 * details show something else: on the object, choosing a port, or on the port.
+	 * details show something else: on the object, choosing a port, on the port,
+	 * or a rule like an override listed (`preset`). Replaced, never changed.
 	 */
-	let making = $state<{ on: string; step: 'object' | 'choose' | 'port' } | null>(null);
+	let making = $state.raw<{
+		on: string;
+		step: 'object' | 'choose' | 'port' | 'rule';
+		preset?: RuleDraft;
+	} | null>(null);
 	let iface = $state('');
 	const step = $derived(making?.on === targetKey(of) ? making.step : null);
 
 	const listed = $derived([...on(of), ...(of.kind === 'device' ? onPorts(of.id) : [])]);
+	const ruled = $derived(rulesOn(of));
 	const ports = $derived(of.kind === 'device' ? portsOf(of.id) : []);
 	const port = $derived(target('port', of.id, iface.trim()));
 
@@ -132,6 +165,58 @@ labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
 		making = null;
 	}
 
+	/** Whether a rule can be made like an override: one of a kind rules have, applying now. */
+	function likable(o: OverrideNow): boolean {
+		return o.state === 'active' && (RULE_KINDS as readonly OverrideKind[]).includes(o.kind);
+	}
+
+	/** Open the rule form on a rule like an override listed here. */
+	function likeThis(o: OverrideNow): void {
+		making = { on: targetKey(of), step: 'rule', preset: presetFrom(o, index) };
+	}
+
+	/** What a rule does here; one on ports, on which of the device's. */
+	function doesHere(r: RuleNow): string {
+		if (r.match.of !== 'port') return describeRule(r);
+		const ports = r.match.interface.map(shortInterface).join(', ');
+		return r.kind === 'one-device' ? `One device on ${ports}` : `${describeRule(r)} on ${ports}`;
+	}
+
+	/** Show every rule, and every override, in the side panel. */
+	function showRules(): void {
+		ui.sideTab = 'overrides';
+		ui.problemsOpen = true;
+	}
+
+	/**
+	 * Why taking the object out of a rule, or putting it back, was refused, by
+	 * the key of the object; `name` when it was for want of a name, to ask for one.
+	 */
+	let refused = $state<{ on: string; text: string; name: boolean } | null>(null);
+	const refusal = $derived(refused?.on === targetKey(of) ? refused : null);
+	let busy = $state(false);
+
+	/** Take the object out of a rule, or put it back, signed by who is using Sunstone. */
+	async function stand(change: (by: string) => Promise<unknown>): Promise<void> {
+		const on = targetKey(of);
+		const by = ui.person.trim();
+		if (!by) {
+			refused = { on, text: 'Give your name first', name: true };
+			return;
+		}
+		rememberName(by);
+		busy = true;
+		refused = null;
+		try {
+			await change(by);
+			await reloadOverrides();
+		} catch (err) {
+			refused = { on, text: err instanceof Error ? err.message : String(err), name: false };
+		} finally {
+			busy = false;
+		}
+	}
+
 	function choose(e: SubmitEvent): void {
 		e.preventDefault();
 		if (iface.trim()) start('port');
@@ -140,31 +225,44 @@ labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
 
 {#snippet overridden(of: Target)}
 	{@const name = topologyName(of)}
+	{@const map = hiddenFromMap(of)}
+	{@const status = hiddenFromStatus(of)}
 	{#if name}<p class="renamed">{name} in the topology</p>{/if}
-	{#if on(of).some((o) => o.kind === 'hide-map' && o.state === 'active')}
-		<p class="note">Hidden from the map <span class="muted">· still found by search</span></p>
-	{/if}
-	{#if hiddenFromStatus(of)}
+	{#if map}
 		<p class="note">
-			Hidden from status <span class="muted">· counts toward no status and raises no problem</span>
+			Hidden from the map <span class="muted"
+				>{map.rule ? `· by rule ${map.rule.name} ` : ''}· still found by search</span
+			>
+		</p>
+	{/if}
+	{#if status}
+		<p class="note">
+			Hidden from status <span class="muted"
+				>{status.rule ? `· by rule ${status.rule.name} ` : ''}· counts toward no status and raises
+				no problem</span
+			>
 		</p>
 	{/if}
 {/snippet}
 
 {#snippet facts(of: Target, own: readonly string[] = [])}
 	{@const others = aliases(of).filter((a) => a !== renameOf(of)?.value)}
-	{@const added = tags(of)}
-	{@const given = labels(of)}
+	{@const added = tagged(of)}
+	{@const given = labelled(of)}
 	{#if others.length || own.length || added.length || given.length}
 		<dl class="facts">
 			{#if others.length}<dt>Also known as</dt>
 				<dd>{others.join(', ')}</dd>{/if}
 			{#if own.length || added.length}<dt>Tags</dt>
 				<dd>
-					{own.join(', ')}{#each added as t, i (t)}{own.length || i ? ', ' : ''}{t}
-						<span class="muted">(added here)</span>{/each}
+					{own.join(', ')}{#each added as t, i (t.value)}{own.length || i ? ', ' : ''}{t.value}
+						<span class="muted">({t.rule ? `rule ${t.rule.name}` : 'added here'})</span>{/each}
 				</dd>{/if}
-			{#each given as l (l.key)}<dt title="A label given here">{l.key}</dt>
+			{#each given as l (l.key)}<dt
+					title={l.rule ? `From rule ${l.rule.name}` : 'A label given here'}
+				>
+					{l.key}
+				</dt>
 				<dd>{l.value}</dd>{/each}
 		</dl>
 	{/if}
@@ -175,9 +273,20 @@ labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
 	{#if note}<span class="locked">· {note}</span>{/if}
 {/snippet}
 
+{#snippet ruleLink(rule: RuleNow)}
+	<button type="button" class="link" title="Show the rules in the Overrides tab" onclick={showRules}
+		><b>{rule.name}</b></button
+	>
+{/snippet}
+
 <h3>Overrides{listed.length ? ` (${listed.length})` : ''}</h3>
 {#each listed as o (o.id)}
-	<OverrideItem {o} {index} withTarget={o.target.kind === 'port'} />
+	<OverrideItem
+		{o}
+		{index}
+		withTarget={o.target.kind === 'port'}
+		onrule={likable(o) ? likeThis : undefined}
+	/>
 {/each}
 {#if step === 'object'}
 	<OverrideForm {of} {index} onmade={close} oncancel={close} />
@@ -203,6 +312,11 @@ labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
 	</form>
 {:else if step === 'port'}
 	<OverrideForm of={port} {index} onmade={close} oncancel={close} />
+{:else if step === 'rule'}
+	<!-- Made afresh for each override it is like. -->
+	{#key making}
+		<RuleForm {index} preset={making?.preset} onmade={close} oncancel={close} />
+	{/key}
 {:else}
 	<p class="actions">
 		<button onclick={() => start('object')}>Override…</button>
@@ -210,6 +324,45 @@ labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
 			<button onclick={() => start('choose')}>Override a port…</button>
 		{/if}
 	</p>
+{/if}
+{#if ruled.length}
+	<h3>Rules ({ruled.length})</h3>
+	{#each ruled as r (r.rule.id)}
+		{@const out = r.excepted}
+		<p class="rule" class:muted={r.how === 'overridden'}>
+			{#if out}
+				Rule {@render ruleLink(r.rule)} does not apply here
+				<span class="muted">· taken out by {out.by}, {clock(out.at)}</span>
+				<button
+					type="button"
+					disabled={busy}
+					aria-label="Apply here again: {r.rule.name}"
+					onclick={() => stand((by) => includeInRule(r.rule.id, of, by))}>Apply here again</button
+				>
+			{:else}
+				From rule {@render ruleLink(r.rule)}: {doesHere(r.rule)}{r.how === 'overridden'
+					? '; overridden here'
+					: ''}
+				{#if r.how === 'applies'}
+					<button
+						type="button"
+						disabled={busy}
+						aria-label="Not here: {r.rule.name}"
+						onclick={() => stand((by) => exceptFromRule(r.rule.id, of, by))}>Not here</button
+					>
+				{/if}
+			{/if}
+		</p>
+	{/each}
+	{#if refusal}
+		<p class="error" role="alert">{refusal.text}</p>
+		{#if refusal.name}
+			<label>
+				Your name
+				<input bind:value={ui.person} maxlength="64" autocomplete="name" />
+			</label>
+		{/if}
+	{/if}
 {/if}
 
 <style>
@@ -279,5 +432,25 @@ labels (`facts`); and "Locked here" by a field a lock keeps (`locked`).
 	}
 	.actions button {
 		white-space: nowrap;
+	}
+	.rule button {
+		margin-left: 4px;
+		white-space: nowrap;
+	}
+	.rule .link {
+		margin: 0;
+		border: none;
+		background: none;
+		padding: 0;
+		font: inherit;
+		color: var(--accent);
+		cursor: pointer;
+	}
+	.rule .link:hover {
+		text-decoration: underline;
+	}
+	.error {
+		color: var(--down);
+		font-size: 12px;
 	}
 </style>
