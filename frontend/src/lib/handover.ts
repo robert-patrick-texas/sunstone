@@ -2,14 +2,14 @@
  * The shift handover as the report shows it: how long things lasted,
  * outages sorted into whole sites, circuits and other links, and single
  * devices, the handovers saved at shift changes and who signed for them,
- * overrides made, withdrawn, or expired, and the message to post.
+ * overrides and rules made, withdrawn, or expired, and the message to post.
  */
 import type { Handover, HandoverList, HandoverSummary, Outage, SignOff } from './api/handover.ts';
 import type { Problem } from './api/analysis.ts';
-import type { OverrideLine, Target } from './api/overrides.ts';
+import type { OverrideLine, RuleLine, Target } from './api/overrides.ts';
 import { lagMembers } from './connections.ts';
 import { clock } from './history.ts';
-import { describe, lagId, named, targetName } from './overrides.svelte.ts';
+import { describe, describeRule, lagId, matchText, named, targetName } from './overrides.svelte.ts';
 import type { AnySelection } from './state.svelte.ts';
 import type { TopologyIndex } from './topology.ts';
 import { DEFAULT_HANDOVER_H } from './url.ts';
@@ -161,6 +161,29 @@ export function overrideRow(line: OverrideLine, index: TopologyIndex | null): Ov
 			.join(' · '),
 		event: event[line.event],
 		target: selectionOf(o.target, index)
+	};
+}
+
+/**
+ * A rule's line in a handover.
+ *
+ * @param line - What happened to it, and when.
+ * @returns The line: "Daisy chains · Ignores *-acc-* · Port Gi1/0/48 on every
+ *   device with role access · note"; nothing to select, as it is on many.
+ */
+export function ruleRow(line: RuleLine): OverrideRow {
+	const r = line.rule;
+	const event = {
+		made: `Made by ${r.by}`,
+		withdrawn: `Withdrawn${r.withdrawn ? ` by ${r.withdrawn.by}` : ''}`,
+		expired: 'Expired'
+	};
+	return {
+		what: [`Rule ${r.name}`, describeRule(r), matchText(r.match), r.note]
+			.filter(Boolean)
+			.join(' · '),
+		event: event[line.event],
+		target: null
 	};
 }
 

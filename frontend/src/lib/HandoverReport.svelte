@@ -5,7 +5,7 @@ hours, worked out on the server for every viewer. What is wrong now and who
 is on it, high priority first and marked so, the networks and resources not
 as they should be, who is on call, the outages that began or ended and how
 long they lasted, pages and acknowledgements, maintenance done, open, and
-coming, fixes and new discovery findings, and overrides made, withdrawn, or
+coming, fixes and new discovery findings, and overrides and rules made, withdrawn, or
 expired, with the notes the outgoing shift writes for the next. The
 handover of each shift change is saved, and can be opened again as it was;
 someone from the incoming shift signs for it once they have read it, and
@@ -39,6 +39,7 @@ is on.
 		messageText,
 		outageSections,
 		overrideRow,
+		ruleRow,
 		savedLabel,
 		signedLine,
 		SPANS,
@@ -741,8 +742,12 @@ is on.
 				</section>
 
 				<section aria-label="Overrides">
-					<h2>Overrides ({handover.overrides.length})</h2>
-					{#if handover.overrides.length === 0}
+					<h2>
+						Overrides ({handover.overrides.length}){handover.rules?.length
+							? ` and rules (${handover.rules.length})`
+							: ''}
+					</h2>
+					{#if handover.overrides.length === 0 && !handover.rules?.length}
 						<p class="muted">None made, withdrawn, or expired.</p>
 					{/if}
 					<ul class="rows">
@@ -754,6 +759,16 @@ is on.
 									<span class="when">{clock(line.at)}</span>
 									<span class="long">{row.event}</span>
 								</button>
+							</li>
+						{/each}
+						{#each handover.rules ?? [] as line (line.rule.id + line.event)}
+							{@const row = ruleRow(line)}
+							<li>
+								<div class="row">
+									<span class="what">{row.what}</span>
+									<span class="when">{clock(line.at)}</span>
+									<span class="long">{row.event}</span>
+								</div>
 							</li>
 						{/each}
 					</ul>
@@ -958,6 +973,14 @@ is on.
 	}
 	.row.open {
 		border-left: 3px solid var(--accent);
+	}
+	/* A row with nowhere to go (a rule), boxed like the buttons beside it. */
+	@media screen {
+		div.row {
+			box-sizing: border-box;
+			background: var(--panel);
+			border: 1px solid var(--border);
+		}
 	}
 	.what {
 		grid-column: 1;

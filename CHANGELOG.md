@@ -4,6 +4,40 @@ Release notes, newest first. `tools/release` takes each release's notes from
 its section here, and from the sections of any versions since the last
 release that were never released on their own.
 
+## 0.12.0
+
+- Rules: one override for everything that matches, beside overrides on
+  one object or port. A rule is on one kind of object, with tests that
+  must all hold, each by any of its patterns (`*` and `?`, ignoring case):
+  name, site, region (and the regions inside it), role, platform,
+  priority, kind, medium, tenant, and tag; a link's role is at the edge,
+  and a rule on ports adds an interface pattern (`Gi1/0/48`, `*/0/48`).
+  It does what an override does but rename and alias: tag, label, hide
+  from the map or from status, lock a field at a value, and on ports,
+  ignore neighbors whose names match (`SEP*`, `*-acc-*`) or take every
+  row as one device. A rule matches whatever matches now, new devices
+  too, and never what another rule adds.
+- An override on the object wins over any rule, and a newer rule over an
+  older one, where an object has one of a kind at a time (a label of a
+  key, a lock of a field, hiding). Details list the rules on an object:
+  those applying, those overridden there, and those it is taken out of,
+  with **Not here** and **Apply here again**.
+- **New rule…** in the Overrides tab, with a preview while you write it:
+  how many objects it matches, where something else wins, and for a rule
+  on ports, the discovery findings it would set aside and raise. **Make a
+  rule like this…** on an override starts one from that object, and
+  discovery offers one when a cable no one documented, or a neighbor not
+  in the topology, is seen on the same port of several devices with one
+  role, as access switches daisy-chained on port 48 are.
+- The Overrides tab lists rules applying, not applied, and expired, each
+  with what it applies on and its exceptions, to renew or withdraw. The
+  handover lists rules made, withdrawn, or expired in its span.
+- The simulator has a few IP phones that say they are a bridge too, as
+  some do, so discovery takes them for network equipment.
+- API: `GET /api/overrides` lists `rules`; `POST /api/rules`,
+  `POST /api/rules/preview`, and `POST /api/rules/{id}/withdraw`,
+  `/renew`, `/except`, and `/include`; the handover's `rules`.
+
 ## 0.11.0
 
 - Overrides: Sunstone's own exceptions to what the topology says, for a

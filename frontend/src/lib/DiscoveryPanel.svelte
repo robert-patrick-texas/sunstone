@@ -13,7 +13,9 @@ discovery cannot see, or is not meant to be documented, can be marked
 expected with a note instead, and is then listed apart, to be withdrawn.
 A neighbor not in the topology, seen where the topology is right, offers
 overrides instead: another name for the documented device, one device on
-the port, or ignoring the neighbor there.
+the port, or ignoring the neighbor there. The same finding on the same port
+of many devices with one role offers a rule, above the findings and on each
+of them.
 -->
 <script lang="ts">
 	import { revertChange, type Change } from './api/changes.ts';
@@ -33,7 +35,8 @@ the port, or ignoring the neighbor there.
 	import FixReview from './FixReview.svelte';
 	import { clock } from './history.ts';
 	import OverrideForm from './OverrideForm.svelte';
-	import { named } from './overrides.svelte.ts';
+	import { named, ruleOffers, type RuleOffer } from './overrides.svelte.ts';
+	import RuleForm from './RuleForm.svelte';
 	import { reviewFix, select, showDiscovery, ui, type Selection } from './state.svelte.ts';
 	import type { TopologyIndex } from './topology.ts';
 
@@ -66,6 +69,19 @@ the port, or ignoring the neighbor there.
 	let revertProblem = $state<string | null>(null);
 	/** The override a finding offers being made, if any. */
 	let offering = $state<{ finding: string; kind: OverrideKind } | null>(null);
+	/** The rules repeated findings offer, from the latest run only. */
+	const rules = $derived(latest && comparison ? ruleOffers(comparison.findings, index) : []);
+	/** The rule offered being made, if any, by its key: above the findings, or under one. */
+	let ruling = $state<{ offer: string; finding: string | null } | null>(null);
+
+	/** An offer of a rule, as the form open on it knows it. */
+	const keyOf = (r: RuleOffer) => `${r.label} ${r.findings[0]}`;
+
+	/** Make the rule offered, above the findings or under one; only one form is open. */
+	function offerRule(r: RuleOffer, finding: string | null): void {
+		offering = null;
+		ruling = { offer: keyOf(r), finding };
+	}
 
 	async function revert(change: Change): Promise<void> {
 		try {
@@ -113,6 +129,24 @@ the port, or ignoring the neighbor there.
 {#snippet when(finding: Finding)}
 	{@const text = seenWhen(finding, comparison?.history_from)}
 	{#if text}<span class="when">Seen {text}</span>{/if}
+{/snippet}
+
+{#snippet ruleForm(finding: string | null)}
+	{@const making =
+		ruling?.finding === finding ? rules.find((r) => keyOf(r) === ruling?.offer) : undefined}
+	{#if making}
+		<!-- Made afresh for each offer, from its draft. -->
+		{#key keyOf(making)}
+			<div class="override">
+				<RuleForm
+					{index}
+					preset={making.draft}
+					onmade={() => (ruling = null)}
+					oncancel={() => (ruling = null)}
+				/>
+			</div>
+		{/key}
+	{/if}
 {/snippet}
 
 <section aria-label="Discovery">
@@ -167,6 +201,19 @@ the port, or ignoring the neighbor there.
 		{#if groups.length === 0}
 			<p class="muted">Everything discovery can see matches the documentation.</p>
 		{/if}
+		{#if rules.length}
+			<p class="rules">
+				{#each rules as r (keyOf(r))}
+					<button
+						class="fix"
+						aria-pressed={ruling?.offer === keyOf(r) && ruling.finding === null}
+						onclick={() => offerRule(r, null)}
+						>{r.label} · {r.findings.length} finding{r.findings.length === 1 ? '' : 's'}</button
+					>
+				{/each}
+			</p>
+			{@render ruleForm(null)}
+		{/if}
 		{#each groups as group (group.kind)}
 			<h3>{group.label} ({group.items.length})</h3>
 			<ul>
@@ -175,13 +222,14 @@ the port, or ignoring the neighbor there.
 					{@const making = offers.find(
 						(o) => offering?.finding === finding.id && offering.kind === o.kind
 					)}
+					{@const ruled = rules.filter((r) => r.findings.includes(finding.id))}
 					<li>
 						<button class="finding" aria-pressed={shown(finding)} onclick={() => show(finding)}>
 							<span class="title">{named(finding.title)}</span>
 							<span class="detail">{named(finding.detail)}</span>
 							{@render when(finding)}
 						</button>
-						{#if latest && (finding.fix || EXPECTABLE.has(finding.kind) || offers.length)}
+						{#if latest && (finding.fix || EXPECTABLE.has(finding.kind) || offers.length || ruled.length)}
 							<p class="offers">
 								{#if finding.fix}
 									<button
@@ -203,8 +251,17 @@ the port, or ignoring the neighbor there.
 									<button
 										class="fix"
 										aria-pressed={o === making}
-										onclick={() => (offering = { finding: finding.id, kind: o.kind })}
-										>{o.label}</button
+										onclick={() => {
+											ruling = null;
+											offering = { finding: finding.id, kind: o.kind };
+										}}>{o.label}</button
+									>
+								{/each}
+								{#each ruled as r (keyOf(r))}
+									<button
+										class="fix"
+										aria-pressed={ruling?.offer === keyOf(r) && ruling.finding === finding.id}
+										onclick={() => offerRule(r, finding.id)}>{r.label}</button
 									>
 								{/each}
 							</p>
@@ -224,6 +281,7 @@ the port, or ignoring the neighbor there.
 								</div>
 							{/key}
 						{/if}
+						{@render ruleForm(finding.id)}
 					</li>
 				{/each}
 			</ul>
@@ -358,6 +416,11 @@ the port, or ignoring the neighbor there.
 		gap: 0 12px;
 		margin: -2px 0 6px;
 		padding: 0 8px;
+	}
+	.rules {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 2px 12px;
 	}
 	.fix {
 		padding: 0;

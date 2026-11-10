@@ -3,7 +3,7 @@
 One override: what it does, how it stands now (applying, expired, or not
 applied and why, and for a lock what the topology says), who made it and
 when, its note and expiry; with Renew and Withdraw, which share the change
-with everyone.
+with everyone, and where asked, making a rule like it.
 -->
 <script lang="ts">
 	import { renewOverride, withdrawOverride, type OverrideNow } from './api/overrides.ts';
@@ -16,7 +16,8 @@ with everyone.
 		o,
 		index,
 		withTarget = false,
-		onselect
+		onselect,
+		onrule
 	}: {
 		o: OverrideNow;
 		index: TopologyIndex;
@@ -24,6 +25,8 @@ with everyone.
 		withTarget?: boolean;
 		/** Called to show what it is on; none for no link to it. */
 		onselect?: (o: OverrideNow) => void;
+		/** Called to make a rule like it ("Make a rule like this…"); none to offer none. */
+		onrule?: (o: OverrideNow) => void;
 	} = $props();
 
 	const RENEW: { label: string; hours: number | null }[] = [
@@ -127,6 +130,13 @@ with everyone.
 				aria-label="Withdraw {describe(o)}"
 				onclick={() => act(() => withdrawOverride(o.id, ui.person))}>Withdraw</button
 			>
+			{#if onrule}
+				<button
+					type="button"
+					aria-label="Make a rule like this: {describe(o)}"
+					onclick={() => onrule(o)}>Make a rule like this…</button
+				>
+			{/if}
 		</p>
 	{/if}
 </div>

@@ -19,7 +19,7 @@ Press `/` or Ctrl+K to get here.
 	import type { Window } from './api/operations.ts';
 	import type { Command, CommandId } from './commands.ts';
 	import { deviceHealth, type LiveIndex } from './live.ts';
-	import { overrides } from './overrides.svelte.ts';
+	import { effectsKey } from './overrides.svelte.ts';
 	import { timed } from './perf.ts';
 	import { MARK } from './problem-kinds.ts';
 	import {
@@ -86,10 +86,7 @@ Press `/` or Ctrl+K to get here.
 	// browser is next idle, or at the first search if sooner.
 	let built: { index: TopologyIndex; applying: string; entries: Entry[] } | null = null;
 	function items(): Entry[] {
-		const applying = overrides.list
-			.filter((o) => o.state === 'active')
-			.map((o) => o.id)
-			.join();
+		const applying = effectsKey();
 		if (built?.index !== index || built.applying !== applying) {
 			built = { index, applying, entries: timed('search index', () => topologyEntries(index)) };
 		}

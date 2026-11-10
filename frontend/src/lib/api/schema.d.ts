@@ -772,6 +772,130 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/rules/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Rule
+         * @description Return what a rule would do, made now: what it would apply on,
+         *     what wins over it there, and for a rule on ports, the discovery
+         *     findings it would set aside and raise in the latest run.
+         */
+        post: operations["preview_rule_api_rules_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make Rule
+         * @description Make a rule: an override on everything that matches; everything
+         *     follows it.
+         */
+        post: operations["make_rule_api_rules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rules/{rule_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw Rule
+         * @description Withdraw a rule: it stops applying, and is kept for the handover.
+         */
+        post: operations["withdraw_rule_api_rules__rule_id__withdraw_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rules/{rule_id}/renew": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Renew Rule
+         * @description Give a rule a new expiry, or none: an expired one applies again.
+         */
+        post: operations["renew_rule_api_rules__rule_id__renew_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rules/{rule_id}/except": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Except From Rule
+         * @description Take an object out of a rule: it stops applying there, and the
+         *     rule lists it as an exception.
+         */
+        post: operations["except_from_rule_api_rules__rule_id__except_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rules/{rule_id}/include": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Include In Rule
+         * @description Put an object taken out of a rule back: it applies there again.
+         */
+        post: operations["include_in_rule_api_rules__rule_id__include_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/layouts": {
         parameters: {
             query?: never;
@@ -1249,6 +1373,29 @@ export interface components {
             events: components["schemas"]["StateEvent"][];
         };
         /**
+         * ExceptIn
+         * @description An object to take out of a rule, or put back, and who does it.
+         */
+        ExceptIn: {
+            target: components["schemas"]["Target"];
+            /** By */
+            by: string;
+        };
+        /**
+         * Excepted
+         * @description An object taken out of a rule, by whom, and when.
+         */
+        Excepted: {
+            target: components["schemas"]["Target"];
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
+        /**
          * External
          * @description A node beyond what Sunstone manages: an application someone else
          *     provides (a cloud, a SaaS), a partner's device, or a tenant's.
@@ -1495,6 +1642,11 @@ export interface components {
              * @default []
              */
             overrides: components["schemas"]["OverrideLine"][];
+            /**
+             * Rules
+             * @default []
+             */
+            rules: components["schemas"]["RuleLine"][];
             /** Findings */
             findings: components["schemas"]["Finding"][];
             oncall: components["schemas"]["OnCall"] | null;
@@ -1948,6 +2100,75 @@ export interface components {
             parent?: string | null;
         };
         /**
+         * Match
+         * @description What a rule is on: every object of one kind that passes every test
+         *     given, each by any of its patterns (``*`` for any run of characters,
+         *     ``?`` for one), ignoring case; on ports, every port of the devices that
+         *     pass whose interface matches.
+         */
+        Match: {
+            /**
+             * Of
+             * @enum {string}
+             */
+            of: "site" | "device" | "link" | "lag" | "external" | "transport" | "tunnel" | "fabric" | "resource" | "network" | "port";
+            /**
+             * Name
+             * @default []
+             */
+            name: string[];
+            /**
+             * Site
+             * @default []
+             */
+            site: string[];
+            /**
+             * Region
+             * @default []
+             */
+            region: string[];
+            /**
+             * Role
+             * @default []
+             */
+            role: string[];
+            /**
+             * Platform
+             * @default []
+             */
+            platform: string[];
+            /**
+             * Priority
+             * @default []
+             */
+            priority: string[];
+            /**
+             * Kind
+             * @default []
+             */
+            kind: string[];
+            /**
+             * Medium
+             * @default []
+             */
+            medium: string[];
+            /**
+             * Tenant
+             * @default []
+             */
+            tenant: string[];
+            /**
+             * Tag
+             * @default []
+             */
+            tag: string[];
+            /**
+             * Interface
+             * @default []
+             */
+            interface: string[];
+        };
+        /**
          * Member
          * @description One problem in an incident, as it was when it joined.
          */
@@ -2291,11 +2512,16 @@ export interface components {
         };
         /**
          * OverrideList
-         * @description The overrides not withdrawn, newest first.
+         * @description The overrides and rules not withdrawn, newest first.
          */
         OverrideList: {
             /** Overrides */
             overrides: components["schemas"]["OverrideNow"][];
+            /**
+             * Rules
+             * @default []
+             */
+            rules: components["schemas"]["RuleNow"][];
         };
         /**
          * OverrideNow
@@ -2726,6 +2952,174 @@ export interface components {
             at: string;
             /** Problems */
             problems: components["schemas"]["RoutedProblem"][];
+        };
+        /**
+         * Rule
+         * @description A rule, as made, with its exceptions, and withdrawn if it has been.
+         */
+        Rule: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            match: components["schemas"]["Match"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "tag" | "label" | "hide-map" | "hide-status" | "lock" | "one-device" | "ignore-neighbor";
+            /** Key */
+            key?: string | null;
+            /** Value */
+            value?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Expires */
+            expires?: string | null;
+            renewed?: components["schemas"]["Stamp"] | null;
+            withdrawn?: components["schemas"]["Stamp"] | null;
+            /**
+             * Excepted
+             * @default []
+             */
+            excepted: components["schemas"]["Excepted"][];
+        };
+        /**
+         * RuleIn
+         * @description A rule someone makes.
+         */
+        RuleIn: {
+            /** Name */
+            name: string;
+            match: components["schemas"]["Match"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "tag" | "label" | "hide-map" | "hide-status" | "lock" | "one-device" | "ignore-neighbor";
+            /** Key */
+            key?: string | null;
+            /** Value */
+            value?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /** Expires */
+            expires?: string | null;
+        };
+        /**
+         * RuleLine
+         * @description A rule made, withdrawn, or expired in a span, for the handover.
+         */
+        RuleLine: {
+            /**
+             * Event
+             * @enum {string}
+             */
+            event: "made" | "withdrawn" | "expired";
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            rule: components["schemas"]["Rule"];
+        };
+        /**
+         * RuleMatch
+         * @description An object a rule applies on.
+         */
+        RuleMatch: {
+            target: components["schemas"]["Target"];
+            /** Topology Value */
+            topology_value?: string | null;
+        };
+        /**
+         * RuleNow
+         * @description A rule, and how it stands against the network now.
+         */
+        RuleNow: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            match: components["schemas"]["Match"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "tag" | "label" | "hide-map" | "hide-status" | "lock" | "one-device" | "ignore-neighbor";
+            /** Key */
+            key?: string | null;
+            /** Value */
+            value?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Expires */
+            expires?: string | null;
+            renewed?: components["schemas"]["Stamp"] | null;
+            withdrawn?: components["schemas"]["Stamp"] | null;
+            /**
+             * Excepted
+             * @default []
+             */
+            excepted: components["schemas"]["Excepted"][];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "expired" | "not-applied";
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Matches
+             * @default []
+             */
+            matches: components["schemas"]["RuleMatch"][];
+            /**
+             * Overridden
+             * @default []
+             */
+            overridden: components["schemas"]["Target"][];
+        };
+        /**
+         * RulePreview
+         * @description What a rule would do, made now.
+         */
+        RulePreview: {
+            /** Matches */
+            matches: components["schemas"]["Target"][];
+            /** Overridden */
+            overridden: components["schemas"]["Target"][];
+            /** Set Aside */
+            set_aside: string[];
+            /** Raised */
+            raised: string[];
+            /** Reason */
+            reason?: string | null;
         };
         /**
          * SavedLayout
@@ -4564,6 +4958,210 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Override"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_rule_api_rules_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RulePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    make_rule_api_rules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rule"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_rule_api_rules__rule_id__withdraw_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WithdrawIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    renew_rule_api_rules__rule_id__renew_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rule"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    except_from_rule_api_rules__rule_id__except_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExceptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rule"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    include_in_rule_api_rules__rule_id__include_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExceptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rule"];
                 };
             };
             /** @description Validation Error */

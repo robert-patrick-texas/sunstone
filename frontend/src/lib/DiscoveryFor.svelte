@@ -6,7 +6,8 @@ and the findings that involve it; for links, each one's check, with the
 finding about it if there is one. A finding of the latest run that offers
 a fix can be reviewed from here, or marked expected, and a link fixed in
 Sunstone, or expected not to be seen, says so. One about a neighbor not in
-the topology offers overrides, made here.
+the topology offers overrides, made here, and one repeated on the same port
+of many devices with one role, a rule.
 -->
 <script lang="ts">
 	import type { Change } from './api/changes.ts';
@@ -27,7 +28,8 @@ the topology offers overrides, made here.
 	} from './discovery.ts';
 	import { clock } from './history.ts';
 	import OverrideForm from './OverrideForm.svelte';
-	import { named } from './overrides.svelte.ts';
+	import { named, ruleOffers, type RuleOffer } from './overrides.svelte.ts';
+	import RuleForm from './RuleForm.svelte';
 	import { reviewFix, ui, type Selection } from './state.svelte.ts';
 	import { linkName, type TopologyIndex } from './topology.ts';
 
@@ -52,6 +54,16 @@ the topology offers overrides, made here.
 
 	/** The overrides a finding offers, from the latest run only. */
 	const offersOf = (f: Finding) => (ui.at === null ? overrideOffers(f, index) : []);
+
+	/** The rules repeated findings offer, from the latest run only. */
+	const rules = $derived(
+		ui.at === null && comparison ? ruleOffers(comparison.findings, index) : []
+	);
+	/** The rule a finding offers being made, if any, by its key. */
+	let ruling = $state<{ offer: string; finding: string } | null>(null);
+
+	/** An offer of a rule, as the form open on it knows it. */
+	const keyOf = (r: RuleOffer) => `${r.label} ${r.findings[0]}`;
 </script>
 
 {#snippet fixOf(f: Finding)}
@@ -71,13 +83,28 @@ the topology offers overrides, made here.
 		<br /><button
 			class="link"
 			aria-pressed={offering?.finding === f.id && offering.kind === o.kind}
-			onclick={() => (offering = { finding: f.id, kind: o.kind })}>{o.label}</button
+			onclick={() => {
+				ruling = null;
+				offering = { finding: f.id, kind: o.kind };
+			}}>{o.label}</button
+		>
+	{/each}
+	{#each rules.filter((r) => r.findings.includes(f.id)) as r (keyOf(r))}
+		<br /><button
+			class="link"
+			aria-pressed={ruling?.finding === f.id && ruling.offer === keyOf(r)}
+			onclick={() => {
+				offering = null;
+				ruling = { offer: keyOf(r), finding: f.id };
+			}}>{r.label}</button
 		>
 	{/each}
 {/snippet}
 
 {#snippet overrideOf(f: Finding)}
 	{@const making = offersOf(f).find((o) => offering?.finding === f.id && offering.kind === o.kind)}
+	{@const ruled =
+		ruling?.finding === f.id ? rules.find((r) => keyOf(r) === ruling?.offer) : undefined}
 	{#if making}
 		<!-- Made afresh for each offer, from its preset. -->
 		{#key making.kind}
@@ -89,6 +116,19 @@ the topology offers overrides, made here.
 					preset={{ kind: making.kind, value: making.value }}
 					onmade={() => (offering = null)}
 					oncancel={() => (offering = null)}
+				/>
+			</div>
+		{/key}
+	{/if}
+	{#if ruled}
+		<!-- Made afresh for each offer, from its draft. -->
+		{#key keyOf(ruled)}
+			<div class="override">
+				<RuleForm
+					{index}
+					preset={ruled.draft}
+					onmade={() => (ruling = null)}
+					oncancel={() => (ruling = null)}
 				/>
 			</div>
 		{/key}

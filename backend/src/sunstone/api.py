@@ -36,6 +36,7 @@ from sunstone.discovery import (
     Finding,
     Fix,
     NeighborRules,
+    PortRule,
     SimulatedDiscovery,
     expecting,
 )
@@ -120,6 +121,8 @@ from sunstone.operations import (
 from sunstone.overrides import (
     SHOWN_ONLY,
     SINGLE,
+    Excepted,
+    ExceptIn,
     Override,
     OverrideIn,
     OverrideList,
@@ -127,13 +130,21 @@ from sunstone.overrides import (
     OverrideRefused,
     OverrideStore,
     RenewIn,
+    Rule,
+    RuleIn,
+    RuleNow,
+    RulePreview,
     Stamp,
     WithdrawIn,
     apply,
     check,
     lines,
     new_override,
+    new_rule,
+    preview,
+    rule_lines,
     same,
+    same_rule,
 )
 from sunstone.problems import Ack, AckIn, Problem
 from sunstone.simulate import SimulatedState, monitored
@@ -227,9 +238,11 @@ class _Documented:
     overrides: list[OverrideNow]
     """Every override not withdrawn, oldest first, as it stood when this
     was worked out."""
+    ruled: list[RuleNow]
+    """Every rule not withdrawn, oldest first, as it stood then."""
 
     def expiring(self) -> datetime | None:
-        """When the first override that applies expires.
+        """When the first override or rule that applies expires.
 
         Returns:
             The moment; None if none that applies has an expiry.
@@ -240,7 +253,7 @@ class _Documented:
         return min(
             (
                 o.expires
-                for o in self.overrides
+                for o in [*self.overrides, *self.ruled]
                 if o.state == "active" and o.expires is not None
             ),
             default=None,
@@ -312,7 +325,9 @@ def create_app(
             f"{changes.path}: a change no longer applies to {topology_path.name}: {e}"
         ) from e
     # Overrides that no longer apply are kept, and say so.
-    overridden = apply(fixed, overrides.overrides(), datetime.now(UTC))
+    overridden = apply(
+        fixed, overrides.overrides(), datetime.now(UTC), overrides.rules()
+    )
     topology = overridden.topology
     operations = OperationsStore(
         files.path(topology_path, "operations"), Network(topology)
@@ -329,6 +344,7 @@ def create_app(
         rules: NeighborRules,
         fixed: Topology | None = None,
         standing: list[OverrideNow] | None = None,
+        ruled: list[RuleNow] | None = None,
     ) -> _Documented:
         """Work out everything that follows the documentation, with the
         overrides applied (``fixed`` is it before them), and the rules
@@ -356,6 +372,7 @@ def create_app(
             fixed=fixed or documented,
             rules=rules,
             overrides=standing or [],
+            ruled=ruled or [],
         )
 
     def start(d: _Documented) -> None:
@@ -393,26 +410,31 @@ def create_app(
             if stop.wait((next_change(times, now) - now).total_seconds() + 1):
                 return
 
-    docs = build(topology, overridden.rules, fixed, overridden.now)
+    docs = build(topology, overridden.rules, fixed, overridden.now, overridden.ruled)
 
     def document(
-        changed: list[Change] | None = None, made: list[Override] | None = None
+        changed: list[Change] | None = None,
+        made: list[Override] | None = None,
+        ruled: list[Rule] | None = None,
     ) -> None:
-        """Keep a new change set, or new overrides, and follow the
-        documentation they make; with neither, follow the overrides that
-        apply now."""
+        """Keep a new change set, or new overrides or rules, and follow the
+        documentation they make; with none, follow the overrides and rules
+        that apply now."""
         nonlocal docs
         fixed = (
             docs.fixed if changed is None else applied(base, [c.fix for c in changed])
         )
         over = apply(
-            fixed, overrides.overrides() if made is None else made, datetime.now(UTC)
+            fixed,
+            overrides.overrides() if made is None else made,
+            datetime.now(UTC),
+            overrides.rules() if ruled is None else ruled,
         )
-        fresh = build(over.topology, over.rules, fixed, over.now)
+        fresh = build(over.topology, over.rules, fixed, over.now, over.ruled)
         if changed is not None:
             changes.save(changed)
-        if made is not None:
-            overrides.save(made)
+        if made is not None or ruled is not None:
+            overrides.save(made, ruled)
         operations.network = fresh.network
         old, docs = docs, fresh
         old.stop.set()
@@ -646,6 +668,7 @@ def create_app(
             ],
             changes=[c for c in changes.changes() if since <= c.at <= until][::-1],
             overrides=lines(overrides.overrides(), since, until),
+            rules=rule_lines(overrides.rules(), since, until),
             findings=[
                 f for f in found if f.first_seen and since <= f.first_seen <= until
             ],
@@ -1188,18 +1211,29 @@ def create_app(
     def get_overrides() -> OverrideList:
         """Return every override not withdrawn, newest first, with how each
         stands now."""
-        return OverrideList(overrides=documented().overrides[::-1])
+        d = documented()
+        return OverrideList(overrides=d.overrides[::-1], rules=d.ruled[::-1])
 
-    def follow(d: _Documented, kept: list[Override], kinds: set[str]) -> None:
-        """Keep the overrides, and follow them: worked out again, unless
-        only the views use what changed."""
+    def follow(
+        d: _Documented,
+        kept: list[Override] | None,
+        kinds: set[str],
+        ruled: list[Rule] | None = None,
+    ) -> None:
+        """Keep the overrides, or the rules, and follow them: worked out
+        again, unless only the views use what changed."""
         nonlocal docs
         if kinds <= SHOWN_ONLY:
-            standing = apply(d.fixed, kept, datetime.now(UTC)).now
-            overrides.save(kept)
-            docs = replace(d, overrides=standing)
+            over = apply(
+                d.fixed,
+                overrides.overrides() if kept is None else kept,
+                datetime.now(UTC),
+                overrides.rules() if ruled is None else ruled,
+            )
+            overrides.save(kept, ruled)
+            docs = replace(d, overrides=over.now, ruled=over.ruled)
             return
-        document(made=kept)
+        document(made=kept, ruled=ruled)
 
     @app.post("/api/overrides", status_code=201)
     def make_override(made: OverrideIn) -> Override:
@@ -1275,6 +1309,146 @@ def create_app(
             every[at] = renewed
             follow(d, every, {renewed.kind})
             return renewed
+
+    def rule_preview(
+        d: _Documented, made: RuleIn, now: datetime
+    ) -> tuple[Rule, RuleNow, PortRule | None]:
+        """A rule as it would be recorded, how it would stand, and for one on
+        ports, what it would tell discovery."""
+        new = new_rule(made, now)
+        found, port = preview(
+            d.fixed, d.topology, overrides.overrides(), overrides.rules(), new, now
+        )
+        return new, found, port
+
+    @app.post("/api/rules/preview")
+    def preview_rule(made: RuleIn) -> RulePreview:
+        """Return what a rule would do, made now: what it would apply on,
+        what wins over it there, and for a rule on ports, the discovery
+        findings it would set aside and raise in the latest run."""
+        d = documented()
+        now = datetime.now(UTC)
+        _, found, port = rule_preview(d, made, now)
+        set_aside: list[str] = []
+        raised: list[str] = []
+        if port is not None:
+            was = {f.id: f for f in discovered(d, now).findings}
+            rules = replace(d.rules, ports=(*d.rules.ports, port))
+            after = expecting(
+                d.log.compared_with(rules, now), expected(changes.changes()), d.topology
+            )
+            got = {f.id: f for f in after.findings}
+            set_aside = [f.title for k, f in was.items() if k not in got]
+            raised = [f.title for k, f in got.items() if k not in was]
+        return RulePreview(
+            matches=[m.target for m in found.matches],
+            overridden=found.overridden,
+            set_aside=set_aside,
+            raised=raised,
+            reason=found.reason,
+        )
+
+    @app.post("/api/rules", status_code=201)
+    def make_rule(made: RuleIn) -> Rule:
+        """Make a rule: an override on everything that matches; everything
+        follows it."""
+        with changes.lock:
+            d = documented()
+            now = datetime.now(UTC)
+            if made.expires is not None and made.expires <= now:
+                raise HTTPException(422, "It would have expired already")
+            every = overrides.rules()
+            alive = [r for r in every if r.withdrawn is None]
+            if any(r.name.lower() == made.name.lower() for r in alive):
+                raise HTTPException(409, f"There is a rule named {made.name!r} already")
+            twin = next((r for r in alive if same_rule(r, made)), None)
+            if twin is not None:
+                raise HTTPException(409, f"Rule {twin.name!r} does that already")
+            new, found, _ = rule_preview(d, made, now)
+            if found.reason:
+                raise HTTPException(409, found.reason)
+            follow(d, None, {made.kind}, [*every, new])
+            return new
+
+    def a_rule(rule_id: str) -> tuple[list[Rule], int]:
+        """Every rule, and where one not withdrawn is among them."""
+        every = overrides.rules()
+        at = next(
+            (i for i, r in enumerate(every) if r.id == rule_id and r.withdrawn is None),
+            None,
+        )
+        if at is None:
+            raise HTTPException(404, f"No rule {rule_id!r}")
+        return every, at
+
+    @app.post("/api/rules/{rule_id}/withdraw", status_code=204)
+    def withdraw_rule(rule_id: str, withdrawal: WithdrawIn) -> None:
+        """Withdraw a rule: it stops applying, and is kept for the handover."""
+        with changes.lock:
+            d = documented()
+            every, at = a_rule(rule_id)
+            r = every[at]
+            every[at] = r.model_copy(
+                update={"withdrawn": Stamp(by=withdrawal.by, at=datetime.now(UTC))}
+            )
+            follow(d, None, {r.kind}, every)
+
+    @app.post("/api/rules/{rule_id}/renew")
+    def renew_rule(rule_id: str, renewal: RenewIn) -> Rule:
+        """Give a rule a new expiry, or none: an expired one applies again."""
+        with changes.lock:
+            d = documented()
+            now = datetime.now(UTC)
+            if renewal.expires is not None and renewal.expires <= now:
+                raise HTTPException(422, "It would have expired already")
+            every, at = a_rule(rule_id)
+            renewed = every[at].model_copy(
+                update={
+                    "expires": renewal.expires,
+                    "renewed": Stamp(by=renewal.by, at=now),
+                }
+            )
+            every[at] = renewed
+            follow(d, None, {renewed.kind}, every)
+            return renewed
+
+    @app.post("/api/rules/{rule_id}/except")
+    def except_from_rule(rule_id: str, taken: ExceptIn) -> Rule:
+        """Take an object out of a rule: it stops applying there, and the
+        rule lists it as an exception."""
+        with changes.lock:
+            d = documented()
+            every, at = a_rule(rule_id)
+            r = every[at]
+            t = taken.target
+            if any(e.target == t for e in r.excepted):
+                raise HTTPException(409, f"{t.id} is out of rule {r.name!r} already")
+            standing = next((x for x in d.ruled if x.id == rule_id), None)
+            on = [m.target for m in standing.matches] if standing else []
+            if t not in [*on, *(standing.overridden if standing else [])]:
+                raise HTTPException(409, f"Rule {r.name!r} is not on {t.id}")
+            out = Excepted(target=t, by=taken.by, at=datetime.now(UTC))
+            changed = r.model_copy(update={"excepted": [*r.excepted, out]})
+            every[at] = changed
+            follow(d, None, {r.kind}, every)
+            return changed
+
+    @app.post("/api/rules/{rule_id}/include")
+    def include_in_rule(rule_id: str, back: ExceptIn) -> Rule:
+        """Put an object taken out of a rule back: it applies there again."""
+        with changes.lock:
+            d = documented()
+            every, at = a_rule(rule_id)
+            r = every[at]
+            kept = [e for e in r.excepted if e.target != back.target]
+            if len(kept) == len(r.excepted):
+                raise HTTPException(
+                    409, f"{back.target.id} is not out of rule {r.name!r}"
+                )
+            changed = r.model_copy(update={"excepted": kept})
+            every[at] = changed
+            follow(d, None, {r.kind}, every)
+            return changed
 
     @app.get("/api/layouts")
     def list_layouts() -> list[LayoutSummary]:

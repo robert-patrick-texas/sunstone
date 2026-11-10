@@ -1,19 +1,25 @@
 <!--
 @component
-Every override not withdrawn: flagged (locks the topology now says
-otherwise of), applying, not applied and why, and expired, each with what
-it is on, to renew or withdraw. Clicking what one is on selects it and
-brings it into view: a port as its device, a port channel as its members.
+Every rule and override not withdrawn: rules applying, not applied and
+why, and expired, each with what it applies on; then overrides flagged
+(locks the topology now says otherwise of), applying, not applied, and
+expired, each with what it is on; all to renew or withdraw, and making a
+rule. Clicking what one is on selects it and brings it into view: a port as
+its device, a port channel as its members.
 -->
 <script lang="ts">
-	import type { OverrideNow } from './api/overrides.ts';
+	import type { OverrideNow, Target } from './api/overrides.ts';
 	import { lagMembers } from './connections.ts';
 	import OverrideItem from './OverrideItem.svelte';
+	import RuleForm from './RuleForm.svelte';
+	import RuleItem from './RuleItem.svelte';
 	import { lagId, objectOf, overrides } from './overrides.svelte.ts';
 	import { select } from './state.svelte.ts';
 	import type { TopologyIndex } from './topology.ts';
 
 	const { index }: { index: TopologyIndex } = $props();
+
+	let making = $state(false);
 
 	/** A lock applying whose field the topology now gives another value. */
 	function flagged(o: OverrideNow): boolean {
@@ -37,7 +43,18 @@ brings it into view: a port as its device, a port channel as its members.
 		].filter((g) => g.items.length > 0)
 	);
 
-	function show({ target: of }: OverrideNow): void {
+	const ruleGroups = $derived(
+		[
+			{ label: 'Rules applying', items: overrides.rules.filter((r) => r.state === 'active') },
+			{
+				label: 'Rules not applied',
+				items: overrides.rules.filter((r) => r.state === 'not-applied')
+			},
+			{ label: 'Rules expired', items: overrides.rules.filter((r) => r.state === 'expired') }
+		].filter((g) => g.items.length > 0)
+	);
+
+	function show(of: Target): void {
 		switch (of.kind) {
 			case 'link':
 				select({ kind: 'links', ids: [of.id] }, true);
@@ -58,12 +75,27 @@ brings it into view: a port as its device, a port channel as its members.
 </script>
 
 <section aria-label="Overrides">
-	{#if groups.length === 0}
+	{#if making}
+		<div class="making">
+			<RuleForm {index} onmade={() => (making = false)} oncancel={() => (making = false)} />
+		</div>
+	{:else}
+		<p class="actions"><button type="button" onclick={() => (making = true)}>New rule…</button></p>
+	{/if}
+	{#if groups.length === 0 && ruleGroups.length === 0}
 		<p class="muted">
-			No overrides. Make one from an object's details: rename it, give it an alias, tag or label it,
-			hide it, or lock a field.
+			No overrides or rules. Make one from an object's details: rename it, give it an alias, tag or
+			label it, hide it, or lock a field; or make a rule for everything that matches.
 		</p>
 	{/if}
+	{#each ruleGroups as group (group.label)}
+		<h3>{group.label} ({group.items.length})</h3>
+		<ul>
+			{#each group.items as r (r.id)}
+				<li><RuleItem {r} {index} onselect={show} /></li>
+			{/each}
+		</ul>
+	{/each}
 	{#each groups as group (group.label)}
 		<h3>{group.label} ({group.items.length})</h3>
 		<ul>
@@ -74,7 +106,7 @@ brings it into view: a port as its device, a port channel as its members.
 						{o}
 						{index}
 						withTarget
-						onselect={objectOf(index, o.target) ? show : undefined}
+						onselect={objectOf(index, o.target) ? () => show(o.target) : undefined}
 					/>
 				</li>
 			{/each}
@@ -105,6 +137,16 @@ brings it into view: a port as its device, a port channel as its members.
 	.muted {
 		margin: 2px 4px 6px;
 		color: var(--muted);
+		font-size: 12px;
+	}
+	.making {
+		margin: 0 4px 6px;
+	}
+	.actions {
+		margin: 0 4px 6px;
+	}
+	.actions button {
+		padding: 2px 8px;
 		font-size: 12px;
 	}
 </style>

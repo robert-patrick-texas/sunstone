@@ -7,9 +7,15 @@
  * Kept apart from `model.ts`, which the layout worker loads: the overrides
  * are Svelte state, which the worker cannot hold.
  */
-import type { OverrideNow } from '../api/overrides.ts';
 import type { Link } from '../api/topology.ts';
-import { hiddenOnMap, overrides, shown, targetKey } from '../overrides.svelte.ts';
+import {
+	effects,
+	hiddenOnMap,
+	overrides,
+	shown,
+	targetKey,
+	type Effect
+} from '../overrides.svelte.ts';
 import { isDeviceEnd, nodeKey, type TopologyIndex } from '../topology.ts';
 import type { GraphNode } from './model.ts';
 
@@ -38,12 +44,12 @@ export function drawnBeyond(links: Link[]): string[] {
 }
 
 /**
- * The overrides that hide something from the map now.
+ * The overrides, and rules on each object, that hide something from the map now.
  *
- * @returns Them, newest first.
+ * @returns Them: overrides newest first, then rules.
  */
-export function hiding(): OverrideNow[] {
-	return overrides.list.filter((o) => o.kind === 'hide-map' && o.state === 'active');
+export function hiding(): Effect[] {
+	return effects().filter((o) => o.kind === 'hide-map');
 }
 
 /**

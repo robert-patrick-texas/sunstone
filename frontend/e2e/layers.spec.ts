@@ -511,6 +511,7 @@ test('high-priority problems come first, marked High', async ({ page }) => {
 	// After the networks and resources not as they should be, the problems.
 	const first = panel.getByRole('heading', { name: /^(?!Networks |Resources ).*\(\d+\)$/ }).first();
 	await expect(first).toHaveText(/^High priority \(\d+\)$/);
-	const problem = panel.getByRole('button', { name: found }).first();
+	// The problem's title can also be a network's reason, listed above it.
+	const problem = panel.getByRole('button', { name: `High ${found}` }).first();
 	await expect(problem.getByText('High', { exact: true })).toBeVisible();
 });

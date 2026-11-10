@@ -1,20 +1,21 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Problem } from './api/analysis.ts';
 import type { HandoverSummary, Outage } from './api/handover.ts';
-import type { Override, OverrideLine, OverrideNow } from './api/overrides.ts';
+import type { Override, OverrideLine, OverrideNow, Rule } from './api/overrides.ts';
 import {
 	duration,
 	lasted,
 	messageText,
 	outageSections,
 	overrideRow,
+	ruleRow,
 	savedLabel,
 	selectionOf,
 	signedLine,
 	standing,
 	toSign
 } from './handover.ts';
-import { overrides } from './overrides.svelte.ts';
+import { emptyMatch, overrides } from './overrides.svelte.ts';
 import { fixture, fixtureIndex } from './test-fixture.ts';
 import { indexTopology } from './topology.ts';
 
@@ -239,5 +240,33 @@ describe('overrides in a handover', () => {
 			]
 		});
 		expect(of('lag', 'gone')).toBeNull();
+	});
+});
+
+describe('rules in a handover', () => {
+	it('say what the rule does, to what, and why, with nothing to select', () => {
+		const rule: Rule = {
+			id: 'r1',
+			name: 'Daisy chains',
+			match: { ...emptyMatch('port'), role: ['access'], interface: ['Gi1/0/48'] },
+			kind: 'ignore-neighbor',
+			key: null,
+			value: '*-acc-*',
+			note: 'chained in the closets',
+			by: 'Pat',
+			at: '2026-10-27T14:00:00Z',
+			expires: null,
+			renewed: null,
+			withdrawn: { by: 'Sam', at: '2026-10-27T15:00:00Z' },
+			excepted: []
+		};
+		const at = '2026-10-27T15:00:00Z';
+		const rows = (['made', 'withdrawn'] as const).map((event) => ruleRow({ event, at, rule }));
+		const what =
+			'Rule Daisy chains · Ignores *-acc-* · Port Gi1/0/48 on every device with role access · chained in the closets';
+		expect(rows.map((r) => [r.event, r.what, r.target])).toEqual([
+			['Made by Pat', what, null],
+			['Withdrawn by Sam', what, null]
+		]);
 	});
 });

@@ -33,12 +33,24 @@ Kinds, and what each applies to:
 Overrides apply after the fixes, before status, discovery, and drawing, in
 the order they were made. One that has expired stops applying and is kept,
 to be renewed or withdrawn; a withdrawn one is kept too, for the handover.
+
+A rule is an override on everything that matches: every object of one kind
+that passes its tests (a name pattern, a site, a role, a platform, a tag),
+or every port of the devices that do whose interface matches a pattern. It
+does what an override does (tags, labels, hiding, locks to one value, and
+on ports, ignoring neighbors whose names match or taking every row as one
+device), but not renaming or aliasing, which are about one object. Rules
+see the topology as the fixes and the overrides on single objects leave
+it, never what another rule adds, so they never chain. Where an object can
+have one of a kind at a time (a label of a key, a lock of a field, hiding),
+its own override wins over any rule, and a newer rule over an older one;
+an object can also be taken out of a rule, as an exception.
 """
 
 import json
 import os
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -53,8 +65,20 @@ from pydantic import (
     model_validator,
 )
 
-from sunstone.discovery import NeighborRules, port_key
-from sunstone.model import Lag, Sides, Topology, lag_members
+from sunstone.discovery import NeighborRules, PortRule, like, port_key
+from sunstone.model import (
+    Device,
+    External,
+    Lag,
+    Link,
+    Sides,
+    Site,
+    Topology,
+    device_ends,
+    lag_members,
+    link_roles,
+    ratings,
+)
 from sunstone.problems import Note, PersonName
 
 TargetKind = Literal[
@@ -270,12 +294,6 @@ class OverrideNow(Override):
     (empty for nothing); for a site renamed, its name in the topology."""
 
 
-class OverrideList(_Record):
-    """The overrides not withdrawn, newest first."""
-
-    overrides: list[OverrideNow]
-
-
 class OverrideLine(_Record):
     """An override made, withdrawn, or expired in a span, for the handover."""
 
@@ -297,14 +315,281 @@ class WithdrawIn(_Record):
     by: PersonName
 
 
+RuleKind = Literal[
+    "tag",
+    "label",
+    "hide-map",
+    "hide-status",
+    "lock",
+    "one-device",
+    "ignore-neighbor",
+]
+TestField = Literal[
+    "name",
+    "site",
+    "region",
+    "role",
+    "platform",
+    "priority",
+    "kind",
+    "medium",
+    "tenant",
+    "tag",
+    "interface",
+]
+TEST_FIELDS: tuple[TestField, ...] = (
+    "name",
+    "site",
+    "region",
+    "role",
+    "platform",
+    "priority",
+    "kind",
+    "medium",
+    "tenant",
+    "tag",
+    "interface",
+)
+TESTS: dict[TargetKind, tuple[TestField, ...]] = {
+    "site": ("name", "region", "tag"),
+    "device": ("name", "site", "region", "role", "platform", "priority", "tag"),
+    "port": ("name", "site", "region", "role", "platform", "tag", "interface"),
+    "link": ("name", "site", "region", "role", "kind", "medium", "priority", "tag"),
+    "lag": ("name", "site", "region", "tag"),
+    "external": ("name", "kind", "tenant", "platform", "priority", "tag"),
+    "transport": ("name", "kind", "tag"),
+    "tunnel": ("name", "tag"),
+    "fabric": ("name", "tag"),
+    "resource": ("name", "tag"),
+    "network": ("name", "tag"),
+}
+"""What a rule can test, on each kind of object. On a port, all but the
+interface are its device's; on a link, the site and region are either
+end's, the role is at the edge (``internal`` between two of our devices,
+``tbd`` until documented), and the priority is its rating."""
+RULE_APPLIES: dict[RuleKind, frozenset[TargetKind]] = {
+    "tag": APPLIES_TO["tag"],
+    "label": APPLIES_TO["label"],
+    "hide-map": APPLIES_TO["hide-map"],
+    "hide-status": APPLIES_TO["hide-status"],
+    "lock": APPLIES_TO["lock"],
+    "one-device": APPLIES_TO["one-device"],
+    "ignore-neighbor": APPLIES_TO["ignore-neighbor"],
+}
+"""What each kind of rule can be on: as each kind of override."""
+# Kinds of rule that take no value: on ports, one device goes by the name
+# its rows give, as no one name fits every port.
+_UNVALUED: frozenset[RuleKind] = frozenset({"hide-map", "hide-status", "one-device"})
+
+Pattern = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+]
+Patterns = Annotated[list[Pattern], Field(max_length=20)]
+RuleName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)
+]
+
+
+class Match(_Record):
+    """What a rule is on: every object of one kind that passes every test
+    given, each by any of its patterns (``*`` for any run of characters,
+    ``?`` for one), ignoring case; on ports, every port of the devices that
+    pass whose interface matches."""
+
+    of: TargetKind
+    name: Patterns = []
+    """A site's code or name; a device's or external node's name in the
+    topology, new name, or alias; a link's id or either CID; anything
+    else's key."""
+    site: Patterns = []
+    """A site's code or name."""
+    region: Patterns = []
+    """A region, or one it is in."""
+    role: Patterns = []
+    """A device's role; a link's roles at the edge."""
+    platform: Patterns = []
+    priority: Patterns = []
+    kind: Patterns = []
+    """A link's, external node's, or transport's own kind."""
+    medium: Patterns = []
+    tenant: Patterns = []
+    tag: Patterns = []
+    """A tag in the topology, or one an override on the object adds."""
+    interface: Patterns = []
+    """For ports: ``Gi1/0/48``, ``GigabitEthernet1/0/48``, ``*/0/48``."""
+
+    @model_validator(mode="after")
+    def _fits(self) -> Self:
+        wrong = [f for f in TEST_FIELDS if getattr(self, f) and f not in TESTS[self.of]]
+        if wrong:
+            raise ValueError(
+                f"A rule on {_NOUN[self.of]}s cannot test {', '.join(wrong)} "
+                f"(only {', '.join(TESTS[self.of])})"
+            )
+        if self.of == "port" and not self.interface:
+            raise ValueError("A rule on ports needs an interface pattern")
+        return self
+
+    def tests(self) -> dict[TestField, list[str]]:
+        """The tests given, but a port's interface.
+
+        Returns:
+            Each test's patterns, by field.
+
+        Raises:
+            None
+        """
+        return {
+            f: getattr(self, f)
+            for f in TEST_FIELDS
+            if getattr(self, f) and f != "interface"
+        }
+
+
+class RuleIn(_Record):
+    """A rule someone makes."""
+
+    name: RuleName
+    """What people call it: "Daisy chains", "Lab gear"."""
+    match: Match
+    kind: RuleKind
+    key: Value | None = None
+    """A label's key, or the field a lock keeps."""
+    value: Value | None = None
+    """The tag, label's value, lock's value, or the pattern a neighbor's
+    name matches to be ignored (``*`` for any); none to hide, or for one
+    device on each port."""
+    note: Note = ""
+    by: PersonName
+    expires: datetime | None = None
+
+    @model_validator(mode="after")
+    def _complete(self) -> Self:
+        of = self.match.of
+        if of not in RULE_APPLIES[self.kind]:
+            raise ValueError(f"A {self.kind} rule is not made on {_NOUN[of]}s")
+        keyed = self.kind in ("label", "lock")
+        if keyed != bool(self.key):
+            raise ValueError(
+                f"A {self.kind} rule {'needs' if keyed else 'takes no'} key"
+            )
+        valued = self.kind not in _UNVALUED
+        if valued != bool(self.value):
+            raise ValueError(
+                f"A {self.kind} rule {'needs' if valued else 'takes no'} value"
+            )
+        if self.kind == "lock" and self.key not in LOCKABLE[of]:
+            fields = ", ".join(LOCKABLE[of])
+            raise ValueError(
+                f"A {_NOUN[of]}'s {self.key} cannot be locked (only {fields})"
+            )
+        return self
+
+
+class Excepted(_Record):
+    """An object taken out of a rule, by whom, and when."""
+
+    target: Target
+    """The object; for a rule on ports, their device."""
+    by: str
+    at: datetime
+
+
+class Rule(_Record):
+    """A rule, as made, with its exceptions, and withdrawn if it has been."""
+
+    id: str
+    name: str
+    match: Match
+    kind: RuleKind
+    key: str | None = None
+    value: str | None = None
+    note: str = ""
+    by: str
+    at: datetime
+    expires: datetime | None = None
+    renewed: Stamp | None = None
+    withdrawn: Stamp | None = None
+    excepted: list[Excepted] = []
+    """The objects taken out of it, oldest first."""
+
+
+class RuleMatch(_Record):
+    """An object a rule applies on."""
+
+    target: Target
+    """The object; for a rule on ports, their device."""
+    topology_value: str | None = None
+    """For a lock, what the topology says where it differs (empty for
+    nothing)."""
+
+
+class RuleNow(Rule):
+    """A rule, and how it stands against the network now."""
+
+    state: OverrideState
+    """``active`` while it applies, ``expired`` once its time is up, and
+    ``not-applied`` while the topology will not take it."""
+    reason: str | None = None
+    """Why it is not applied."""
+    matches: list[RuleMatch] = []
+    """What it applies on now, while active: everything that matches but
+    its exceptions and what wins over it."""
+    overridden: list[Target] = []
+    """What it matches where an override on the object, or a newer rule,
+    wins."""
+
+
+class RulePreview(_Record):
+    """What a rule would do, made now."""
+
+    matches: list[Target]
+    """What it would apply on."""
+    overridden: list[Target]
+    """What it matches where an override on the object, or a newer rule,
+    wins."""
+    set_aside: list[str]
+    """For a rule on ports, the titles of the discovery findings it would
+    set aside in the latest run."""
+    raised: list[str]
+    """And of those it would raise, such as a link no longer seen once the
+    rows that showed it are dropped."""
+    reason: str | None = None
+    """Why the topology would not take it, if it would not."""
+
+
+class ExceptIn(_Record):
+    """An object to take out of a rule, or put back, and who does it."""
+
+    target: Target
+    by: PersonName
+
+
+class RuleLine(_Record):
+    """A rule made, withdrawn, or expired in a span, for the handover."""
+
+    event: LineEvent
+    at: datetime
+    rule: Rule
+
+
+class OverrideList(_Record):
+    """The overrides and rules not withdrawn, newest first."""
+
+    overrides: list[OverrideNow]
+    rules: list[RuleNow] = []
+
+
 class _File(_Record):
     overrides: list[Override] = []
     """Oldest first, the order they apply in."""
+    rules: list[Rule] = []
+    """Oldest first."""
 
 
 @dataclass(frozen=True)
 class Overridden:
-    """The topology with the overrides applied, and how each stands."""
+    """The topology with the overrides and rules applied, and how each stands."""
 
     topology: Topology
     rules: NeighborRules
@@ -312,6 +597,8 @@ class Overridden:
     and what to make of the rows on some ports."""
     now: list[OverrideNow]
     """Every override not withdrawn, oldest first."""
+    ruled: list[RuleNow]
+    """Every rule not withdrawn, oldest first."""
 
     def applying(self) -> frozenset[str]:
         """The ids of those that apply.
@@ -379,20 +666,44 @@ def missing(topology: Topology, target: Target) -> str | None:
 
 Edit = tuple[TargetKind, str, str, object]
 """One field of one object to change: its kind, key, field, and value."""
+Ref = tuple[Literal["override", "rule"], int]
+"""An override, or a rule, by where it is in the list of how each stands."""
 
 
-def _with(topology: Topology, edits: list[Edit]) -> Topology:
-    """A topology with fields of its objects changed, validated again."""
+def _with(topology: Topology, edits: list[Edit], validate: bool = True) -> Topology:
+    """A topology with fields of its objects changed, validated again; or,
+    not validated, only to be read, as rules read it."""
     lists: dict[str, list[BaseModel]] = {}
+    where: dict[str, dict[str, int]] = {}
     for kind, key, field, value in edits:
         name = _LISTS[kind]
-        items = lists.setdefault(name, list(getattr(topology, name)))
-        at = next(i for i, item in enumerate(items) if _key(kind, item) == key)
+        if name not in lists:
+            lists[name] = list(getattr(topology, name))
+            where[name] = {_key(kind, item): i for i, item in enumerate(lists[name])}
+        items = lists[name]
+        at = where[name][key]
         item = items[at]
-        # Its fields, without the ids worked out from them.
-        fields = {k: getattr(item, k) for k in type(item).model_fields}
-        items[at] = type(item).model_validate({**fields, field: value})
+        if validate:
+            # Its fields, without the ids worked out from them.
+            fields = {k: getattr(item, k) for k in type(item).model_fields}
+            items[at] = type(item).model_validate({**fields, field: value})
+        else:
+            items[at] = item.model_copy(update={field: value})
+    if not validate:
+        return topology.model_copy(update=lists)
     return Topology.model_validate({**dict(topology), **lists})
+
+
+def _lookup(topology: Topology) -> Callable[[TargetKind, str], BaseModel]:
+    """Find a topology's objects by kind and key, indexing each kind once."""
+    found: dict[TargetKind, dict[str, BaseModel]] = {}
+
+    def get(kind: TargetKind, key: str) -> BaseModel:
+        if kind not in found:
+            found[kind] = _objects(topology, kind)
+        return found[kind][key]
+
+    return get
 
 
 def _quiet(topology: Topology, target: Target) -> list[tuple[TargetKind, str]]:
@@ -413,33 +724,32 @@ def _error(e: ValidationError) -> str:
     )
 
 
-def apply(
+@dataclass
+class _Standing:
+    """How the overrides on single objects stand, and what they change."""
+
+    now: list[OverrideNow]
+    changing: list[tuple[int, list[Edit]]]
+    """Where each override that changes the topology is in ``now``, and its edits."""
+    names: dict[str, str]
+    one_device: dict[tuple[str, str], str]
+    ignored: dict[tuple[str, str], set[str]]
+
+    def active(self) -> list[OverrideNow]:
+        """Those that apply."""
+        return [o for o in self.now if o.state == "active"]
+
+    def edits(self) -> list[Edit]:
+        """Everything they change, in order."""
+        return [e for _, edits in self.changing for e in edits]
+
+
+def _standing(
     topology: Topology, overrides: Iterable[Override], at: datetime
-) -> Overridden:
-    """The topology with the overrides that apply at a moment applied.
-
-    The changes to the topology are made together and validated once, as
-    validating a large topology takes most of a second; only if it will not
-    take them all are they made one at a time, to find which it refuses.
-
-    Args:
-        topology: The documentation, with its fixes.
-        overrides: Every override, oldest first; withdrawn ones are skipped.
-        at: The moment, for which have expired.
-
-    Returns:
-        The topology changed by locks, sites' new names, and hiding from
-        status; the rules discovery takes from names and ports; and how
-        each override stands.
-
-    Raises:
-        None
-    """
-    now: list[OverrideNow] = []
-    names: dict[str, str] = {}
-    one_device: dict[tuple[str, str], str] = {}
-    ignored: dict[tuple[str, str], set[str]] = {}
-    changing: list[tuple[int, list[Edit]]] = []
+) -> _Standing:
+    """How each override not withdrawn stands at a moment, what those that
+    apply change in the topology, and what they tell discovery."""
+    found = _Standing([], [], {}, {}, {})
     for o in overrides:
         if o.withdrawn is not None:
             continue
@@ -450,31 +760,73 @@ def apply(
         elif reason is not None:
             state = "not-applied"
         if state == "active" and (edits := _edits(topology, o)):
-            changing.append((len(now), edits))
+            found.changing.append((len(found.now), edits))
         if state == "active" and o.target.kind == "device" and o.value:
             if o.kind in ("rename", "alias"):
-                names[o.value] = o.target.id
+                found.names[o.value] = o.target.id
         if state == "active" and o.target.kind == "port" and o.value:
             port = (o.target.id, port_key(o.target.interface or ""))
             if o.kind == "one-device":
-                one_device[port] = o.value
+                found.one_device[port] = o.value
             elif o.kind == "ignore-neighbor":
-                ignored.setdefault(port, set()).add(o.value)
-        now.append(
+                found.ignored.setdefault(port, set()).add(o.value)
+        found.now.append(
             OverrideNow(
                 **dict(o),
                 state=state,
                 reason=reason if state == "not-applied" else None,
             )
         )
+    return found
+
+
+def apply(
+    topology: Topology,
+    overrides: Iterable[Override],
+    at: datetime,
+    rules: Iterable[Rule] = (),
+) -> Overridden:
+    """The topology with the overrides and rules that apply at a moment applied.
+
+    The changes to the topology are made together and validated once, as
+    validating a large topology takes most of a second; only if it will not
+    take them all are they made one at a time, to find which it refuses.
+    Rules' changes come first, so where an override on the object changes
+    the same field, it wins.
+
+    Args:
+        topology: The documentation, with its fixes.
+        overrides: Every override, oldest first; withdrawn ones are skipped.
+        at: The moment, for which have expired.
+        rules: Every rule, oldest first; withdrawn ones are skipped.
+
+    Returns:
+        The topology changed by locks, sites' new names, and hiding from
+        status; the rules discovery takes from names and ports; and how
+        each override and rule stands.
+
+    Raises:
+        None
+    """
+    standing = _standing(topology, overrides, at)
+    alive = [r for r in rules if r.withdrawn is None]
+    ruled, by_rules, ports = _ruled(
+        topology, standing.active(), standing.edits(), alive, at
+    )
+    every: list[tuple[Ref, list[Edit]]] = [
+        *((("rule", i), edits) for i, edits in by_rules),
+        *((("override", i), edits) for i, edits in standing.changing),
+    ]
     return Overridden(
-        topology=_changed(topology, changing, now),
+        topology=_changed(topology, every, standing.now, ruled),
         rules=NeighborRules(
-            names=names,
-            one_device=one_device,
-            ignored={p: frozenset(v) for p, v in ignored.items()},
+            names=standing.names,
+            one_device=standing.one_device,
+            ignored={p: frozenset(v) for p, v in standing.ignored.items()},
+            ports=tuple(ports),
         ),
-        now=now,
+        now=standing.now,
+        ruled=ruled,
     )
 
 
@@ -490,46 +842,322 @@ def _edits(topology: Topology, o: Override) -> list[Edit]:
     return []
 
 
+def _slot(target: Target, kind: OverrideKind, key: str | None) -> tuple[object, ...]:
+    """What an object can have one of at a time: a label of a key, a lock of
+    a field, one hiding of each kind."""
+    return (target.kind, target.id, target.interface, kind, key)
+
+
+def _ruled(
+    topology: Topology,
+    active: list[OverrideNow],
+    edits: list[Edit],
+    rules: list[Rule],
+    at: datetime,
+) -> tuple[list[RuleNow], list[tuple[int, list[Edit]]], list[PortRule]]:
+    """How each rule stands, what each changes in the topology, and what
+    those on ports tell discovery.
+
+    Rules match the topology as the overrides on single objects leave it.
+    Newer rules claim what they match first, after those overrides, so an
+    override on the object wins over any rule, and a newer rule over an
+    older one, where an object has one of a kind at a time.
+
+    Args:
+        topology: The documentation, with its fixes.
+        active: The overrides on single objects that apply.
+        edits: What they change in the topology.
+        rules: Every rule not withdrawn, oldest first.
+        at: The moment, for which have expired.
+
+    Returns:
+        How each rule stands, oldest first; where each that changes the
+        topology is in that list, with its edits, oldest first; and the
+        rules on ports, oldest first.
+    """
+    if not rules:
+        return [], [], []
+    matcher = _Matcher(_with(topology, edits, validate=False), active)
+    held = {_slot(o.target, o.kind, o.key) for o in active if o.kind in SINGLE}
+    found: dict[int, RuleNow] = {}
+    changing: list[tuple[int, list[Edit]]] = []
+    ports: list[PortRule] = []
+    for i in reversed(range(len(rules))):
+        r = rules[i]
+        if r.expires is not None and r.expires <= at:
+            found[i] = RuleNow(**dict(r), state="expired")
+            continue
+        out = {(e.target.kind, e.target.id) for e in r.excepted}
+        mine: list[Target] = []
+        beaten: list[Target] = []
+        for t in matcher.matching(r.match):
+            if (t.kind, t.id) in out:
+                continue
+            if r.kind in SINGLE and r.match.of != "port":
+                slot = _slot(t, r.kind, r.key)
+                if slot in held:
+                    beaten.append(t)
+                    continue
+                held.add(slot)
+            mine.append(t)
+        found[i] = RuleNow(
+            **dict(r),
+            state="active",
+            matches=[RuleMatch(target=t) for t in mine],
+            overridden=beaten,
+        )
+        if r.match.of == "port":
+            ports.append(
+                PortRule(
+                    devices=frozenset(t.id for t in mine),
+                    interfaces=tuple(r.match.interface),
+                    kind="one-device" if r.kind == "one-device" else "ignore-neighbor",
+                    neighbor=r.value or "*",
+                )
+            )
+        elif made := _rule_edits(matcher.topology, r, mine):
+            changing.append((i, made))
+    return [found[i] for i in range(len(rules))], changing[::-1], ports[::-1]
+
+
+def _rule_edits(topology: Topology, r: Rule, on: list[Target]) -> list[Edit]:
+    """What a rule changes in the topology, on what it applies on."""
+    if r.kind == "lock" and r.key:
+        return [(t.kind, t.id, r.key, r.value) for t in on]
+    if r.kind == "hide-status":
+        return [
+            (k, key, "priority", "ignored")
+            for t in on
+            for k, key in _quiet(topology, t)
+        ]
+    return []
+
+
+class _Matcher:
+    """Which objects a rule's tests match, on the topology as the fixes and
+    the overrides on single objects leave it: their tags, new names, and
+    aliases count, as locked fields do."""
+
+    def __init__(self, topology: Topology, active: Iterable[OverrideNow]) -> None:
+        self.topology = topology
+        self._added: dict[tuple[str, str], dict[str, list[str]]] = {}
+        for o in active:
+            if o.kind in ("tag", "rename", "alias") and o.value:
+                test = "tag" if o.kind == "tag" else "name"
+                by = self._added.setdefault((o.target.kind, o.target.id), {})
+                by.setdefault(test, []).append(o.value)
+        self._sites: dict[str, Site] = {s.code: s for s in topology.sites}
+        self._devices: dict[str, Device] = {d.name: d for d in topology.devices}
+        self._externals: dict[str, External] = {e.name: e for e in topology.externals}
+        self._parents = {r.name: r.parent for r in topology.regions}
+        self._ratings: dict[str, str] | None = None
+
+    def matching(self, match: Match) -> list[Target]:
+        """Everything a rule's tests match.
+
+        Args:
+            match: The tests.
+
+        Returns:
+            The objects that pass them all, in the topology's order; for a
+            rule on ports, their devices.
+        """
+        kind: TargetKind = "device" if match.of == "port" else match.of
+        tests = match.tests()
+        found: list[Target] = []
+        for item in getattr(self.topology, _LISTS[kind]):
+            key = _key(kind, item)
+            if all(
+                like(patterns, *self._values(kind, key, item, test))
+                for test, patterns in tests.items()
+            ):
+                found.append(Target(kind=kind, id=key))
+        return found
+
+    def _values(
+        self, kind: TargetKind, key: str, item: BaseModel, test: TestField
+    ) -> list[str | None]:
+        """The values of an object a test can match."""
+        added = self._added.get((kind, key), {})
+        if test == "name":
+            return [
+                key,
+                getattr(item, "name", None),
+                *added.get("name", []),
+                *_cids(item),
+            ]
+        if test == "tag":
+            return [*getattr(item, "tags", []), *added.get("tag", [])]
+        if test in ("site", "region"):
+            sites = [self._sites[c] for c in self._codes(item) if c in self._sites]
+            if test == "site":
+                return [v for s in sites for v in (s.code, s.name)]
+            return [r for s in sites for r in self._regions(s.region)]
+        if test == "role" and isinstance(item, Link):
+            roles = link_roles(item, self._externals)
+            if roles.edges:
+                return list(roles.edges)
+            return ["tbd" if roles.source == "tbd" else "internal"]
+        if test == "priority" and isinstance(item, Link):
+            if self._ratings is None:
+                self._ratings = {
+                    k: r.priority for k, r in ratings(self.topology).items()
+                }
+            return [self._ratings.get(item.id)]
+        return [text(getattr(item, test, None)) or None]
+
+    def _regions(self, region: str | None) -> list[str]:
+        """A region and every region it is in."""
+        found: list[str] = []
+        while region is not None and region not in found:
+            found.append(region)
+            region = self._parents.get(region)
+        return found
+
+    def _codes(self, item: BaseModel) -> list[str]:
+        """The sites an object is at: a site's own, a device's, either end's."""
+        if isinstance(item, Site):
+            return [item.code]
+        if isinstance(item, Device):
+            return [item.site]
+        if isinstance(item, Link):
+            ends = [e.device for e in device_ends(item)]
+        elif isinstance(item, Lag):
+            ends = [item.a.device, item.b.device]
+        else:
+            return []
+        return [self._devices[d].site for d in ends if d in self._devices]
+
+
+def _cids(item: BaseModel) -> list[str | None]:
+    """A link's or port channel's circuit IDs, each side, and the
+    enterprise's: what else it is known by."""
+    sides: list[Sides | None] = []
+    if isinstance(item, (Link, Lag)):
+        sides = [item.enterprise_cid, item.circuit.circuit_id if item.circuit else None]
+    return [v for s in sides if s for v in (s.a, s.z)]
+
+
 def _changed(
-    topology: Topology, changing: list[tuple[int, list[Edit]]], now: list[OverrideNow]
+    topology: Topology,
+    changing: list[tuple[Ref, list[Edit]]],
+    now: list[OverrideNow],
+    ruled: list[RuleNow],
 ) -> Topology:
-    """The topology with each override's edits made, all at once if it
-    takes them, else one override at a time, marking those it refuses not
+    """The topology with each override's and rule's edits made, all at once
+    if it takes them, else one at a time, marking those it refuses not
     applied; and, on each lock that differs and each site renamed, what the
     topology says.
 
     Args:
         topology: The documentation, with its fixes.
-        changing: Where each override that changes it is in ``now``, and its edits.
+        changing: Each override and rule that changes it, and its edits, in
+            the order they are made.
         now: How each override stands, updated in place.
+        ruled: How each rule stands, updated in place.
 
     Returns:
         The topology changed.
     """
     if not changing:
         return topology
+
+    def refuse(ref: Ref, reason: str) -> None:
+        kind, i = ref
+        if kind == "override":
+            now[i] = now[i].model_copy(
+                update={"state": "not-applied", "reason": reason}
+            )
+        else:
+            ruled[i] = ruled[i].model_copy(
+                update={
+                    "state": "not-applied",
+                    "reason": reason,
+                    "matches": [],
+                    "overridden": [],
+                }
+            )
+
     try:
         result = _with(topology, [e for _, edits in changing for e in edits])
     except ValidationError:
         result = topology
-        for i, edits in changing:
+        for ref, edits in changing:
             try:
                 result = _with(result, edits)
             except ValidationError as e:
-                now[i] = now[i].model_copy(
-                    update={"state": "not-applied", "reason": _error(e)}
-                )
-    for i, _ in changing:
+                refuse(ref, _error(e))
+    before, after = _lookup(topology), _lookup(result)
+    for (kind, i), _ in changing:
+        if kind == "rule":
+            r = ruled[i]
+            if r.state != "active" or r.kind != "lock" or not r.key:
+                continue
+            field = r.key
+            matches = []
+            for m in r.matches:
+                t = m.target
+                was = text(getattr(before(t.kind, t.id), field))
+                if was != text(getattr(after(t.kind, t.id), field)):
+                    m = m.model_copy(update={"topology_value": was})
+                matches.append(m)
+            ruled[i] = r.model_copy(update={"matches": matches})
+            continue
         o = now[i]
         field = o.key if o.kind == "lock" else "name" if o.kind == "rename" else None
         if o.state != "active" or field is None:
             continue
         t = o.target
-        before = text(getattr(_objects(topology, t.kind)[t.id], field))
-        after = text(getattr(_objects(result, t.kind)[t.id], field))
-        if before != after or o.kind == "rename":
-            now[i] = o.model_copy(update={"topology_value": before})
+        was = text(getattr(before(t.kind, t.id), field))
+        if was != text(getattr(after(t.kind, t.id), field)) or o.kind == "rename":
+            now[i] = o.model_copy(update={"topology_value": was})
     return result
+
+
+def preview(
+    topology: Topology,
+    documented: Topology,
+    overrides: Iterable[Override],
+    rules: Iterable[Rule],
+    made: Rule,
+    at: datetime,
+) -> tuple[RuleNow, PortRule | None]:
+    """How a rule would stand, made now, without validating the topology
+    again unless it changes it.
+
+    Args:
+        topology: The documentation, with its fixes.
+        documented: It with the overrides and rules there are now applied.
+        overrides: Every override, oldest first.
+        rules: Every rule, oldest first.
+        made: The rule, newest of all.
+        at: The moment.
+
+    Returns:
+        How it would stand, ``not-applied`` with the reason where the
+        topology would not take it; and, for a rule on ports, what it would
+        tell discovery.
+
+    Raises:
+        None
+    """
+    standing = _standing(topology, overrides, at)
+    alive = [r for r in rules if r.withdrawn is None]
+    ruled, _, ports = _ruled(
+        topology, standing.active(), standing.edits(), [*alive, made], at
+    )
+    found = ruled[-1]
+    if made.match.of == "port":
+        return found, ports[-1]
+    edits = _rule_edits(documented, made, [m.target for m in found.matches])
+    if edits:
+        try:
+            _with(documented, edits)
+        except ValidationError as e:
+            found = found.model_copy(
+                update={"state": "not-applied", "reason": _error(e)}
+            )
+    return found, None
 
 
 def check(topology: Topology, made: OverrideIn) -> None:
@@ -591,19 +1219,55 @@ def lines(
     Raises:
         None
     """
-    found: list[OverrideLine] = []
-    for o in overrides:
-        if since <= o.at <= until:
-            found.append(OverrideLine(event="made", at=o.at, override=o))
-        if o.withdrawn and since <= o.withdrawn.at <= until:
-            found.append(OverrideLine(event="withdrawn", at=o.withdrawn.at, override=o))
-        if (
-            o.expires
-            and since <= o.expires <= until
-            and (o.withdrawn is None or o.withdrawn.at > o.expires)
-        ):
-            found.append(OverrideLine(event="expired", at=o.expires, override=o))
+    found = [
+        OverrideLine(event=event, at=at, override=o)
+        for o in overrides
+        for event, at in _moments(o, since, until)
+    ]
     return sorted(found, key=lambda line: line.at, reverse=True)
+
+
+def rule_lines(
+    rules: Iterable[Rule], since: datetime, until: datetime
+) -> list[RuleLine]:
+    """The rules made, withdrawn, or expired in a span, latest first.
+
+    Args:
+        rules: Every rule, withdrawn ones too.
+        since: The span's start.
+        until: Its end.
+
+    Returns:
+        A line for each of those moments in the span, as for overrides.
+
+    Raises:
+        None
+    """
+    found = [
+        RuleLine(event=event, at=at, rule=r)
+        for r in rules
+        for event, at in _moments(r, since, until)
+    ]
+    return sorted(found, key=lambda line: line.at, reverse=True)
+
+
+def _moments(
+    o: Override | Rule, since: datetime, until: datetime
+) -> list[tuple[LineEvent, datetime]]:
+    """When an override or rule was made, withdrawn, and expired, in a span:
+    one withdrawn before it expired did not expire."""
+    found: list[tuple[LineEvent, datetime]] = []
+    if since <= o.at <= until:
+        found.append(("made", o.at))
+    if o.withdrawn and since <= o.withdrawn.at <= until:
+        found.append(("withdrawn", o.withdrawn.at))
+    if (
+        o.expires
+        and since <= o.expires <= until
+        and (o.withdrawn is None or o.withdrawn.at > o.expires)
+    ):
+        found.append(("expired", o.expires))
+    return found
 
 
 def new_override(made: OverrideIn, at: datetime) -> Override:
@@ -622,8 +1286,46 @@ def new_override(made: OverrideIn, at: datetime) -> Override:
     return Override(id=uuid.uuid4().hex[:12], **dict(made), at=at)
 
 
+def new_rule(made: RuleIn, at: datetime) -> Rule:
+    """Record a rule someone makes.
+
+    Args:
+        made: The rule.
+        at: When.
+
+    Returns:
+        It, with a new id.
+
+    Raises:
+        None
+    """
+    return Rule(id=uuid.uuid4().hex[:12], **dict(made), at=at)
+
+
+def same_rule(a: Rule, b: RuleIn) -> bool:
+    """Whether a new rule repeats one there.
+
+    Args:
+        a: A rule not withdrawn.
+        b: A new one.
+
+    Returns:
+        True for the same tests, kind, key, and value, ignoring case.
+
+    Raises:
+        None
+    """
+    return (
+        a.match == b.match
+        and a.kind == b.kind
+        and a.key == b.key
+        and (a.value or "").lower() == (b.value or "").lower()
+    )
+
+
 class OverrideStore:
-    """Every override for one topology, in a JSON file created on first one."""
+    """Every override and rule for one topology, in a JSON file created on
+    the first one."""
 
     def __init__(self, path: Path) -> None:
         """Use an overrides file.
@@ -635,7 +1337,9 @@ class OverrideStore:
             OverridesError: If the file exists but cannot be read.
         """
         self.path = path
-        self._overrides = self._read()
+        found = self._read()
+        self._overrides = found.overrides
+        self._rules = found.rules
 
     def overrides(self) -> list[Override]:
         """Every override, withdrawn ones too, oldest first.
@@ -648,29 +1352,46 @@ class OverrideStore:
         """
         return list(self._overrides)
 
-    def save(self, overrides: list[Override]) -> None:
-        """Replace the overrides.
+    def rules(self) -> list[Rule]:
+        """Every rule, withdrawn ones too, oldest first.
+
+        Returns:
+            The rules.
+
+        Raises:
+            None
+        """
+        return list(self._rules)
+
+    def save(
+        self, overrides: list[Override] | None = None, rules: list[Rule] | None = None
+    ) -> None:
+        """Replace the overrides, or the rules, or both.
 
         Args:
-            overrides: Every override, oldest first.
+            overrides: Every override, oldest first; None to keep them.
+            rules: Every rule, oldest first; None to keep them.
 
         Raises:
             OSError: If the file cannot be written.
         """
+        overrides = self._overrides if overrides is None else list(overrides)
+        rules = self._rules if rules is None else list(rules)
         temporary = self.path.with_name(f".{self.path.name}.tmp")
-        body = _File(overrides=overrides).model_dump(mode="json")
+        body = _File(overrides=overrides, rules=rules).model_dump(mode="json")
         temporary.write_text(json.dumps(body, indent=1), encoding="utf-8")
         os.replace(temporary, self.path)
-        self._overrides = list(overrides)
+        self._overrides = overrides
+        self._rules = rules
 
-    def _read(self) -> list[Override]:
+    def _read(self) -> _File:
         try:
             raw = self.path.read_bytes()
         except FileNotFoundError:
-            return []
+            return _File()
         except OSError as e:
             raise OverridesError(f"{self.path}: {e}") from e
         try:
-            return _File.model_validate_json(raw).overrides
+            return _File.model_validate_json(raw)
         except ValidationError as e:
             raise OverridesError(f"{self.path}: {e}") from e
