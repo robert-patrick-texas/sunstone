@@ -1,6 +1,6 @@
 # release
 
-Builds, checksums, SSH-signs, verifies, tags, and publishes a GitHub release. It is a portable scaffolding tool (blueprint section 29): everything project-specific lives in `release.toml`, and the code imports nothing from the project it releases. Copied from vakr, where it was written; Sunstone's release procedure is in the [README](../../README.md#releasing). Sunstone's copy differs in one way: its notes catch up on versions never released on their own (see step 6), where vakr's take the one section.
+Builds, checksums, SSH-signs, verifies, tags, and publishes a GitHub release. It is a portable scaffolding tool (blueprint section 29): everything project-specific lives in `release.toml`, and the code imports nothing from the project it releases. Copied from vakr, where it was written; Sunstone's release procedure is in the [README](../../README.md#releasing). Sunstone's copy differs in two ways: its notes catch up on versions never released on their own, where vakr's take the one section, and it joins the changelog's wrapped lines so the notes take GitHub's full width (both in step 6).
 
 ## Usage
 
@@ -27,7 +27,7 @@ Exit status: 0 on success (or a dry run that a real release would pass), 1 when 
 3. **Stage** the files matching `artifacts` (required) and `optional_artifacts` into `output_dir`, and write `SHA256SUMS` in `sha256sum` format.
 4. **Sign** with `ssh-keygen -Y sign -f <signing_key> -n <namespace> SHA256SUMS`.
 5. **Verify** with `ssh-keygen -Y verify -f <allowed_signers> -I <identity> -n <namespace>`, and stop if it fails.
-6. **Publish:** `git tag --annotate`, `git push <remote> refs/tags/<tag>`, then `gh release create <tag> --verify-tag` with `release-notes.txt` from `output_dir` as notes and `--prerelease` according to the `prerelease` rule. The notes are the version's changelog section. When the changelog has sections for versions after the newest `v<version>` tag on `remote` and before this one, never released on their own, they come along too, newest first, each under its own heading, after a line naming them; without any earlier tag, every older section does. A release candidate counts as a release. The run prints which versions the notes cover.
+6. **Publish:** `git tag --annotate`, `git push <remote> refs/tags/<tag>`, then `gh release create <tag> --verify-tag` with `release-notes.txt` from `output_dir` as notes and `--prerelease` according to the `prerelease` rule. The notes are the version's changelog section. When the changelog has sections for versions after the newest `v<version>` tag on `remote` and before this one, never released on their own, they come along too, newest first, each under its own heading, after a line naming them; without any earlier tag, every older section does. A release candidate counts as a release. The run prints which versions the notes cover. Since GitHub shows every line break in the notes, the wrapped lines of each paragraph and list item are joined; headings, table rows, fenced code, and hard breaks stay as they are.
 
 A real release stops at the first failed preflight check, before building. A dry run reports every failure and carries on, so one run shows everything to fix.
 
@@ -69,7 +69,7 @@ Python 3.15 (standard library only), `git`, `ssh-keygen` (OpenSSH 8.1 or newer),
 | `release_config.py` | Loads and validates `release.toml` |
 | `release_checks.py` | Preflight checks, including the GitHub check-run evaluation |
 | `release_artifacts.py` | Collection, `SHA256SUMS`, signing, verification, throwaway keys |
-| `release_publish.py` | Changelog notes, caught up across versions never released, and the tag, push, and release commands |
+| `release_publish.py` | Changelog notes, caught up across versions never released and unwrapped for GitHub, and the tag, push, and release commands |
 | `release_proc.py` | Runs external commands with argument lists |
 
 `uv run pytest tools/release` runs the tests. They use real `git` repositories with a local bare remote and real `ssh-keygen` keys, all under a temporary directory. Only `gh`, `git push`, and the `build_tools` versions are replaced by a fake runner, so no test touches GitHub or needs Node.
