@@ -31,6 +31,7 @@ from release_publish import (
     publish_commands,
     published_versions,
     release_notes,
+    unwrap,
 )
 from release_version import ReleaseVersion
 
@@ -235,6 +236,86 @@ def test_notes_need_the_versions_own_section() -> None:
         AssertionError: If notes are built without the version's section.
     """
     assert release_notes(CATCH_UP, v("0.7.0"), [v("0.2.0")]) is None
+
+
+WRAPPED = """A summary that
+wraps.
+
+### New
+
+- One item that
+  wraps twice
+  over.
+  - A nested item
+    that wraps.
+- Two.
+
+| Area | Code |
+|---|--:|
+| **Total** | 1 |
+
+```sh
+make deb
+make release
+```
+
+A hard break\\
+stays, and so does this  
+one."""
+
+
+def test_unwrap_puts_each_paragraph_and_item_on_one_line() -> None:
+    """Wrapped lines join; headings, tables, fences, and hard breaks stay.
+
+    Args:
+        None
+
+    Returns:
+        None
+
+    Raises:
+        AssertionError: If a block is joined into another or left wrapped.
+    """
+    assert unwrap(WRAPPED).splitlines() == [
+        "A summary that wraps.",
+        "",
+        "### New",
+        "",
+        "- One item that wraps twice over.",
+        "  - A nested item that wraps.",
+        "- Two.",
+        "",
+        "| Area | Code |",
+        "|---|--:|",
+        "| **Total** | 1 |",
+        "",
+        "```sh",
+        "make deb",
+        "make release",
+        "```",
+        "",
+        "A hard break\\",
+        "stays, and so does this  ",
+        "one.",
+    ]
+
+
+def test_release_notes_are_unwrapped() -> None:
+    """The notes given to GitHub have no line breaks inside an item.
+
+    Args:
+        None
+
+    Returns:
+        None
+
+    Raises:
+        AssertionError: If an item's wrapped lines reach the notes.
+    """
+    text = "## 1.0.0\n\n- Fixed it,\n  at last.\n"
+    notes = release_notes(text, v("1.0.0"), [])
+    assert notes is not None
+    assert notes.text == "- Fixed it, at last."
 
 
 def test_published_versions_are_the_remotes_version_tags(tmp_path: Path, fake_runner: Any) -> None:

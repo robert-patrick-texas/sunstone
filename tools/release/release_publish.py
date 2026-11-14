@@ -11,6 +11,9 @@ never released on their own, between the last release tagged on the remote
 and this one, are carried along in the notes, each under its own heading,
 so operators see everything that changed since the release they have. That
 catching up is Sunstone's addition; vakr's copy takes the one section only.
+GitHub shows every line break in a release's notes, so the changelog's
+wrapped lines are joined first and each paragraph or list item uses the
+page's full width; that is Sunstone's addition too.
 
 Dependencies:
     re, shlex: Find changelog sections; quote commands for display.
@@ -37,6 +40,9 @@ from release_version import ReleaseVersion, VersionError
 
 _HEADING = re.compile(r"^##\s+\[?v?(\d+\.\d+\.\d+(?:-rc\.\d+)?)\]?(?=\s|$)")
 """A changelog section's heading, in the forms ``changelog_notes`` accepts."""
+
+_BLOCK = re.compile(r"^\s*(?:[-*+]\s|\d+[.)]\s|#|\||>|```|~~~|<)")
+"""A line that starts a Markdown block of its own rather than continuing one."""
 
 
 @dataclass(frozen=True)
@@ -84,6 +90,63 @@ def changelog_notes(text: str, version: str) -> str | None:
             body.append(line)
     notes = "\n".join(body or []).strip()
     return notes or None
+
+
+def unwrap(text: str) -> str:
+    """Join the wrapped lines of each Markdown paragraph and list item.
+
+    GitHub renders every line break in a release's notes, which the
+    changelog's wrapping at 80 columns turns into a narrow column. A line
+    joins the one before it unless either is blank, the line starts a block
+    of its own (a list item, heading, table row, quote, fence, or HTML), the
+    one before is a heading or table row or ends in a hard break (two
+    spaces or a backslash), or it is inside a fenced code block. Nested
+    list items keep their indentation. Indented code blocks are not
+    recognized; the changelog uses fences.
+
+    Args:
+        text: Markdown.
+
+    Returns:
+        str: The same Markdown with each paragraph and list item on one line.
+
+    Raises:
+        None
+
+    Example:
+        >>> unwrap("- One\\n  two.\\n  - Three\\n    four.")
+        '- One two.\\n  - Three four.'
+    """
+    out: list[str] = []
+    fenced = False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+        elif not fenced and out and _continues(out[-1], line):
+            out[-1] = f"{out[-1].rstrip()} {line.strip()}"
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _continues(before: str, line: str) -> bool:
+    """Whether ``line`` continues the paragraph or list item on ``before``.
+
+    Args:
+        before: The previous output line.
+        line: The line being read.
+
+    Returns:
+        bool: True when the two belong on one line.
+
+    Raises:
+        None
+    """
+    if not before.strip() or not line.strip() or _BLOCK.match(line):
+        return False
+    if before.lstrip().startswith(("#", "|", "```", "~~~")):
+        return False
+    return not (before.endswith("  ") or before.endswith("\\"))
 
 
 def published_versions(runner: Runner, remote: str) -> list[ReleaseVersion]:
@@ -158,13 +221,13 @@ def release_notes(
     ]
     last = since.semver if since else None
     if not skipped:
-        return Notes(own, (version.semver,), last)
+        return Notes(unwrap(own), (version.semver,), last)
     names = [v.semver for v, _ in skipped]
     lead = f"This release also carries the notes of {_and_list(names)}, never released on their own"
     lead += f"; the last release was {last}." if last else "."
     sections = [(headings[version], own)] + [(headings[v], body) for v, body in skipped]
     parts = [lead, *(f"{heading}\n\n{body}" for heading, body in sections)]
-    return Notes("\n\n".join(parts), (version.semver, *names), last)
+    return Notes(unwrap("\n\n".join(parts)), (version.semver, *names), last)
 
 
 def _rank(version: ReleaseVersion) -> tuple[int, int, int, bool, int]:

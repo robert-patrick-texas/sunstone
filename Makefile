@@ -2,7 +2,7 @@
 
 TOPOLOGY ?= data/sample/small.yaml
 
-.PHONY: help setup dev-api dev-web dev-up dev-down dev-logs build serve test e2e bench data api-types deb package-test release-dry-run
+.PHONY: help setup dev-api dev-web dev-up dev-down dev-logs build serve test e2e bench data api-types deb package-test outdated release-tables release-dry-run
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -34,7 +34,7 @@ serve: build ## Serve the built UI and the API together on :8000 (TOPOLOGY=file)
 
 test: ## Unit tests, linters, formatters, and type checks
 	cd backend && uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run pytest -q
-	cd backend && uv run pytest -q -p no:cacheprovider ../tools/release
+	cd backend && uv run pytest -q -p no:cacheprovider ../tools/release ../tools/release-tables
 	cd frontend && npm run check && npm run format:check && npm test
 
 e2e: build ## Browser tests; set PW_WS_ENDPOINT to use the Playwright container
@@ -62,6 +62,13 @@ deb: ## Build dist/sunstone_<version>_amd64.deb in a clean container (needs dock
 
 package-test: ## Install, update, roll back, and remove test builds in containers (needs docker)
 	packaging/package-test.sh
+
+outdated: ## List Python and npm packages with newer releases (see README, Releasing)
+	cd backend && uv tree --outdated --depth 1
+	-cd frontend && npm outdated
+
+release-tables: ## Print the Lines of Code and Versions tables for CHANGELOG.md (needs cloc)
+	uv run tools/release-tables/release_tables.py
 
 release-dry-run: ## Every release step except tag, push, and publish (see README)
 	uv run tools/release/release.py --dry-run

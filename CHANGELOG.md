@@ -2,7 +2,10 @@
 
 Release notes, newest first. `tools/release` takes each release's notes from
 its section here, and from the sections of any versions since the last
-release that were never released on their own.
+release that were never released on their own. From 0.13.0, each section
+starts with a short summary, then New, Changed, Fixed, and Additional Notes
+(only those with something in them), then the Lines of Code and Versions
+tables (README, "Releasing").
 
 ## 0.12.0
 
@@ -37,6 +40,49 @@ release that were never released on their own.
 - API: `GET /api/overrides` lists `rules`; `POST /api/rules`,
   `POST /api/rules/preview`, and `POST /api/rules/{id}/withdraw`,
   `/renew`, `/except`, and `/include`; the handover's `rules`.
+
+### Lines of Code
+
+| Area | Files | Code | Comments | Blank |
+|---|--:|--:|--:|--:|
+| Backend | 35 | 11,518 | 4,284 | 2,529 |
+| Backend tests | 24 | 6,189 | 270 | 982 |
+| Web UI tests | 35 | 4,648 | 71 | 436 |
+| Browser tests and benchmarks | 22 | 2,027 | 142 | 226 |
+| Web UI | 99 | 20,291 | 4,123 | 1,163 |
+| Packaging and CI | 14 | 715 | 212 | 82 |
+| Tools | 23 | 1,566 | 1,611 | 810 |
+| Documentation | 2 | 871 | 0 | 114 |
+| **Total** | **254** | **47,825** | **10,713** | **6,342** |
+
+Counted with cloc 2.06 over the files in the repository that are Sunstone's own. No dependencies or external components are included: nothing vendored or brought in from elsewhere, such as npm or Python packages or the build images, and no generated files (lockfiles, the OpenAPI schema and the types made from it, the build pins, and the sample topologies).
+
+### Versions
+
+| Component | Current (0.12.0) |
+|---|---|
+| Sunstone | 0.12.0 |
+| Python | 3.15.2 |
+| FastAPI | 0.162.0 |
+| Starlette | 1.10.0 |
+| Pydantic | 2.14.1 |
+| Uvicorn | 0.54.0 |
+| PyYAML | 6.0.3 |
+| Node.js (builds the web UI) | 24.22.1 |
+| Svelte | 5.57.2 |
+| SvelteKit | 3.1.0 |
+| Vite | 8.3.5 |
+| TypeScript | 6.0.3 |
+| MapLibre GL JS | 6.16.0 |
+| Cytoscape.js | 3.34.4 |
+| pytest | 9.1.1 |
+| Ruff | 0.17.3 |
+| ty | 0.0.92 |
+| Vitest | 5.0.5 |
+| Playwright | 1.64.1 |
+| uv (package build) | 0.13.6 |
+| nfpm (package build) | 2.48.0 |
+| Ubuntu (package target) | 26.04 |
 
 ## 0.11.0
 
