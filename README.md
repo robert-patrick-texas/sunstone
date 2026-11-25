@@ -24,7 +24,7 @@ For development, run `make dev-api` and `make dev-web` in two terminals and open
 - It shows the layered sample; `SUNSTONE_DEV_TOPOLOGY=data/sample/large.yaml make dev-up` shows another.
 - It mounts the tree read-only and keeps its saved state in a Docker volume. `make dev-down` stops it and keeps the state; `docker compose -f tools/dev-instance/compose.yaml down -v` deletes the state too. It restarts with Docker, so it comes back after a reboot.
 - It holds port 8000, so stop it before `make serve` or `make dev-api`.
-- `tools/dev-instance/nginx.conf` serves it at `/sunstone/` on an existing nginx site, behind a password in `/etc/nginx/sunstone-dev.htpasswd` (written with `openssl passwd -6`), as https://dev.16k.net/sunstone/ is.
+- `tools/dev-instance/nginx.conf` serves it at `/sunstone/` on an existing nginx site, behind a password in `/etc/nginx/sunstone-dev.htpasswd` (written with `openssl passwd -6`), for example at `https://dev.example.com/sunstone/`.
 
 Sunstone has no sign-in: anyone who can reach it can save and delete layouts, plan and delete maintenance, acknowledge and page problems, cover shifts, and fix the documentation, under whatever name they type. It listens on 127.0.0.1 by default; give `sunstone serve` `--host`, or set `host` in its settings file, only on a network you trust.
 
@@ -559,23 +559,7 @@ The Playwright container draws without a GPU, so its frame rates say little abou
 
 ## Next
 
-- Rules renaming by template ("BRV- as bravo-", "also `{name}.corp`"), and matching by label; rules are on tags, platforms, roles, and names so far.
-- What started or stopped matching each rule in a shift, in the handover: it lists rules made, withdrawn, and expired.
-- Priorities in paging: a high-priority problem paging with high urgency, and one the party downstream answers for first going to them; urgency is by problem kind today.
-- Resources chosen like a network, filtering the views to their members, and shared risk for each: what one device, link, or provider would take a resource down with.
-- Port channels into a transport or to someone else's device, such as two circuits bundled to a provider's PE: channels are between two of our devices so far.
-- MACsec with one connectivity association for several far ends on an E-LAN port, and to someone else's device in the samples (a cloud's direct circuit).
-- Fixes for tunnels: moving a tunnel's documented end to the tunnel interface CDP shows.
-- Roles checked against routing: once there is a source for BGP sessions and the prefixes exchanged, whether a circuit for peering exchanges routes only with its community, and one for egress takes none in.
-- Sources: NetBox/Nautobot import, then NMS import and LLDP/CDP discovery.
-- Paging for real: PagerDuty or Opsgenie for pages and schedules, so the directory and the paging service cannot disagree.
-- The handover posted to chat or email at each shift change: the message is written, and sending it to a Slack or Teams channel or a mailing list is what is left.
-- Discovery for real: a collector reading LLDP-MIB and CDP-MIB, or an NMS's neighbor tables, as a `DiscoverySource`.
-- The change set to the source of truth: sent to NetBox or Nautobot once there is one, each change dropped once the source has it.
-- Live state from real sources: vakr first (it needs the read-only integration role its design calls for), then other monitoring tools, each as a `StateSource`. Each needs history: from the tool, or recorded by Sunstone.
-- The wall display saying when no one has signed for the handover of the shift on now, as the header does, and which incidents are open.
-- Incidents to and from a ticketing system (ServiceNow, Jira), once there is one: the postmortem is written, and filing it is what is left.
-- Frame rates on real GPUs: run `make bench` on the hardware the NOC uses. The map and the fully expanded graphs are the ones to watch; the container's software rendering gives 6 to 12 fps zooming the map.
+What is next, what is not done yet, and what is done are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## License
 
