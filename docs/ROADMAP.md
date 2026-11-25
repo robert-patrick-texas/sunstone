@@ -13,6 +13,7 @@ Done on a branch of its own, not a milestone. Not released on its own (see "Next
 - [x] This roadmap: what is next, what is not done yet, and what is done, each with a checkbox.
 - [x] README Next moved here.
 - [x] No real-world host names in the README: the dev instance's nginx example uses `dev.example.com`.
+- [x] Installing behind nginx, for a production host: at `/sunstone/` by default, at the root of a site, or under another name (docs/INSTALL.md, "Behind nginx").
 - [x] README revised to the introduction, running and using Sunstone, and links into `docs/`.
 - [x] The rest of the README moved into `docs/`: installing, the data model, decisions, development (layout, testing, measuring speed), and releasing.
 - [x] A Markdown-to-HTML converter, `tools/md2html`, copied from segl: an index down the left of each page, the project name in the upper left, and a link to the GitHub repository.
@@ -37,6 +38,10 @@ Done on a branch of its own, not a milestone. Not released on its own (see "Next
 - [ ] Held until the source code changes, not only the documentation. It is the first to ship `docs/` in the package.
 
 ## Not done yet
+
+### Installing
+
+- [ ] The nginx files in the package, and a setup command that writes them with the site's prefix, as hirdir's `hirdir-setup --prefix` does, once the projects share one way of doing it. The steps are written out in docs/INSTALL.md so far.
 
 ### Rules and overrides
 

@@ -42,6 +42,150 @@ sudo systemctl enable --now sunstone      # http://127.0.0.1:8000 on this host
 
 To show your own network, replace `topology.yaml` and `oncall.yaml`, run `sudo sunstone check`, and `sudo systemctl restart sunstone`. An on-call directory that names sites the topology lacks stops the service, and `sunstone check` says which. `/etc/sunstone/config.toml` holds the same choices as the command line: `topology`, `oncall`, `state_dir`, `host`, `port`, and under `[update]`, the `repository` releases come from, `hold_version`, `https_proxy`, `tls_strict_x509`, and `api` (see Updating). The service listens on 127.0.0.1:8000 for a reverse proxy in front, which may serve it at a site's root or under a path such as `/sunstone/`; `host = "0.0.0.0"` serves everyone who can reach the port, which, without sign-in, only suits a network you trust.
 
+## Behind nginx
+
+Sunstone serves plain HTTP on `127.0.0.1:8000` and has no sign-in. On a production host, nginx on the same host stands in front of it: nginx holds the certificate, asks who is there, and passes requests on to Sunstone over loopback.
+
+The site chooses Sunstone's URL, and only nginx changes to move it:
+
+| URL | Set up with |
+|---|---|
+| `https://site.example.com/sunstone/` (the default) | the snippet below as it is |
+| `https://site.example.com/othername/` | the snippet below with its prefix changed (see "Another name") |
+| `https://site.example.com/` | the root snippet (see "At the root of a site") |
+
+Nothing in Sunstone's settings names its URL. The web UI asks for everything relative to its page, and the links it makes (a shared view, a page to whoever is on call, the handover, an incident) take their address from the browser. Sunstone uses no WebSockets or streams, so the proxy needs no upgrade headers or long timeouts.
+
+The setup is three files: an upstream in `/etc/nginx/conf.d/`, the proxy settings in a snippet, and Sunstone's locations in another snippet that the site's `server { }` block includes. These steps use the default URL.
+
+### 1. Keep Sunstone on loopback
+
+`host = "127.0.0.1"` and `port = 8000` in `/etc/sunstone/config.toml` are the defaults: leave them. Sunstone trusts `X-Forwarded-For` and `X-Forwarded-Proto` from `127.0.0.1` only, so nginx has to be on the same host. Listening beyond loopback would let anyone who can reach the port use Sunstone without signing in.
+
+### 2. The upstream
+
+`/etc/nginx/conf.d/sunstone.conf`:
+
+```nginx
+# Sunstone's service on this host (docs/INSTALL.md, "Behind nginx").
+upstream sunstone {
+    server 127.0.0.1:8000;
+    keepalive 8;
+}
+```
+
+### 3. The proxy settings
+
+`/etc/nginx/snippets/sunstone-proxy.conf`, the same at any URL:
+
+```nginx
+# Sunstone has no sign-in, so nginx asks for one. To use the site's single
+# sign-on instead, replace these two lines with its auth_request settings.
+auth_basic "Sunstone";
+auth_basic_user_file /etc/nginx/sunstone.htpasswd;
+
+# Under a prefix the trailing slash strips it; under "location /" it changes nothing.
+proxy_pass http://sunstone/;
+proxy_http_version 1.1;
+proxy_set_header Connection "";
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_redirect off;
+proxy_connect_timeout 5s;
+proxy_read_timeout 60s;
+```
+
+`$remote_addr` replaces whatever `X-Forwarded-For` a client sent, so a client cannot choose the address Sunstone sees. There is no `add_header`: one in a location discards the server block's headers, HSTS among them.
+
+### 4. Sunstone's locations
+
+`/etc/nginx/snippets/sunstone.conf`. The prefix is on the three lines marked `# prefix`:
+
+```nginx
+# Sunstone at /sunstone/ on this site (docs/INSTALL.md, "Behind nginx").
+
+# Without the trailing slash, the page's relative requests would leave the prefix.
+# A relative redirect stays right behind load balancers and on odd ports.
+location = /sunstone {                    # prefix
+    absolute_redirect off;
+    return 301 /sunstone/;                # prefix
+}
+
+# ^~ keeps the site's regular-expression locations, such as caching rules for
+# .js and .css files, from claiming Sunstone's assets.
+location ^~ /sunstone/ {                  # prefix
+    include snippets/sunstone-proxy.conf;
+}
+```
+
+Add one line inside the `server { }` block of the site that listens on 443 with its certificate:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name site.example.com;
+    # ... the site's certificate and its own locations ...
+
+    include snippets/sunstone.conf;
+}
+```
+
+### 5. Accounts
+
+Each person gets a line in `/etc/nginx/sunstone.htpasswd`. `openssl passwd -6` asks for the password twice and prints its SHA-512 hash:
+
+```sh
+printf 'alice:%s\n' "$(openssl passwd -6)" | sudo tee -a /etc/nginx/sunstone.htpasswd
+sudo chown root:www-data /etc/nginx/sunstone.htpasswd
+sudo chmod 0640 /etc/nginx/sunstone.htpasswd
+```
+
+Inside Sunstone, people still type the name that their acknowledgements, notes, and sign-offs are recorded under. Sunstone does not read the name nginx signed them in with.
+
+### 6. Check it
+
+```sh
+sudo nginx -t && sudo systemctl reload nginx
+curl -sI https://site.example.com/sunstone | grep -i -E '^(HTTP|location)'   # 301, location: /sunstone/
+curl -s -u alice https://site.example.com/sunstone/api/version                 # the release serving
+```
+
+Then open `https://site.example.com/sunstone/` in a browser and sign in.
+
+| What you see | Why |
+|---|---|
+| 502 Bad Gateway | Sunstone is not running: `systemctl status sunstone`, and `journalctl -u sunstone` for why. |
+| 401 every time | The account is not in `sunstone.htpasswd`, or nginx cannot read the file (its group must be `www-data`). |
+| A blank page, or 404s for files under `_app/` | Another location is claiming them: check that the location has `^~`. Or `proxy_pass` lost its trailing slash, so Sunstone is asked for `/sunstone/...`. |
+| The page loads at `/sunstone` but shows no data | The redirect to `/sunstone/` is missing, so the page's requests go to the site's own `/api/`. |
+
+### Another name
+
+To put Sunstone at `https://site.example.com/othername/`, change the prefix on the three marked lines, and check them:
+
+```sh
+sudo sed -i '/# prefix$/s|/sunstone|/othername|' /etc/nginx/snippets/sunstone.conf
+grep -n '# prefix' /etc/nginx/snippets/sunstone.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+The upstream, the proxy settings, and the accounts stay as they are. Bookmarks and shared links made at the old URL stop working, since they hold the old prefix.
+
+### At the root of a site
+
+To put Sunstone at `https://site.example.com/`, write `/etc/nginx/snippets/sunstone.conf` as one location instead:
+
+```nginx
+# Sunstone at the root of this site (docs/INSTALL.md, "Behind nginx").
+# ^~ keeps the site's regular-expression locations from claiming any path.
+location ^~ / {
+    include snippets/sunstone-proxy.conf;
+}
+```
+
+A `server { }` block can hold only one location for `/`, so remove the site's own first, or give Sunstone a site of its own, such as `sunstone.example.com`. Sunstone then answers every path on the site, and the `^~` means the site's regular-expression locations no longer apply to any of them: without it, a rule such as one for `.js` files would claim Sunstone's assets. No redirect is needed. Check it as in step 6, without the prefix: `curl -s -u alice https://site.example.com/api/version`.
+
 ## Updating
 
 `sunstone self-update` installs a newer signed release in place:
@@ -76,7 +220,7 @@ It exits 0 when it updated or found nothing newer; 1 when a release was refused,
 
 `hold_version = "0.2.0"` under `[update]` keeps updates that pick the release themselves, the timer's among them, at or below 0.2.0; `--check` says what the hold keeps back. Naming a newer release with `--version` at the console still installs it.
 
-## Behind a proxy
+## Self-update through a proxy
 
 `https_proxy = "http://proxy.example.com:3128"` under `[update]` sends self-update through a proxy that supports `CONNECT`; without it, `HTTPS_PROXY` from the environment, which the timer's service does not have. Credentials in the URL are refused, since settings end up in backups and support requests. Certificates are verified against the system's CA bundle and the CA certificates in `/etc/sunstone/ca.d/`, never the bundled interpreter's own paths. A proxy that inspects TLS presents certificates its own CA issued, which self-update refuses, naming `/etc/sunstone/ca.d/`: get the CA certificate from your security team, compare its fingerprint with theirs (`openssl x509 -noout -fingerprint -sha256 -in corp-ca.pem`), copy it there as a `.pem` or `.crt` file, and run `sudo sunstone self-update --check`. It changes trust for Sunstone only, not the rest of the host. A file there that is not a PEM certificate stops self-update, naming the file, rather than being skipped. Python checks certificates against OpenSSL's strict X.509 profile, which many inspection CAs issued before clients enforced it fail ("CA cert does not include key usage extension"): if yours does and cannot be reissued, `tls_strict_x509 = false` relaxes only that profile, still checking chains, validity, and host names. `api = "https://HOST/api/v3"` takes releases from a GitHub Enterprise server instead.
 

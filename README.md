@@ -34,7 +34,7 @@ Sunstone has no sign-in: anyone who can reach it can save and delete layouts, pl
 
 The documentation is in `docs/`, and is published as a site at <https://robert-patrick-texas.github.io/sunstone/>.
 
-- [Installing Sunstone](docs/INSTALL.md): the `.deb` package and checking a release's signature, the files it installs, updating, the daily timer, holding a version, and updating through a proxy.
+- [Installing Sunstone](docs/INSTALL.md): the `.deb` package and checking a release's signature, the files it installs, running it behind nginx at `/sunstone/`, at the root of a site, or under another name, updating, the daily timer, holding a version, and self-update through a proxy.
 - [Using Sunstone](docs/USING.md): the views, networks and their status, resources, paths, live state, problems, maintenance, history, "what if", shared risk and impact, search, on-call and paging, discovery and fixing the documentation, overrides, rules, the shift handover, incidents, and the wall display.
 - [Data model](docs/DATA-MODEL.md): the topology file and the samples, priorities, resources, live state, problems, maintenance, on-call, discovery, fixes, overrides, rules, the handover, incidents, and saved state, with the API that serves each.
 - [Decisions so far](docs/DECISIONS.md): why Sunstone works the way it does.
