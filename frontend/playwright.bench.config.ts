@@ -1,7 +1,7 @@
 /**
  * Benchmarks against the real backend serving the production build, with
  * the large sample topology (about 3,000 devices). Run with `make bench`;
- * see "Measuring speed" in the README.
+ * see "Measuring speed" in docs/DEVELOPMENT.md.
  *
  * Numbers depend on the machine: the Playwright container draws without a
  * GPU, so run this on the hardware people will use. `PW_WS_ENDPOINT` uses a

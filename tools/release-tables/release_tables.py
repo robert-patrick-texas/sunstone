@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Print the Lines of Code and Versions tables that end each release's notes.
 
-Every ``CHANGELOG.md`` section ends with these two tables (README,
-"Releasing"). Lines of code are counted with ``cloc`` over the files git
+Every ``CHANGELOG.md`` section ends with these two tables
+(docs/RELEASING.md). Lines of code are counted with ``cloc`` over the files git
 tracks that are Sunstone's own, by area, leaving out generated files. The
 versions are what the build installs: taken from ``backend/uv.lock``,
 ``frontend/package-lock.json``, ``frontend/.node-version``, and the

@@ -107,6 +107,7 @@ install_share() {
         data/sample/large.yaml data/sample/large.oncall.yaml \
         data/sample/layers.yaml data/sample/layers.oncall.yaml
     install -D -m 0644 -t "$share/doc" LICENSE NOTICE README.md CHANGELOG.md
+    install -D -m 0644 -t "$share/doc/docs" docs/*.md
     write_debian_changelog
 }
 
