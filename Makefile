@@ -2,7 +2,7 @@
 
 TOPOLOGY ?= data/sample/small.yaml
 
-.PHONY: help setup dev-api dev-web dev-up dev-down dev-logs build serve test e2e bench data api-types deb package-test outdated release-tables release-dry-run
+.PHONY: help setup dev-api dev-web dev-up dev-down dev-logs build serve test e2e bench data api-types deb package-test outdated release-tables release-dry-run docs
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -35,12 +35,13 @@ serve: build ## Serve the built UI and the API together on :8000 (TOPOLOGY=file)
 test: ## Unit tests, linters, formatters, and type checks
 	cd backend && uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run pytest -q
 	cd backend && uv run pytest -q -p no:cacheprovider ../tools/release ../tools/release-tables
+	python3 scripts/build_docs.py
 	cd frontend && npm run check && npm run format:check && npm test
 
 e2e: build ## Browser tests; set PW_WS_ENDPOINT to use the Playwright container
 	cd frontend && npx playwright test
 
-bench: build ## Time the large sample in a browser and print a table (see README)
+bench: build ## Time the large sample in a browser and print a table (see docs/DEVELOPMENT.md)
 	cd frontend && npx playwright test --config playwright.bench.config.ts
 
 data: ## Regenerate the mock topologies and on-call directories in data/sample
@@ -63,12 +64,15 @@ deb: ## Build dist/sunstone_<version>_amd64.deb in a clean container (needs dock
 package-test: ## Install, update, roll back, and remove test builds in containers (needs docker)
 	packaging/package-test.sh
 
-outdated: ## List Python and npm packages with newer releases (see README, Releasing)
+outdated: ## List Python and npm packages with newer releases (see docs/RELEASING.md)
 	cd backend && uv tree --outdated --depth 1
 	-cd frontend && npm outdated
 
 release-tables: ## Print the Lines of Code and Versions tables for CHANGELOG.md (needs cloc)
 	uv run tools/release-tables/release_tables.py
 
-release-dry-run: ## Every release step except tag, push, and publish (see README)
+release-dry-run: ## Every release step except tag, push, and publish (see docs/RELEASING.md)
 	uv run tools/release/release.py --dry-run
+
+docs: ## Build the documentation site into _site/ and check every link and anchor
+	python3 scripts/build_docs.py

@@ -20,3 +20,6 @@ frontend/playwright-report/
 *.handovers.json
 *.incidents.json
 dist/
+
+# Documentation site built by scripts/build_docs.py
+_site/

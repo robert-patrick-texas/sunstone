@@ -1,6 +1,6 @@
 # release
 
-Builds, checksums, SSH-signs, verifies, tags, and publishes a GitHub release. It is a portable scaffolding tool (blueprint section 29): everything project-specific lives in `release.toml`, and the code imports nothing from the project it releases. Copied from vakr, where it was written; Sunstone's release procedure is in the [README](../../README.md#releasing). Sunstone's copy differs in two ways: its notes catch up on versions never released on their own, where vakr's take the one section, and it joins the changelog's wrapped lines so the notes take GitHub's full width (both in step 6).
+Builds, checksums, SSH-signs, verifies, tags, and publishes a GitHub release. It is a portable scaffolding tool (blueprint section 29): everything project-specific lives in `release.toml`, and the code imports nothing from the project it releases. Copied from vakr, where it was written; Sunstone's release procedure is in the [docs/RELEASING.md](../../docs/RELEASING.md). Sunstone's copy differs in two ways: its notes catch up on versions never released on their own, where vakr's take the one section, and it joins the changelog's wrapped lines so the notes take GitHub's full width (both in step 6).
 
 ## Usage
 

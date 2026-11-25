@@ -1,6 +1,6 @@
 # Roadmap
 
-What is next comes first, then what is not done yet, then what is done. A checked box is done. Sunstone is still a prototype for a workshop: it runs on sample data with visible results, and it connects to no other system yet (see "Decisions so far" in the [README](../README.md)).
+What is next comes first, then what is not done yet, then what is done. A checked box is done. Sunstone is still a prototype for a workshop: it runs on sample data with visible results, and it connects to no other system yet (see [Decisions so far](DECISIONS.md)).
 
 The latest release is [v0.12.0](https://github.com/robert-patrick-texas/sunstone/releases/tag/v0.12.0).
 
@@ -13,13 +13,13 @@ Done on a branch of its own, not a milestone. Not released on its own (see "Next
 - [x] This roadmap: what is next, what is not done yet, and what is done, each with a checkbox.
 - [x] README Next moved here.
 - [x] No real-world host names in the README: the dev instance's nginx example uses `dev.example.com`.
-- [ ] README revised to the introduction, running and using Sunstone, and links into `docs/`.
-- [ ] The rest of the README moved into `docs/`: installing, the data model, decisions, development (layout, testing, measuring speed), and releasing.
-- [ ] A Markdown-to-HTML converter, `tools/md2html`, copied from segl: an index down the left of each page, the project name in the upper left, and a link to the GitHub repository.
-- [ ] `make docs` builds the site and fails on a broken link, anchor, or image.
-- [ ] The site published to GitHub Pages from `main`.
-- [ ] `make release-tables` counts `docs/` as documentation.
-- [ ] The `.deb` ships `docs/` alongside the README and CHANGELOG.
+- [x] README revised to the introduction, running and using Sunstone, and links into `docs/`.
+- [x] The rest of the README moved into `docs/`: installing, the data model, decisions, development (layout, testing, measuring speed), and releasing.
+- [x] A Markdown-to-HTML converter, `tools/md2html`, copied from segl: an index down the left of each page, the project name in the upper left, and a link to the GitHub repository.
+- [x] `make docs` builds the site and fails on a broken link, anchor, or image.
+- [x] The site published to GitHub Pages from `main`.
+- [x] `make release-tables` counts `docs/` as documentation (it counts every Markdown file already).
+- [x] The package build installs `docs/` beside the README and CHANGELOG, in `/opt/sunstone/share/doc/docs/`; the next release is the first to ship it.
 
 ### Milestone 34 (0.13.0)
 
@@ -34,7 +34,7 @@ Done on a branch of its own, not a milestone. Not released on its own (see "Next
 
 ### Next release
 
-- [ ] Held until the source code changes, not only the documentation. It ships `docs/` in the package.
+- [ ] Held until the source code changes, not only the documentation. It is the first to ship `docs/` in the package.
 
 ## Not done yet
 

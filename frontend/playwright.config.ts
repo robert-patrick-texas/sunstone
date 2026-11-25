@@ -5,7 +5,7 @@
  *
  * Set `PW_WS_ENDPOINT` to use a browser running elsewhere, such as the
  * Playwright container on a host without Chromium's system libraries (see
- * the README). The container's Playwright version must match this one.
+ * "Testing" in docs/DEVELOPMENT.md). The container's Playwright version must match this one.
  */
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
