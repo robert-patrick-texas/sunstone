@@ -106,3 +106,151 @@
 - **The simulator has IP phones that say they are a bridge too,** two in the small and layered samples and five in the large one, as some phones do over LLDP: discovery takes them for network equipment ("Unknown neighbor SEP0040…"), and one rule on every access switch's ports, ignoring `SEP*`, settles them.
 - **The simulator has a renamed switch and an inline WAN optimizer** in every sample, one of each, as it has one of each kind of drift: a switch whose LLDP still sends its old hostname, without a management address, beside CDP's new one; and a WAN optimizer between a WAN edge router and the core that answers LLDP itself while CDP passes through. Each is a device on another's port that is not in the topology, so discovery offers no fix for it: an alias, one device on the port, or ignoring the neighbor settles it.
 - **One page, prerendered with relative paths,** so the same build works at a site's root and under any path a reverse proxy gives it. SvelteKit writes a fallback page with paths from the root, so the single page is prerendered as an empty shell instead; it finds its files and the API (`api/...`) relative to itself, and SvelteKit works out the base from where the browser loaded it. A Playwright test plays a proxy at `/sunstone/` and fails if the page asks for anything outside it.
+
+## Proposed: working with hirdir and vakr
+
+Proposed on 2026-11-26 and not built yet. These are working answers for the owner to
+confirm or correct. hirdir is the owner's inventory, the source of truth for places,
+devices, the catalog of models, people and circuits. vakr is the owner's monitor, the
+source of what is seen. [Integrations](https://github.com/robert-patrick-texas/hirdir/blob/main/docs/integrations.md),
+on hirdir's site, says how the three fit together: who owns each fact, the keys and the
+field names they share, and how data moves between them. The roadmap's "hirdir and vakr"
+section lists each proposal below.
+
+The owner, on 2026-11-26: "The goal is to shape these projects to move toward one
+another to enable integration and move to common approaches where it makes sense,
+ultimately toward a common reference keys for a device, a site, an operator. Circuit ID
+in all its forms should be shared across each project, carrier/provider circuit ID,
+enterprise circuit ID, same fields with same content across the tools/projects."
+
+- **SI-01. hirdir's HID is the key, beside the name.**
+  - **The key.** Regions, sites, locations, devices, groups (SI-06) and transports that
+    are hirdir carrier networks take an optional `hid`: the record's HID in hirdir, a
+    lower-case UUIDv7. A link's circuit takes `circuit_hid`. The models reject unknown
+    keys, so each of these is a model field.
+  - **Saved state.** Where a record has an `hid`, saved state keys it by `hid`, not by
+    name. That covers layout positions, the targets of overrides and rules, fixes,
+    acknowledgements, pages, the problems of incidents, and handovers. A device renamed
+    in hirdir is then renamed in Sunstone, and keeps all of these. Problem and link ids
+    of a device with an `hid` use the `hid` in place of the name.
+  - **Without an `hid`**, a record keeps today's keys, so a hand-written topology works
+    as it does now.
+  - **The rename decision changes.** "A rename changes the name shown, not the key" now
+    says: the key is the `hid` where there is one, and an override's rename is still
+    only a name shown.
+  - **Cost and timing.** This is the costliest of these proposals. It is built in the
+    same milestone as SI-09, the import from hirdir, since until that import no record
+    has an `hid`; from the first import, saved state survives a rename in hirdir. The
+    owner, 2026-11-26: "a, build SI-01 together with SI-09".
+- **SI-02. Fields Sunstone shares with hirdir take hirdir's names.**
+  - **Sites.** `lat` and `lon` become `latitude` and `longitude`, and are optional
+    (SI-09). A site takes `time_zone`, an IANA name, shown on its panel and used for its
+    maintenance windows.
+  - **Devices.** A device from a source names its site by `site_hid` (a site code is
+    still accepted) and takes `hostname` and `fqdn`. `mgmt_ip` stays Sunstone's own,
+    filled from hirdir's primary management address.
+  - **Old names.** The loader accepts them for one release, and `sunstone check` says
+    which to rename.
+- **SI-03. A circuit has hirdir's fields, the same as vakr's.**
+  - **The block.** A link's `circuit` holds:
+    - `circuit_hid` and `enterprise_circuit_id`;
+    - `circuit_type`, from hirdir's list;
+    - `carrier` and `carrier_hid`, the primary carrier, and `carrier_circuit_id`;
+    - `carriers`, a list of the other carriers, each with `carrier`, `carrier_hid`,
+      `role`, `side` (`a`, `z` or blank) and `carrier_circuit_id`;
+    - `port_mbps`, `down_mbps` and `up_mbps`.
+  - **What it replaces.** `enterprise_cid` becomes the single `enterprise_circuit_id`.
+    `provider` becomes `carrier`. `circuit_id` becomes `carrier_circuit_id`, and an
+    ID that belongs to one side alone goes in `carriers` with its `side`. The owner
+    confirmed on 2026-11-26 that `enterprise_circuit_id` is one value for the whole
+    circuit, and named the carrier's `carrier_circuit_id`: "id is the value not number".
+  - **What stays Sunstone's.** `type` (`carrier`, `cross-connect`), `service` and
+    `technology` stay, until hirdir holds them.
+  - **References.** A resource's `circuits` name a circuit by `enterprise_circuit_id`, as
+    now, or by `circuit_hid`. On-call's `carriers[].provider` becomes `carrier`.
+  - **A transport from a carrier network** in hirdir carries that network's `hid` and
+    `carrier`.
+- **SI-04. A device's model and type come from hirdir's catalog.**
+  - **The fields.** A device takes `catalog_entry_hid`, `vendor`, `pid`, `model_name`,
+    `kind`, `type` and `function`. `platform` stays Sunstone's own label, which rules
+    already match.
+  - **The role.** `role` (`wan-edge`, `core`, `distribution`, `access`) is worked out
+    from hirdir's `function`, by a table in the settings file: `core` is core,
+    `aggregation` is distribution, `edge` is wan-edge, `access` is access. `sunstone
+    check` names any function the table does not map. A device's own `role` still wins.
+  - **Uses.** Rules and search match on `type`, `function` and `pid`, and a device's icon
+    follows its `type`.
+  - **The lists of types and functions** are hirdir's, and a site may change them, so
+    Sunstone does not hard-code them.
+- **SI-05. Port names are compared by one rule, hirdir's (its P-331).**
+  - **The rule.** Spaces are taken out, the name is in lower case, and a short form of a
+    type is written out in full from one table, with no prefix guessing: `Tw` and `Twe`
+    are two types. The table and its test vectors are on hirdir's Integrations page.
+  - **Where it applies.** Live state, discovery, fixes and overrides all compare ports
+    in that form, and the topology keeps each name as it was written.
+  - **Why.** Today discovery reads short port names and live state does not, so vakr's
+    `Gi1/0/1` would miss a link end written `GigabitEthernet1/0/1`.
+- **SI-06. Stacks, clusters and controller domains, from hirdir's device groups.**
+  - **The list.** A `groups` list holds `hid`, `name`, `type` (`stack`, `cluster`,
+    `controller_domain`, `custom`), `managed_as`, `expected_members`, and `members`, each
+    with `hid`, `name`, `role`, `position`, `serial_number` and `pid`.
+  - **A stack** is one device whose `hid` is the group's. Its panel lists the members.
+    With vakr's report, it shows which switch is master, which members are ready, and
+    whether it has fewer members than expected.
+  - **A cluster** depends on `managed_as`:
+    - `one`: one device.
+    - `members`: the members are devices inside a frame named for the cluster. The frame
+      is a backdrop, as site frames are. It reads degraded while a member is down, and
+      failed when all of them are. Impact is still worked out from paths.
+    - `members_and_cluster`: the same frame, with its state taken from the cluster's own
+      address.
+  - **A controller domain.** The controller is a device, and its endpoints are counted at
+    each site rather than drawn.
+  - **A custom group** becomes a tag on its members.
+  - **In the hierarchy view**, a cluster's members are placed side by side in their row,
+    as redundant pairs are.
+- **SI-07. Operators and on-call, from hirdir.**
+  - **Operators.** A device, a site and a circuit take `operator_hid` and `operator`
+    (the label), and on-call routes match on `operators`.
+  - **People and teams.** On-call people take `contact_hid` and teams `owner_hid`, so
+    that names and numbers can later come from hirdir's contacts.
+  - **Carriers.** The support desks of carriers come with the circuit, from hirdir's
+    vendor contacts.
+- **SI-08. Live state from vakr, with the sources set in the settings file.**
+  - **A vakr `StateSource`.**
+    - **Snapshots** come from vakr's devices and interfaces. `in_util` and `out_util`
+      become `in_pct` and `out_pct`, with `stale` and missing values kept. vakr's
+      reachability from each position becomes `DeviceState.reachability`.
+    - **History** comes from vakr's history routes.
+    - **Events** come from vakr's events feed once it exists. Until then they are worked
+      out from one snapshot to the next.
+    - **Matching.** Devices are matched by `hid`, and ports by SI-05.
+  - **Configuration.** The settings file names each source, its address and a file
+    holding its token. Sunstone's server reads from the sources, never the browser.
+  - **The token.** vakr's integration reader once it exists (vakr's ADR-037), and a kiosk
+    token until then.
+- **SI-09. The topology in two parts: what is generated from hirdir, and Sunstone's own.**
+  - **The generated part.** An import from hirdir writes `<name>.source.yaml`, holding:
+    - regions, sites, locations, devices, groups and operators;
+    - circuits as WAN links: to a device where the Z side is a location, to a transport
+      where it is a carrier network, to an external node where it has only a note;
+    - transports, from hirdir's circuit groups of the kind network.
+  - **Sunstone's own part** keeps cables and LAN links, networks and layers, expected
+    neighbours, resources and priorities. The loader joins the two parts. Sunstone's
+    part refers to the records of the generated part, and never defines them again.
+  - **Sites without coordinates** are left off the geographic map, listed as having no
+    coordinates, and shown in every other view.
+  - **What hirdir's intent does.** A device hirdir does not expect online takes
+    `priority: ignored`. Drafts and retired records are left out.
+  - **Changes.** A new generated part is taken at a restart, as a new topology file is
+    today.
+- **SI-10. A fix to something hirdir owns goes back as a file.**
+  - **Circuits.** A fix to a circuit link, such as its ends or its port, is written as a
+    hirdir import file: the devices of the circuit, with their interfaces. A person
+    previews and applies it in hirdir. Sunstone has no sign-in, so it never writes to
+    hirdir with an account of its own.
+  - **Cables.** A fix to a cable stays in Sunstone's own part, since hirdir holds no
+    cables for now.
+- **Samples stay Sunstone's.** Tests of the integration use one fictional network shared
+  by the three projects, with reserved addresses and `.example` names. Sunstone's own
+  samples, which use real city names and coordinates, are not that network.
