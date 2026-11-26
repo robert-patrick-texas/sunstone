@@ -21,6 +21,7 @@ Done on a branch of its own, not a milestone. Not released on its own (see "Next
 - [x] The site published to GitHub Pages from `main`.
 - [x] `make release-tables` counts `docs/` as documentation (it counts every Markdown file already).
 - [x] The package build installs `docs/` beside the README and CHANGELOG, in `/opt/sunstone/share/doc/docs/`; the next release is the first to ship it.
+- [x] Proposals for working with hirdir and vakr: SI-01 to SI-10 in DECISIONS.md, listed under "hirdir and vakr" below; none built yet.
 
 ### Milestone 34 (0.13.0)
 
@@ -64,16 +65,31 @@ Done on a branch of its own, not a milestone. Not released on its own (see "Next
 - [ ] Fixes for tunnels: moving a tunnel's documented end to the tunnel interface CDP shows.
 - [ ] Roles checked against routing: once there is a source for BGP sessions and the prefixes exchanged, whether a circuit for peering exchanges routes only with its community, and one for egress takes none in.
 
+### hirdir and vakr
+
+Proposed on 2026-11-26 (DECISIONS.md, "Proposed: working with hirdir and vakr"), and not scheduled yet.
+
+- [ ] SI-01: hirdir's HID as the key beside the name, and saved state keyed by it; built in the same milestone as SI-09.
+- [ ] SI-02: shared fields under hirdir's names (`latitude`, `longitude`, `time_zone`, `site_hid`, `hostname`, `fqdn`).
+- [ ] SI-03: a circuit's fields as hirdir and vakr hold them (`enterprise_circuit_id`, `carrier`, `carrier_circuit_id`, `carriers`, rates).
+- [ ] SI-04: a device's model and type from hirdir's catalog, and its role from its function.
+- [ ] SI-05: one rule for port names, the same as hirdir's and vakr's.
+- [ ] SI-06: stacks, clusters and controller domains from hirdir's device groups.
+- [ ] SI-07: operators, on-call people, teams and carriers' desks from hirdir.
+- [ ] SI-08: live state from vakr as a `StateSource`, with sources set in the settings file.
+- [ ] SI-09: the topology in two parts, generated from hirdir and Sunstone's own, with optional coordinates.
+- [ ] SI-10: fixes to what hirdir owns written as a file for hirdir.
+
 ### Sources of truth and discovery
 
 - [ ] Source-of-truth round trip: an import shaped like NetBox or Nautobot through an adapter, and the change set back out. Recommended for many milestones and not picked yet.
-- [ ] Sources: NetBox or Nautobot import, then NMS import and LLDP/CDP discovery.
+- [ ] Sources: hirdir first (SI-09), then NetBox or Nautobot import, then NMS import and LLDP/CDP discovery.
 - [ ] The change set to the source of truth: sent to NetBox or Nautobot once there is one, each change dropped once the source has it.
 - [ ] Discovery for real: a collector reading LLDP-MIB and CDP-MIB, or an NMS's neighbor tables, as a `DiscoverySource`.
 
 ### Live state and monitoring
 
-- [ ] Live state from real sources: vakr first, then other monitoring tools, each as a `StateSource`. vakr needs the read-only integration role its design calls for, and its round-trip times are per device, not per link. Each source needs history, from the tool or recorded by Sunstone.
+- [ ] Live state from real sources: vakr first (SI-08), then other monitoring tools, each as a `StateSource`. vakr needs the read-only integration role its design calls for, and its round-trip times are per device, not per link. Each source needs history, from the tool or recorded by Sunstone.
 
 ### Handover, wall display, and incidents
 
