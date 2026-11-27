@@ -26,6 +26,11 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 MD2HTML = ROOT / "tools" / "md2html" / "md2html.py"
+# md2html_git needs only the standard library, so the plain python3 that runs this
+# script can import it from beside md2html.py.
+sys.path.insert(0, str(MD2HTML.parent))
+import md2html_git  # noqa: E402 - found through the path set just above
+
 DEFAULT_OUT = ROOT / "_site"
 IMAGES = ROOT / "images"
 # Not documentation: GitHub's pull request template, and what a failed
@@ -47,12 +52,13 @@ def project() -> tuple[str, str]:
 
 
 def markdown_files() -> list[Path]:
-    """Every Markdown file md2html publishes."""
+    """Every Markdown file md2html publishes: none that git ignores."""
     found = []
     for path in sorted(ROOT.rglob("*.md")):
         if not SKIP_DIRS.intersection(path.relative_to(ROOT).parts[:-1]):
             found.append(path)
-    return found
+    private = md2html_git.ignored(ROOT, [p.relative_to(ROOT).as_posix() for p in found])
+    return [p for p in found if p.relative_to(ROOT).as_posix() not in private]
 
 
 def broken_html_images() -> list[str]:
